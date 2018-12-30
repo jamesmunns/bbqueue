@@ -4,15 +4,17 @@ use core::slice::from_raw_parts;
 #[derive(Debug)]
 pub struct BBQueue {
     buf: [u8; 6], // TODO, ownership et. al
-    active: Track,
-    passive: Track,
+    trk: Track,
 }
 
 #[derive(Debug)]
 pub struct Track {
-    start: usize,
+    write: usize, // TODO ATOMIC/VOLATILE
+    read: usize,  // TODO ATOMIC/VOLATILE
+
+    last: usize,  // TODO ATOMIC
+
     reserve: usize,
-    committed: usize,
 }
 
 #[derive(Debug)]
@@ -28,11 +30,19 @@ pub struct GrantR {
 }
 
 impl Track {
-    fn new() -> Self {
+    fn new(sz: usize) -> Self {
         Track {
-            start: 0,
+            /// Owned by the writer
+            write: 0, // TODO ATOMIC/VOLATILE
+
+            /// Owned by the reader
+            read: 0,  // TODO ATOMIC/VOLATILE
+
+            /// Cooperatively owned
+            last: sz,  // TODO ATOMIC
+
+            /// Owned by the Writer, "private"
             reserve: 0,
-            committed: 0,
         }
     }
 }
@@ -41,90 +51,87 @@ impl BBQueue {
     pub fn new() -> Self {
         BBQueue {
             buf: [0u8; 6],
-            active: Track::new(),
-            passive: Track::new(),
+            trk: Track::new(6),
         }
     }
 
+    /// Writer component. Must never write to `read`,
+    /// be careful writing to `load`
     pub fn grant<'a>(&mut self, sz: usize) -> Result<GrantW> {
-        if self.active.reserve != self.active.committed {
+
+        if self.trk.reserve != self.trk.write {
             return Err(()); // GRANT IN PROCESS
         }
 
-        if self.active.reserve + sz <= self.buf.len() {
-            // alloc in primary
-        } else if sz < self.active.start {
-            // Swap, now we're using primary
-            ::core::mem::swap(&mut self.active, &mut self.passive);
+        let start = if self.trk.write + sz <= self.trk.last {
+            // Non inverted condition
+            self.trk.write
         } else {
-            return Err(());
-        }
+            let read = self.trk.read;
+            if (read != 0) && (sz < read) {
+                // Invertable situation
+                0
+            } else {
+                // Not invertable, no space
+                return Err(());
+            }
+        };
 
-        let x = &mut self.buf.split_at_mut(self.active.reserve).1[..sz];
+        let x = &mut self.buf.split_at_mut(start).1[..sz];
 
-        self.active.reserve += sz;
+        self.trk.reserve = start + sz;
 
         Ok(GrantW {
             buf: unsafe { ::core::mem::transmute::<_, &'static mut _>(x) },
         })
     }
 
+    /// Writer component. Must never write to READ,
+    /// be careful writing to LOAD
     pub fn commit(&mut self, used: usize, grant: GrantW) {
         let len = grant.buf.len();
         assert!(len >= used);
         drop(grant);
-        self.active.reserve -= len - used;
 
-        // this probably goes last for thread safety?
-        self.active.committed += used;
+        self.trk.reserve -= len - used;
+        // WARN
+        if self.trk.reserve < self.trk.write {
+            self.trk.last = self.trk.write;
+        }
+        self.trk.write = self.trk.reserve;
     }
 
     pub fn read(&mut self) -> GrantR {
-        let avail_pas = self.passive.committed - self.passive.start;
-        let avail_act = self.active.committed - self.active.start;
+        let last = self.trk.last;
+        let write = self.trk.write;
 
-        match (avail_pas, avail_act) {
-            (p, _a) if p != 0 => {
-                // slice from passive first
-                GrantR {
-                    buf: unsafe { from_raw_parts(&self.buf[self.passive.start], avail_pas) },
-                }
-            }
-            (_p, a) if a != 0 => {
-                // slice from active second
-                GrantR {
-                    buf: unsafe { from_raw_parts(&self.buf[self.active.start], avail_act) },
-                }
-            }
-            _ => {
-                // YOU GET NOTHING
-                GrantR { buf: &[] }
-            }
+        let sz = if write < self.trk.read {
+            // Inverted, only believe last
+            last
+        } else {
+            // Not inverted, only believe write
+            write
+        } - self.trk.read;
+
+        GrantR {
+            buf: unsafe { from_raw_parts(&self.buf[self.trk.read], sz) },
         }
     }
 
     pub fn release(&mut self, used: usize, grant: GrantR) {
         assert!(used <= grant.buf.len());
         drop(grant);
-        let avail_pas = self.passive.committed - self.passive.start;
-        let avail_act = self.active.committed - self.active.start;
 
-        match (avail_pas, avail_act) {
-            (p, _a) if p != 0 => {
-                self.passive.start += used;
-                if self.passive.start == self.passive.reserve {
-                    self.passive = Track::new();
-                }
-            }
-            (_p, a) if a != 0 => {
-                self.active.start += used;
-                if self.active.start == self.active.reserve {
-                    self.active = Track::new();
-                }
-            }
-            _ => {
-                panic!("nothing to free?");
-            }
+        self.trk.read += used;
+
+        let last = self.trk.last;
+        let write = self.trk.write;
+
+        let inverted = write < self.trk.read;
+
+        if inverted && (self.trk.read == last) {
+            self.trk.last = self.buf.len();
+            self.trk.read = 0;
         }
     }
 }
