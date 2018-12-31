@@ -2,7 +2,7 @@
 
 pub type Result<T> = ::core::result::Result<T, ()>;
 use core::slice::from_raw_parts;
-use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use core::sync::atomic::{fence, AtomicUsize, Ordering::SeqCst};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
@@ -45,13 +45,19 @@ impl BBQueue {
 impl<'a> Producer<'a> {
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
         unsafe {
-            self.bbq.as_mut().grant(sz)
+            fence(SeqCst);
+            let x = self.bbq.as_mut().grant(sz);
+            fence(SeqCst);
+            x
         }
     }
 
     pub fn commit(&mut self, used: usize, grant: GrantW) {
         unsafe {
-            self.bbq.as_mut().commit(used, grant)
+            fence(SeqCst);
+            let x = self.bbq.as_mut().commit(used, grant);
+            fence(SeqCst);
+            x
         }
     }
 }
@@ -59,13 +65,19 @@ impl<'a> Producer<'a> {
 impl<'a> Consumer<'a> {
     pub fn read(&mut self) -> GrantR {
         unsafe {
-            self.bbq.as_mut().read()
+            fence(SeqCst);
+            let x = self.bbq.as_mut().read();
+            fence(SeqCst);
+            x
         }
     }
 
     pub fn release(&mut self, used: usize, grant: GrantR) {
         unsafe {
-            self.bbq.as_mut().release(used, grant)
+            fence(SeqCst);
+            let x = self.bbq.as_mut().release(used, grant);
+            fence(SeqCst);
+            x
         }
     }
 }
@@ -123,13 +135,17 @@ impl BBQueue {
     /// be careful writing to `load`
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
 
-        if self.trk.reserve != self.trk.write.load(SeqCst) {
+        // TODO check ordering
+        let write = self.trk.write.load(SeqCst);
+        let last = self.trk.last.load(SeqCst);
+
+        if self.trk.reserve != write {
             return Err(()); // GRANT IN PROCESS
         }
 
-        let start = if self.trk.write.load(SeqCst) + sz <= self.trk.last.load(SeqCst) {
+        let start = if write + sz <= last {
             // Non inverted condition
-            self.trk.write.load(SeqCst)
+            write
         } else {
             let read = self.trk.read.load(SeqCst);
             if (read != 0) && (sz < read) {
@@ -157,10 +173,12 @@ impl BBQueue {
         assert!(len >= used);
         drop(grant);
 
+        let write = self.trk.write.load(SeqCst);
+
         self.trk.reserve -= len - used;
         // WARN
-        if self.trk.reserve < self.trk.write.load(SeqCst) {
-            self.trk.last.store(self.trk.write.load(SeqCst), SeqCst);
+        if self.trk.reserve < write {
+            self.trk.last.store(write, SeqCst);
         }
         self.trk.write.store(self.trk.reserve, SeqCst);
     }
@@ -168,14 +186,15 @@ impl BBQueue {
     pub fn read(&mut self) -> GrantR {
         let last = self.trk.last.load(SeqCst);
         let write = self.trk.write.load(SeqCst);
+        let read = self.trk.read.load(SeqCst);
 
-        let sz = if write < self.trk.read.load(SeqCst) {
+        let sz = if write < read {
             // Inverted, only believe last
             last
         } else {
             // Not inverted, only believe write
             write
-        } - self.trk.read.load(SeqCst);
+        } - read;
 
         GrantR {
             buf: unsafe { from_raw_parts(&self.buf[self.trk.read.load(SeqCst)], sz) },
@@ -190,28 +209,13 @@ impl BBQueue {
 
         let last = self.trk.last.load(SeqCst);
         let write = self.trk.write.load(SeqCst);
+        let read = self.trk.read.load(SeqCst);
 
-        let inverted = write < self.trk.read.load(SeqCst);
+        let inverted = write < read;
 
-        if inverted && (self.trk.read.load(SeqCst) == last) {
+        if inverted && (read == last) {
             self.trk.last.store(self.buf.len(), SeqCst);
             self.trk.read.store(0, SeqCst);
         }
     }
 }
-
-// impl BBBufIn {
-//     pub fn commit(self, used: usize) -> BBBufInHandle {
-//         unimplemented!()
-//     }
-
-//     pub fn abort(self) {
-//         // TODO, this is just drop? Needs to update upstream BBQueue
-//     }
-// }
-
-// impl BBBufOut {
-//     pub fn release(self) {
-//         // TODO, this is just drop? Needs to update upstream BBQuque
-//     }
-// }
