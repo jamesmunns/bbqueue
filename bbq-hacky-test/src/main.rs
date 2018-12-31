@@ -1,8 +1,7 @@
-mod bbqueue;
-use crate::bbqueue::BBQueue;
+use bbqueue::BBQueue;
 
 fn main() {
-    // foo1();
+    foo1();
     foo2();
 }
 

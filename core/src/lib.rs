@@ -1,6 +1,6 @@
-#![allow(dead_code)]
+#![no_std]
 
-pub type Result<T> = ::std::result::Result<T, ()>;
+pub type Result<T> = ::core::result::Result<T, ()>;
 use core::slice::from_raw_parts;
 use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use core::marker::PhantomData;
