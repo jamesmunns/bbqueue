@@ -1,18 +1,82 @@
+#![allow(dead_code)]
+
 pub type Result<T> = ::std::result::Result<T, ()>;
 use core::slice::from_raw_parts;
+use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use core::marker::PhantomData;
+use core::ptr::NonNull;
+
+const BONELESS_SZ: usize = 6;
 
 #[derive(Debug)]
 pub struct BBQueue {
-    buf: [u8; 6], // TODO, ownership et. al
+    buf: [u8; BONELESS_SZ], // TODO, ownership et. al
     trk: Track,
 }
 
+
+unsafe impl<'a> Send for Producer<'a> {}
+pub struct Producer<'bbq> {
+    bbq: NonNull<BBQueue>,
+    ltr: PhantomData<&'bbq BBQueue>,
+}
+
+unsafe impl<'a> Send for Consumer<'a> {}
+pub struct Consumer<'bbq> {
+    bbq: NonNull<BBQueue>,
+    ltr: PhantomData<&'bbq BBQueue>,
+}
+
+impl BBQueue {
+    pub fn split<'bbq>(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
+        (
+            Producer {
+                bbq: unsafe { NonNull::new_unchecked(self) },
+                ltr: PhantomData,
+            },
+            Consumer {
+                bbq: unsafe { NonNull::new_unchecked(self) },
+                ltr: PhantomData,
+            }
+        )
+    }
+}
+
+impl<'a> Producer<'a> {
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
+        unsafe {
+            self.bbq.as_mut().grant(sz)
+        }
+    }
+
+    pub fn commit(&mut self, used: usize, grant: GrantW) {
+        unsafe {
+            self.bbq.as_mut().commit(used, grant)
+        }
+    }
+}
+
+impl<'a> Consumer<'a> {
+    pub fn read(&mut self) -> GrantR {
+        unsafe {
+            self.bbq.as_mut().read()
+        }
+    }
+
+    pub fn release(&mut self, used: usize, grant: GrantR) {
+        unsafe {
+            self.bbq.as_mut().release(used, grant)
+        }
+    }
+}
+
+
 #[derive(Debug)]
 pub struct Track {
-    write: usize, // TODO ATOMIC/VOLATILE
-    read: usize,  // TODO ATOMIC/VOLATILE
+    write: AtomicUsize, // TODO ATOMIC/VOLATILE
+    read: AtomicUsize,  // TODO ATOMIC/VOLATILE
 
-    last: usize,  // TODO ATOMIC
+    last: AtomicUsize,  // TODO ATOMIC
 
     reserve: usize,
 }
@@ -33,13 +97,13 @@ impl Track {
     fn new(sz: usize) -> Self {
         Track {
             /// Owned by the writer
-            write: 0, // TODO ATOMIC/VOLATILE
+            write: AtomicUsize::new(0), // TODO ATOMIC/VOLATILE
 
             /// Owned by the reader
-            read: 0,  // TODO ATOMIC/VOLATILE
+            read: AtomicUsize::new(0),  // TODO ATOMIC/VOLATILE
 
             /// Cooperatively owned
-            last: sz,  // TODO ATOMIC
+            last: AtomicUsize::new(sz),  // TODO ATOMIC
 
             /// Owned by the Writer, "private"
             reserve: 0,
@@ -50,24 +114,24 @@ impl Track {
 impl BBQueue {
     pub fn new() -> Self {
         BBQueue {
-            buf: [0u8; 6],
-            trk: Track::new(6),
+            buf: [0u8; BONELESS_SZ],
+            trk: Track::new(BONELESS_SZ),
         }
     }
 
     /// Writer component. Must never write to `read`,
     /// be careful writing to `load`
-    pub fn grant<'a>(&mut self, sz: usize) -> Result<GrantW> {
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
 
-        if self.trk.reserve != self.trk.write {
+        if self.trk.reserve != self.trk.write.load(SeqCst) {
             return Err(()); // GRANT IN PROCESS
         }
 
-        let start = if self.trk.write + sz <= self.trk.last {
+        let start = if self.trk.write.load(SeqCst) + sz <= self.trk.last.load(SeqCst) {
             // Non inverted condition
-            self.trk.write
+            self.trk.write.load(SeqCst)
         } else {
-            let read = self.trk.read;
+            let read = self.trk.read.load(SeqCst);
             if (read != 0) && (sz < read) {
                 // Invertable situation
                 0
@@ -95,26 +159,26 @@ impl BBQueue {
 
         self.trk.reserve -= len - used;
         // WARN
-        if self.trk.reserve < self.trk.write {
-            self.trk.last = self.trk.write;
+        if self.trk.reserve < self.trk.write.load(SeqCst) {
+            self.trk.last.store(self.trk.write.load(SeqCst), SeqCst);
         }
-        self.trk.write = self.trk.reserve;
+        self.trk.write.store(self.trk.reserve, SeqCst);
     }
 
     pub fn read(&mut self) -> GrantR {
-        let last = self.trk.last;
-        let write = self.trk.write;
+        let last = self.trk.last.load(SeqCst);
+        let write = self.trk.write.load(SeqCst);
 
-        let sz = if write < self.trk.read {
+        let sz = if write < self.trk.read.load(SeqCst) {
             // Inverted, only believe last
             last
         } else {
             // Not inverted, only believe write
             write
-        } - self.trk.read;
+        } - self.trk.read.load(SeqCst);
 
         GrantR {
-            buf: unsafe { from_raw_parts(&self.buf[self.trk.read], sz) },
+            buf: unsafe { from_raw_parts(&self.buf[self.trk.read.load(SeqCst)], sz) },
         }
     }
 
@@ -122,16 +186,16 @@ impl BBQueue {
         assert!(used <= grant.buf.len());
         drop(grant);
 
-        self.trk.read += used;
+        self.trk.read.fetch_add(used, SeqCst);
 
-        let last = self.trk.last;
-        let write = self.trk.write;
+        let last = self.trk.last.load(SeqCst);
+        let write = self.trk.write.load(SeqCst);
 
-        let inverted = write < self.trk.read;
+        let inverted = write < self.trk.read.load(SeqCst);
 
-        if inverted && (self.trk.read == last) {
-            self.trk.last = self.buf.len();
-            self.trk.read = 0;
+        if inverted && (self.trk.read.load(SeqCst) == last) {
+            self.trk.last.store(self.buf.len(), SeqCst);
+            self.trk.read.store(0, SeqCst);
         }
     }
 }
