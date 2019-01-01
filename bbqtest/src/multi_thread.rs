@@ -46,7 +46,7 @@ mod tests {
                     if gr.buf.is_empty() {
                         continue 'inner;
                     }
-                    assert_eq!(gr.buf[0], (i & 0xFF) as u8, "RX Iter: {}", i);
+                    assert_eq!(gr.buf[0] as u8, (i & 0xFF) as u8, "RX Iter: {}", i);
                     rx.release(1, gr);
                     break 'inner;
                 }
