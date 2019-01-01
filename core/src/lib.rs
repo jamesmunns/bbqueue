@@ -1,4 +1,4 @@
-#![no_std]
+// #![no_std]
 
 pub type Result<T> = ::core::result::Result<T, ()>;
 use core::slice::from_raw_parts_mut;
@@ -142,6 +142,7 @@ impl BBQueue {
         let read = self.trk.read.load(SeqCst);
         let write = self.trk.write.load(SeqCst);
         let reserve = self.trk.reserve.load(SeqCst);
+        let max = self.buf.len();
 
         if reserve != write {
             // GRANT IN PROCESS, do not allow further grants
@@ -149,23 +150,37 @@ impl BBQueue {
             return Err(());
         }
 
-        let new_end = write + sz;
+        let already_inverted = write < read;
 
-        let start = if new_end <= 6 {
-            // Non inverted condition
-            write
-        } else {
-            // NOTE: We check sz < read, NOT <=, because
-            // write must never == read in an inverted condition, since
-            // we will then not be able to tell if we are inverted or not
-            if sz < read {
-                // Invertable situation
-                0
+        let start = if already_inverted {
+            if (write + sz) < read {
+                // Inverted, room is still available
+                write
             } else {
-                // Not invertable, no space
+                // Inverted, no room is available
                 return Err(());
             }
+        } else {
+            if write + sz <= max {
+                // Non inverted condition
+                write
+            } else {
+                // Not inverted, but need to go inverted
+
+                // NOTE: We check sz < read, NOT <=, because
+                // write must never == read in an inverted condition, since
+                // we will then not be able to tell if we are inverted or not
+                if sz < read {
+                    // Invertable situation
+                    0
+                } else {
+                    // Not invertable, no space
+                    return Err(());
+                }
+            }
         };
+
+        debug_assert!(start < self.buf.len(), "Bad WR Grant!");
 
         self.trk.reserve.store(start + sz, SeqCst);
 
@@ -197,13 +212,14 @@ impl BBQueue {
         let mut last = self.trk.last.load(SeqCst);
         let write = self.trk.write.load(SeqCst);
         let mut read = self.trk.read.load(SeqCst);
+        let max = self.buf.len();
 
-        // Resolve the inverted case
-        if (read == last) && (write < read) {
+        // Resolve the inverted case or end of read
+        if read == last {
             self.trk.read.store(0, SeqCst);
-            self.trk.last.store(6, SeqCst);
+            self.trk.last.store(max, SeqCst);
             read = 0;
-            last = 6;
+            last = max;
         }
 
         let sz = if write < read {
@@ -213,6 +229,8 @@ impl BBQueue {
             // Not inverted, only believe write
             write
         } - read;
+
+        debug_assert!(read < max, "Bad RD Grant!, rd: {} lt: {}", read, last);
 
         GrantR {
             buf: unsafe { from_raw_parts(&self.buf[read], sz) },
