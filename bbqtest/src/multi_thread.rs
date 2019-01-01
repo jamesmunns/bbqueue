@@ -11,7 +11,7 @@ mod tests {
         let bb = Box::new(BBQueue::new());
         let (mut tx, mut rx) = Box::leak(bb).split();
 
-        const ITERS: usize = 100_000;
+        const ITERS: usize = 1_000_000;
 
         let timeout_tx = Duration::from_millis(10000);
         let timeout_rx = Duration::from_millis(10100);

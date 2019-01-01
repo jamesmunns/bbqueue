@@ -1,11 +1,19 @@
-// #![no_std]
+#![no_std]
 
-pub type Result<T> = ::core::result::Result<T, ()>;
 use core::slice::from_raw_parts_mut;
 use core::slice::from_raw_parts;
-use core::sync::atomic::{fence, AtomicUsize, Ordering::SeqCst};
+use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
+use core::result::Result as CoreResult;
+
+pub type Result<T> = CoreResult<T, Error>;
+
+#[derive(Debug)]
+pub enum Error {
+    InsufficientSize,
+    GrantInProgress,
+}
 
 const BONELESS_SZ: usize = 6;
 
@@ -18,15 +26,13 @@ pub struct BBQueue {
 
 unsafe impl<'a> Send for Producer<'a> {}
 pub struct Producer<'bbq> {
-    // AJM - temp debug
-    pub bbq: NonNull<BBQueue>,
+    bbq: NonNull<BBQueue>,
     ltr: PhantomData<&'bbq BBQueue>,
 }
 
 unsafe impl<'a> Send for Consumer<'a> {}
 pub struct Consumer<'bbq> {
-    // AJM - temp debug
-    pub bbq: NonNull<BBQueue>,
+    bbq: NonNull<BBQueue>,
     ltr: PhantomData<&'bbq BBQueue>,
 }
 
@@ -46,41 +52,33 @@ impl BBQueue {
 }
 
 impl<'a> Producer<'a> {
+    #[inline(always)]
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
         unsafe {
-            fence(SeqCst);
-            let x = self.bbq.as_mut().grant(sz);
-            fence(SeqCst);
-            x
+            self.bbq.as_mut().grant(sz)
         }
     }
 
+    #[inline(always)]
     pub fn commit(&mut self, used: usize, grant: GrantW) {
         unsafe {
-            fence(SeqCst);
-            let x = self.bbq.as_mut().commit(used, grant);
-            fence(SeqCst);
-            x
+            self.bbq.as_mut().commit(used, grant)
         }
     }
 }
 
 impl<'a> Consumer<'a> {
+    #[inline(always)]
     pub fn read(&mut self) -> GrantR {
         unsafe {
-            fence(SeqCst);
-            let x = self.bbq.as_mut().read();
-            fence(SeqCst);
-            x
+            self.bbq.as_mut().read()
         }
     }
 
+    #[inline(always)]
     pub fn release(&mut self, used: usize, grant: GrantR) {
         unsafe {
-            fence(SeqCst);
-            let x = self.bbq.as_mut().release(used, grant);
-            fence(SeqCst);
-            x
+            self.bbq.as_mut().release(used, grant)
         }
     }
 }
@@ -88,11 +86,23 @@ impl<'a> Consumer<'a> {
 
 #[derive(Debug)]
 pub struct Track {
-    write: AtomicUsize, // TODO ATOMIC/VOLATILE
-    read: AtomicUsize,  // TODO ATOMIC/VOLATILE
+    /// Where the next byte will be written
+    write: AtomicUsize,
 
-    last: AtomicUsize,  // TODO ATOMIC
+    /// Where the next byte will be read from
+    read: AtomicUsize,
 
+    /// Used in the inverted case to mark the end of the
+    /// readable streak. Otherwise will == self.buf.len().
+    /// Writer is responsible for placing this at the correct
+    /// place when entering an inverted condition, and Reader
+    /// is responsible for moving it back to self.buf.len()
+    /// when exiting the inverted condition
+    last: AtomicUsize,
+
+    /// Used by the Writer to remember what bytes are currently
+    /// allowed to be written to, but are not yet ready to be
+    /// read from
     reserve: AtomicUsize,
 }
 
@@ -112,13 +122,13 @@ impl Track {
     fn new(sz: usize) -> Self {
         Track {
             /// Owned by the writer
-            write: AtomicUsize::new(0), // TODO ATOMIC/VOLATILE
+            write: AtomicUsize::new(0),
 
             /// Owned by the reader
-            read: AtomicUsize::new(0),  // TODO ATOMIC/VOLATILE
+            read: AtomicUsize::new(0),
 
             /// Cooperatively owned
-            last: AtomicUsize::new(sz),  // TODO ATOMIC
+            last: AtomicUsize::new(sz),
 
             /// Owned by the Writer, "private"
             reserve: AtomicUsize::new(0), // AJM - is this necessary?
@@ -136,9 +146,11 @@ impl BBQueue {
 
     /// Writer component. Must never write to `read`,
     /// be careful writing to `load`
+    ///
+    /// TODO: interface that allows grant of maximum remaining
+    /// size?
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
-
-        // TODO check ordering
+        // Load all items first. Order matters here!
         let read = self.trk.read.load(SeqCst);
         let write = self.trk.write.load(SeqCst);
         let reserve = self.trk.reserve.load(SeqCst);
@@ -147,7 +159,7 @@ impl BBQueue {
         if reserve != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
-            return Err(());
+            return Err(Error::GrantInProgress);
         }
 
         let already_inverted = write < read;
@@ -158,7 +170,7 @@ impl BBQueue {
                 write
             } else {
                 // Inverted, no room is available
-                return Err(());
+                return Err(Error::InsufficientSize);
             }
         } else {
             if write + sz <= max {
@@ -171,16 +183,14 @@ impl BBQueue {
                 // write must never == read in an inverted condition, since
                 // we will then not be able to tell if we are inverted or not
                 if sz < read {
-                    // Invertable situation
+                    // Invertible situation
                     0
                 } else {
-                    // Not invertable, no space
-                    return Err(());
+                    // Not invertible, no space
+                    return Err(Error::InsufficientSize);
                 }
             }
         };
-
-        debug_assert!(start < self.buf.len(), "Bad WR Grant!");
 
         self.trk.reserve.store(start + sz, SeqCst);
 
@@ -229,8 +239,6 @@ impl BBQueue {
             // Not inverted, only believe write
             write
         } - read;
-
-        debug_assert!(read < max, "Bad RD Grant!, rd: {} lt: {}", read, last);
 
         GrantR {
             buf: unsafe { from_raw_parts(&self.buf[read], sz) },
