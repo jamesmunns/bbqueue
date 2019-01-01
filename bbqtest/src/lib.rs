@@ -2,6 +2,7 @@
 //! the other no-std crate.
 
 mod multi_thread;
+mod single_thread;
 
 #[cfg(test)]
 mod tests {
