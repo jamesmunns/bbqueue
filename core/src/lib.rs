@@ -1,4 +1,4 @@
-#![no_std]
+// #![no_std]
 
 use core::slice::from_raw_parts_mut;
 use core::slice::from_raw_parts;
@@ -19,7 +19,7 @@ const BONELESS_SZ: usize = 6;
 
 #[derive(Debug)]
 pub struct BBQueue {
-    buf: [u8; BONELESS_SZ], // TODO, ownership et. al
+    pub buf: [u8; BONELESS_SZ], // TODO, ownership et. al
     trk: Track,
 }
 
@@ -152,6 +152,7 @@ impl BBQueue {
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
         // Load all items first. Order matters here!
         let read = self.trk.read.load(SeqCst);
+
         let write = self.trk.write.load(SeqCst);
         let reserve = self.trk.reserve.load(SeqCst);
         let max = self.buf.len();
@@ -192,6 +193,7 @@ impl BBQueue {
             }
         };
 
+        // Safe write, only viewed by this task
         self.trk.reserve.store(start + sz, SeqCst);
 
         Ok(GrantW {
@@ -200,7 +202,7 @@ impl BBQueue {
     }
 
     /// Writer component. Must never write to READ,
-    /// be careful writing to LOAD
+    /// be careful writing to LAST
     pub fn commit(&mut self, used: usize, grant: GrantW) {
         let len = grant.buf.len();
         assert!(len >= used);
@@ -210,44 +212,79 @@ impl BBQueue {
         let old_reserve = self.trk.reserve.load(SeqCst);
         let new_reserve = old_reserve - (len - used);
 
+        // Safe write, only read by this thread
         self.trk.reserve.store(new_reserve, SeqCst);
+
         // Inversion case, we have begun writing
-        if new_reserve < write {
+        if (new_reserve < write) && (write != self.buf.len()) {
+            // This has potential for danger. We have two writers!
+            // MOVING LAST BACKWARDS
             self.trk.last.store(write, SeqCst);
         }
+
+        // This has some potential for danger. The other thread (READ)
+        // does look at this variable!
+        // MOVING WRITE FORWARDS
         self.trk.write.store(new_reserve, SeqCst);
     }
 
     pub fn read(&mut self) -> GrantR {
-        let mut last = self.trk.last.load(SeqCst);
+        // This could have some problems
         let write = self.trk.write.load(SeqCst);
+        // This could have some problems
+        let mut last = self.trk.last.load(SeqCst);
+
+        // This read is safe, only written by this thread
         let mut read = self.trk.read.load(SeqCst);
+
         let max = self.buf.len();
 
+        // AJM: How do we deal with knowing
+
         // Resolve the inverted case or end of read
-        if read == last {
-            self.trk.read.store(0, SeqCst);
-            self.trk.last.store(max, SeqCst);
+        if (read == last) && (write < read) {
+            // eprint!("invert");
             read = 0;
-            last = max;
+            // This has some room for error, the other thread reads this
+            // MOVING READ BACKWARDS!
+            self.trk.read.store(0, SeqCst);
+            if last != max {
+                // This is pretty tricky, we have two writers!
+                // MOVING LAST FORWARDS
+                self.trk.last.store(max, SeqCst); // Hmm
+                last = max;
+            }
         }
 
         let sz = if write < read {
+            // eprint!(" last");
             // Inverted, only believe last
             last
         } else {
+            // eprint!(" write");
             // Not inverted, only believe write
             write
         } - read;
 
+        // eprint!(" wr {:?} la {:?} rd {:?}", write, last, read);
+
+        // eprintln!(" sz: {:?}", sz);
+
+
         GrantR {
-            buf: unsafe { from_raw_parts(&self.buf[read], sz) },
+            buf: if read == max {
+                &[]
+            } else {
+                unsafe { from_raw_parts(&self.buf[read], sz) }
+            },
         }
     }
 
     pub fn release(&mut self, used: usize, grant: GrantR) {
         assert!(used <= grant.buf.len());
         drop(grant);
+
+        // This should be fine, purely incrementing
         let _ = self.trk.read.fetch_add(used, SeqCst);
     }
 }
