@@ -10,13 +10,15 @@ mod tests {
 
     #[test]
     fn create_queue() {
-        let _b = BBQueue::new();
+        let mut buf = [0u8; 6];
+        let _b = BBQueue::new(&mut buf);
     }
 
     #[test]
     fn direct_usage_sanity() {
         // Initialize
-        let mut bb = BBQueue::new();
+        let mut buf = [0u8; 6];
+        let mut bb = BBQueue::new(&mut buf);
         assert_eq!(bb.read().buf, &[]);
 
         // Initial grant, shouldn't roll over
@@ -84,7 +86,8 @@ mod tests {
 
     #[test]
     fn spsc_usage_sanity() {
-        let mut bb = BBQueue::new();
+        let mut buf = [0u8; 6];
+        let mut bb = BBQueue::new(&mut buf);
 
         let (mut tx, mut rx) = bb.split();
         assert_eq!(rx.read().buf, &[]);

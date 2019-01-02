@@ -1,12 +1,12 @@
 #![no_std]
 
-use core::slice::from_raw_parts_mut;
-use core::slice::from_raw_parts;
-use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use core::cmp::min;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::result::Result as CoreResult;
-use core::cmp::min;
+use core::slice::from_raw_parts;
+use core::slice::from_raw_parts_mut;
+use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 pub type Result<T> = CoreResult<T, Error>;
 
@@ -16,11 +16,9 @@ pub enum Error {
     GrantInProgress,
 }
 
-const BONELESS_SZ: usize = 6;
-
 #[derive(Debug)]
-pub struct BBQueue {
-    pub buf: [u8; BONELESS_SZ], // TODO, ownership et. al
+pub struct BBQueue<'a> {
+    pub buf: &'a mut [u8], // TODO, ownership et. al
     trk: Track,
 }
 
@@ -28,26 +26,26 @@ pub struct BBQueue {
 unsafe impl<'a> Send for Producer<'a> {}
 pub struct Producer<'bbq> {
     /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue>,
+    pub bbq: NonNull<BBQueue<'bbq>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue>,
+    ltr: PhantomData<&'bbq BBQueue<'bbq>>,
 }
 
 /// An opaque structure, capable of reading data from the queue
 unsafe impl<'a> Send for Consumer<'a> {}
 pub struct Consumer<'bbq> {
     /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue>,
+    pub bbq: NonNull<BBQueue<'bbq>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue>,
+    ltr: PhantomData<&'bbq BBQueue<'bbq>>,
 }
 
-impl BBQueue {
+impl<'bbq> BBQueue<'bbq> {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
-    pub fn split<'bbq>(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
+    pub fn split(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
         (
             Producer {
                 bbq: unsafe { NonNull::new_unchecked(self) },
@@ -56,7 +54,7 @@ impl BBQueue {
             Consumer {
                 bbq: unsafe { NonNull::new_unchecked(self) },
                 ltr: PhantomData,
-            }
+            },
         )
     }
 }
@@ -67,9 +65,7 @@ impl<'a> Producer<'a> {
     /// an error will be returned.
     #[inline(always)]
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
-        unsafe {
-            self.bbq.as_mut().grant(sz)
-        }
+        unsafe { self.bbq.as_mut().grant(sz) }
     }
 
     /// Request a writable, contiguous section of memory of up to
@@ -79,9 +75,7 @@ impl<'a> Producer<'a> {
     /// for writing, an error will be returned
     #[inline(always)]
     pub fn grant_max(&mut self, sz: usize) -> Result<GrantW> {
-        unsafe {
-            self.bbq.as_mut().grant_max(sz)
-        }
+        unsafe { self.bbq.as_mut().grant_max(sz) }
     }
 
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
@@ -90,9 +84,7 @@ impl<'a> Producer<'a> {
     /// If `used` is larger than the given grant, this function will panic.
     #[inline(always)]
     pub fn commit(&mut self, used: usize, grant: GrantW) {
-        unsafe {
-            self.bbq.as_mut().commit(used, grant)
-        }
+        unsafe { self.bbq.as_mut().commit(used, grant) }
     }
 }
 
@@ -115,9 +107,7 @@ impl<'a> Consumer<'a> {
     /// This behavior will be fixed in later releases
     #[inline(always)]
     pub fn read(&mut self) -> GrantR {
-        unsafe {
-            self.bbq.as_mut().read()
-        }
+        unsafe { self.bbq.as_mut().read() }
     }
 
     /// Release a sequence of bytes from the buffer, allowing the space
@@ -126,12 +116,9 @@ impl<'a> Consumer<'a> {
     /// If `used` is larger than the given grant, this function will panic.
     #[inline(always)]
     pub fn release(&mut self, used: usize, grant: GrantR) {
-        unsafe {
-            self.bbq.as_mut().release(used, grant)
-        }
+        unsafe { self.bbq.as_mut().release(used, grant) }
     }
 }
-
 
 #[derive(Debug)]
 pub struct Track {
@@ -185,11 +172,11 @@ impl Track {
     }
 }
 
-impl BBQueue {
-    pub fn new() -> Self {
+impl<'bbq> BBQueue<'bbq> {
+    pub fn new(buffer: &'bbq mut [u8]) -> Self {
         BBQueue {
-            buf: [0u8; BONELESS_SZ],
-            trk: Track::new(BONELESS_SZ),
+            trk: Track::new(buffer.len()),
+            buf: buffer,
         }
     }
 
