@@ -6,7 +6,14 @@ use core::ptr::NonNull;
 use core::result::Result as CoreResult;
 use core::slice::from_raw_parts;
 use core::slice::from_raw_parts_mut;
-use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering::{
+        Acquire,
+        Relaxed,
+        Release,
+    },
+};
 
 pub type Result<T> = CoreResult<T, Error>;
 
@@ -188,10 +195,10 @@ impl<'bbq> BBQueue<'bbq> {
         // be careful writing to `load`
 
         // Load all items first. Order matters here!
-        let read = self.trk.read.load(SeqCst);
+        let read = self.trk.read.load(Acquire);
 
-        let write = self.trk.write.load(SeqCst);
-        let reserve = self.trk.reserve.load(SeqCst);
+        let write = self.trk.write.load(Relaxed);
+        let reserve = self.trk.reserve.load(Relaxed);
         let max = self.buf.len();
 
         if reserve != write {
@@ -231,7 +238,7 @@ impl<'bbq> BBQueue<'bbq> {
         };
 
         // Safe write, only viewed by this task
-        self.trk.reserve.store(start + sz, SeqCst);
+        self.trk.reserve.store(start + sz, Relaxed);
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
@@ -248,10 +255,10 @@ impl<'bbq> BBQueue<'bbq> {
         // be careful writing to `load`
 
         // Load all items first. Order matters here!
-        let read = self.trk.read.load(SeqCst);
+        let read = self.trk.read.load(Acquire);
 
-        let write = self.trk.write.load(SeqCst);
-        let reserve = self.trk.reserve.load(SeqCst);
+        let write = self.trk.write.load(Relaxed);
+        let reserve = self.trk.reserve.load(Relaxed);
         let max = self.buf.len();
 
         if reserve != write {
@@ -295,7 +302,7 @@ impl<'bbq> BBQueue<'bbq> {
         };
 
         // Safe write, only viewed by this task
-        self.trk.reserve.store(start + sz, SeqCst);
+        self.trk.reserve.store(start + sz, Relaxed);
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
@@ -316,24 +323,24 @@ impl<'bbq> BBQueue<'bbq> {
         assert!(len >= used);
         drop(grant);
 
-        let write = self.trk.write.load(SeqCst);
-        let old_reserve = self.trk.reserve.load(SeqCst);
+        let write = self.trk.write.load(Relaxed);
+        let old_reserve = self.trk.reserve.load(Relaxed);
         let new_reserve = old_reserve - (len - used);
 
         // Safe write, only read by this thread
-        self.trk.reserve.store(new_reserve, SeqCst);
+        self.trk.reserve.store(new_reserve, Relaxed);
 
         // Inversion case, we have begun writing
         if (new_reserve < write) && (write != self.buf.len()) {
             // This has potential for danger. We have two writers!
             // MOVING LAST BACKWARDS
-            self.trk.last.store(write, SeqCst);
+            self.trk.last.store(write, Release);
         }
 
         // This has some potential for danger. The other thread (READ)
         // does look at this variable!
         // MOVING WRITE FORWARDS
-        self.trk.write.store(new_reserve, SeqCst);
+        self.trk.write.store(new_reserve, Release);
     }
 
     /// Obtains a contiguous slice of committed bytes. This slice may not
@@ -354,9 +361,9 @@ impl<'bbq> BBQueue<'bbq> {
     /// This behavior will be fixed in later releases
     pub fn read(&mut self) -> GrantR {
         // TODO: Ensure only one read grant is live at a given time!
-        let write = self.trk.write.load(SeqCst);
-        let mut last = self.trk.last.load(SeqCst);
-        let mut read = self.trk.read.load(SeqCst);
+        let write = self.trk.write.load(Acquire);
+        let mut last = self.trk.last.load(Acquire);
+        let mut read = self.trk.read.load(Relaxed);
         let max = self.buf.len();
 
         // Resolve the inverted case or end of read
@@ -370,11 +377,11 @@ impl<'bbq> BBQueue<'bbq> {
             //   Commit does not check read, but if Grant has started an inversion,
             //   grant could move Last to the prior write position
             // MOVING READ BACKWARDS!
-            self.trk.read.store(0, SeqCst);
+            self.trk.read.store(0, Release);
             if last != max {
                 // This is pretty tricky, we have two writers!
                 // MOVING LAST FORWARDS
-                self.trk.last.store(max, SeqCst);
+                self.trk.last.store(max, Release);
                 last = max;
             }
         }
@@ -405,6 +412,6 @@ impl<'bbq> BBQueue<'bbq> {
         drop(grant);
 
         // This should be fine, purely incrementing
-        let _ = self.trk.read.fetch_add(used, SeqCst);
+        let _ = self.trk.read.fetch_add(used, Release);
     }
 }
