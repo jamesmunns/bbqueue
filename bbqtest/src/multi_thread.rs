@@ -6,7 +6,7 @@ mod tests {
     use std::time::{Instant, Duration};
     use rand::prelude::*;
 
-    const ITERS: usize = 1_000_000;
+    const ITERS: usize = 10_000_000;
     const RPT_IVAL: usize = ITERS / 10;
 
     const TIMEOUT_TX: Duration = Duration::from_millis(180_000);
@@ -14,7 +14,8 @@ mod tests {
 
     #[test]
     fn randomize_tx() {
-        // println!("Generating Test Data...");
+        println!("RTX: Generating Test Data...");
+        let gen_start = Instant::now();
         let mut data = Vec::with_capacity(ITERS);
         (0..ITERS)
             .for_each(|_| {
@@ -38,7 +39,8 @@ mod tests {
         // println!("{:?}", chunks);
         // println!("{:?}", data_rx);
 
-        // eprintln!("Running test...");
+        println!("RTX: Generation complete: {:?}", gen_start.elapsed());
+        println!("RTX: Running test...");
 
         let bb = Box::new(BBQueue::new());
         let bbl = Box::leak(bb);
@@ -215,11 +217,17 @@ mod tests {
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
-        let start_tx = Instant::now();
-        let start_rx = start_tx.clone();
+        println!("SCGM: Generating Test Data...");
+        let gen_start = Instant::now();
 
         let mut data_tx = (0..ITERS).map(|i| (i & 0xFF) as u8).collect::<Vec<_>>();
         let mut data_rx = data_tx.clone();
+
+        println!("SCGM: Generated Test Data in: {:?}", gen_start.elapsed());
+        println!("SCGM: Starting Test...");
+
+        let start_tx = Instant::now();
+        let start_rx = start_tx.clone();
 
         let tx_thr = spawn(move || {
             let mut txd_ct = 0;
