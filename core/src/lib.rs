@@ -24,20 +24,29 @@ pub struct BBQueue {
     trk: Track,
 }
 
-
+/// An opaque structure, capable of writing data to the queue
 unsafe impl<'a> Send for Producer<'a> {}
 pub struct Producer<'bbq> {
+    /// The underlying `BBQueue` object`
     bbq: NonNull<BBQueue>,
+
+    /// Phantom data retaining the lifetime of the reference to the `BBQueue`
     ltr: PhantomData<&'bbq BBQueue>,
 }
 
+/// An opaque structure, capable of reading data from the queue
 unsafe impl<'a> Send for Consumer<'a> {}
 pub struct Consumer<'bbq> {
+    /// The underlying `BBQueue` object`
     bbq: NonNull<BBQueue>,
+
+    /// Phantom data retaining the lifetime of the reference to the `BBQueue`
     ltr: PhantomData<&'bbq BBQueue>,
 }
 
 impl BBQueue {
+    /// This method takes a `BBQueue`, and returns a set of SPSC handles
+    /// that may be given to separate threads
     pub fn split<'bbq>(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
         (
             Producer {
@@ -53,6 +62,9 @@ impl BBQueue {
 }
 
 impl<'a> Producer<'a> {
+    /// Request a writable, contiguous section of memory of exactly
+    /// `sz` bytes. If the buffer size requested is not available,
+    /// an error will be returned.
     #[inline(always)]
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
         unsafe {
@@ -60,6 +72,11 @@ impl<'a> Producer<'a> {
         }
     }
 
+    /// Request a writable, contiguous section of memory of up to
+    /// `sz` bytes. If a buffer of size `sz` is not available, but
+    /// some space (0 < available < sz) is available, then a grant
+    /// will be given for the remaining size. If no space is available
+    /// for writing, an error will be returned
     #[inline(always)]
     pub fn grant_max(&mut self, sz: usize) -> Result<GrantW> {
         unsafe {
@@ -67,6 +84,10 @@ impl<'a> Producer<'a> {
         }
     }
 
+    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
+    /// This makes the data available to be read via `read()`.
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
     #[inline(always)]
     pub fn commit(&mut self, used: usize, grant: GrantW) {
         unsafe {
@@ -76,6 +97,22 @@ impl<'a> Producer<'a> {
 }
 
 impl<'a> Consumer<'a> {
+    /// Obtains a contiguous slice of committed bytes. This slice may not
+    /// contain ALL available bytes, if the writer has wrapped around. The
+    /// remaining bytes will be available after all readable bytes are
+    /// released
+    ///
+    /// NOTE: For now, it is possible to have multiple read grants. However,
+    /// care must be taken NOT to do something like this:
+    ///
+    /// ```rust,skip
+    /// let grant_1 = bbq.read();
+    /// let grant_2 = bbq.read();
+    /// bbq.release(grant_1.buf.len(), grant1); // OK, but now `grant_2` is invalid
+    /// bbq.release(grant_2.buf.len(), grant2); // UNDEFINED BEHAVIOR!
+    /// ```
+    ///
+    /// This behavior will be fixed in later releases
     #[inline(always)]
     pub fn read(&mut self) -> GrantR {
         unsafe {
@@ -83,6 +120,10 @@ impl<'a> Consumer<'a> {
         }
     }
 
+    /// Release a sequence of bytes from the buffer, allowing the space
+    /// to be used by later writes
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
     #[inline(always)]
     pub fn release(&mut self, used: usize, grant: GrantR) {
         unsafe {
@@ -152,12 +193,13 @@ impl BBQueue {
         }
     }
 
-    /// Writer component. Must never write to `read`,
-    /// be careful writing to `load`
-    ///
-    /// TODO: interface that allows grant of maximum remaining
-    /// size?
+    /// Request a writable, contiguous section of memory of exactly
+    /// `sz` bytes. If the buffer size requested is not available,
+    /// an error will be returned.
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+
         // Load all items first. Order matters here!
         let read = self.trk.read.load(SeqCst);
 
@@ -209,9 +251,15 @@ impl BBQueue {
         })
     }
 
-    /// Writer component. Must never write to `read`,
-    /// be careful writing to `load`
+    /// Request a writable, contiguous section of memory of up to
+    /// `sz` bytes. If a buffer of size `sz` is not available, but
+    /// some space (0 < available < sz) is available, then a grant
+    /// will be given for the remaining size. If no space is available
+    /// for writing, an error will be returned
     pub fn grant_max(&mut self, mut sz: usize) -> Result<GrantW> {
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+
         // Load all items first. Order matters here!
         let read = self.trk.read.load(SeqCst);
 
@@ -267,9 +315,16 @@ impl BBQueue {
         })
     }
 
-    /// Writer component. Must never write to READ,
-    /// be careful writing to LAST
+    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
+    /// This makes the data available to be read via `read()`.
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
     pub fn commit(&mut self, used: usize, grant: GrantW) {
+        // Writer component. Must never write to READ,
+        // be careful writing to LAST
+
+        // Verify we are not committing more than the given
+        // grant
         let len = grant.buf.len();
         assert!(len >= used);
         drop(grant);
@@ -294,7 +349,24 @@ impl BBQueue {
         self.trk.write.store(new_reserve, SeqCst);
     }
 
+    /// Obtains a contiguous slice of committed bytes. This slice may not
+    /// contain ALL available bytes, if the writer has wrapped around. The
+    /// remaining bytes will be available after all readable bytes are
+    /// released
+    ///
+    /// NOTE: For now, it is possible to have multiple read grants. However,
+    /// care must be taken NOT to do something like this:
+    ///
+    /// ```rust,skip
+    /// let grant_1 = bbq.read();
+    /// let grant_2 = bbq.read();
+    /// bbq.release(grant_1.buf.len(), grant1); // OK, but now `grant_2` is invalid
+    /// bbq.release(grant_2.buf.len(), grant2); // UNDEFINED BEHAVIOR!
+    /// ```
+    ///
+    /// This behavior will be fixed in later releases
     pub fn read(&mut self) -> GrantR {
+        // TODO: Ensure only one read grant is live at a given time!
         let write = self.trk.write.load(SeqCst);
         let mut last = self.trk.last.load(SeqCst);
         let mut read = self.trk.read.load(SeqCst);
@@ -302,7 +374,6 @@ impl BBQueue {
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
-            // eprint!("invert");
             read = 0;
             // This has some room for error, the other thread reads this
             // MOVING READ BACKWARDS!
@@ -310,7 +381,7 @@ impl BBQueue {
             if last != max {
                 // This is pretty tricky, we have two writers!
                 // MOVING LAST FORWARDS
-                self.trk.last.store(max, SeqCst); // Hmm
+                self.trk.last.store(max, SeqCst);
                 last = max;
             }
         }
@@ -332,6 +403,10 @@ impl BBQueue {
         }
     }
 
+    /// Release a sequence of bytes from the buffer, allowing the space
+    /// to be used by later writes
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
     pub fn release(&mut self, used: usize, grant: GrantR) {
         assert!(used <= grant.buf.len());
         drop(grant);
