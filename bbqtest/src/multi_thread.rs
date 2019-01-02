@@ -9,8 +9,7 @@ mod tests {
     const ITERS: usize = 10_000_000;
     const RPT_IVAL: usize = ITERS / 10;
 
-    const TIMEOUT_TX: Duration = Duration::from_millis(360_000);
-    const TIMEOUT_RX: Duration = Duration::from_millis(360_100);
+    const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
 
     #[test]
     fn randomize_tx() {
@@ -46,8 +45,9 @@ mod tests {
         let bbl = Box::leak(bb);
         let (mut tx, mut rx) = bbl.split();
 
-        let start_tx = Instant::now();
-        let start_rx = start_tx.clone();
+        let mut last_tx = Instant::now();
+        let mut last_rx = last_tx.clone();
+        let start_time  = last_tx.clone();
 
         let tx_thr = spawn(move || {
             let mut txd_ct = 0;
@@ -58,7 +58,7 @@ mod tests {
                 // println!("semi: {:?}", semichunk);
 
                 while !semichunk.is_empty() {
-                    if start_tx.elapsed() > TIMEOUT_TX {
+                    if last_tx.elapsed() > TIMEOUT_NODATA {
                         println!(
                             "DEADLOCK DUMP, TX: {:?}",
                             unsafe { tx.bbq.as_ref() }
@@ -75,10 +75,11 @@ mod tests {
                             tx.commit(sz, gr);
 
                             // Update tracking
+                            last_tx = Instant::now();
                             txd_ct += sz;
                             if (txd_ct / RPT_IVAL) > txd_ivl {
                                 txd_ivl = txd_ct / RPT_IVAL;
-                                println!("{:?} - rtxtx: {}", start_tx.elapsed(), txd_ct);
+                                println!("{:?} - rtxtx: {}", start_time.elapsed(), txd_ct);
                             }
 
                             break 'sizer
@@ -95,7 +96,7 @@ mod tests {
             for (_idx, i) in data_rx.drain(..).enumerate() {
                 'inner: loop {
                     // ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
-                    if start_rx.elapsed() > TIMEOUT_RX {
+                    if last_rx.elapsed() > TIMEOUT_NODATA {
                         println!(
                             "DEADLOCK DUMP, RX: {:?}",
                             unsafe { rx.bbq.as_ref() }
@@ -118,10 +119,11 @@ mod tests {
                     rx.release(1, gr);
 
                     // Update tracking
+                    last_rx = Instant::now();
                     rxd_ct += 1;
                     if (rxd_ct / RPT_IVAL) > rxd_ivl {
                         rxd_ivl = rxd_ct / RPT_IVAL;
-                        println!("{:?} - rtxrx: {}", start_rx.elapsed(), rxd_ct);
+                        println!("{:?} - rtxrx: {}", start_time.elapsed(), rxd_ct);
                     }
 
                     break 'inner;
@@ -141,8 +143,9 @@ mod tests {
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
-        let start_tx = Instant::now();
-        let start_rx = start_tx.clone();
+        let mut last_tx = Instant::now();
+        let mut last_rx = last_tx.clone();
+        let start_time  = last_tx.clone();
 
         let tx_thr = spawn(move || {
             let mut txd_ct = 0;
@@ -150,7 +153,7 @@ mod tests {
 
             for i in 0..ITERS {
                 'inner: loop {
-                    if start_tx.elapsed() > TIMEOUT_TX {
+                    if last_tx.elapsed() > TIMEOUT_NODATA {
                         println!(
                             "DEADLOCK DUMP, TX: {:?}",
                             unsafe { tx.bbq.as_ref() }
@@ -164,10 +167,11 @@ mod tests {
 
 
                             // Update tracking
+                            last_tx = Instant::now();
                             txd_ct += 1;
                             if (txd_ct / RPT_IVAL) > txd_ivl {
                                 txd_ivl = txd_ct / RPT_IVAL;
-                                println!("{:?} - sctx: {}", start_tx.elapsed(), txd_ct);
+                                println!("{:?} - sctx: {}", start_time.elapsed(), txd_ct);
                             }
 
                             break 'inner;
@@ -185,7 +189,7 @@ mod tests {
             for i in 0..ITERS {
                 'inner: loop {
                     // ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
-                    if start_rx.elapsed() > TIMEOUT_RX {
+                    if last_rx.elapsed() > TIMEOUT_NODATA {
                         println!(
                             "DEADLOCK DUMP, RX: {:?}",
                             unsafe { rx.bbq.as_ref() }
@@ -209,10 +213,11 @@ mod tests {
                     rx.release(1, gr);
 
                     // Update tracking
+                    last_rx = Instant::now();
                     rxd_ct += 1;
                     if (rxd_ct / RPT_IVAL) > rxd_ivl {
                         rxd_ivl = rxd_ct / RPT_IVAL;
-                        println!("{:?} - scrx: {}", start_rx.elapsed(), rxd_ct);
+                        println!("{:?} - scrx: {}", start_time.elapsed(), rxd_ct);
                     }
 
                     break 'inner;
@@ -242,8 +247,9 @@ mod tests {
         println!("SCGM: Generated Test Data in: {:?}", gen_start.elapsed());
         println!("SCGM: Starting Test...");
 
-        let start_tx = Instant::now();
-        let start_rx = start_tx.clone();
+        let mut last_tx = Instant::now();
+        let mut last_rx = last_tx.clone();
+        let start_time  = last_tx.clone();
 
         let tx_thr = spawn(move || {
             let mut txd_ct = 0;
@@ -251,7 +257,7 @@ mod tests {
 
             while !data_tx.is_empty() {
                 'inner: loop {
-                    if start_tx.elapsed() > TIMEOUT_TX {
+                    if last_tx.elapsed() > TIMEOUT_NODATA {
                         println!(
                             "DEADLOCK DUMP, TX: {:?}",
                             unsafe { tx.bbq.as_ref() }
@@ -267,10 +273,11 @@ mod tests {
                             }
 
                             // Update tracking
+                            last_tx = Instant::now();
                             txd_ct += sz;
                             if (txd_ct / RPT_IVAL) > txd_ivl {
                                 txd_ivl = txd_ct / RPT_IVAL;
-                                println!("{:?} - scgmtx: {}", start_tx.elapsed(), txd_ct);
+                                println!("{:?} - scgmtx: {}", start_time.elapsed(), txd_ct);
                             }
 
                             tx.commit(gr.buf.len(), gr);
@@ -289,7 +296,7 @@ mod tests {
 
             while !data_rx.is_empty() {
                 'inner: loop {
-                    if start_rx.elapsed() > TIMEOUT_RX {
+                    if last_rx.elapsed() > TIMEOUT_NODATA {
                         println!(
                             "DEADLOCK DUMP, RX: {:?}",
                             unsafe { rx.bbq.as_ref() }
@@ -314,10 +321,11 @@ mod tests {
                     rx.release(1, gr);
 
                     // Update tracking
+                    last_rx = Instant::now();
                     rxd_ct += 1;
                     if (rxd_ct / RPT_IVAL) > rxd_ivl {
                         rxd_ivl = rxd_ct / RPT_IVAL;
-                        println!("{:?} - scgmrx: {}", start_rx.elapsed(), rxd_ct);
+                        println!("{:?} - scgmrx: {}", start_time.elapsed(), rxd_ct);
                     }
 
                     break 'inner;
