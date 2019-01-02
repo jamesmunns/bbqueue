@@ -9,8 +9,8 @@ mod tests {
     const ITERS: usize = 10_000_000;
     const RPT_IVAL: usize = ITERS / 10;
 
-    const TIMEOUT_TX: Duration = Duration::from_millis(180_000);
-    const TIMEOUT_RX: Duration = Duration::from_millis(180_100);
+    const TIMEOUT_TX: Duration = Duration::from_millis(360_000);
+    const TIMEOUT_RX: Duration = Duration::from_millis(360_100);
 
     #[test]
     fn randomize_tx() {
