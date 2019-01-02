@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 mod tests {
     use bbqueue::BBQueue;
@@ -14,7 +13,6 @@ mod tests {
 
         for i in 0..ITERS {
             let j = (i & 255) as u8;
-
 
             // eprintln!("===========================");
             // eprintln!("INDEX: {:?}", j);
