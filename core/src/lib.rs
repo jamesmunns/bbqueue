@@ -1,4 +1,4 @@
-// #![no_std]
+#![no_std]
 
 use core::slice::from_raw_parts_mut;
 use core::slice::from_raw_parts;
