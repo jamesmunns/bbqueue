@@ -11,6 +11,8 @@ mod tests {
     #[cfg(not(feature = "travisci"))]
     const ITERS: usize = 10_000_000;
 
+    const QUEUE_SIZE: usize = 1024;
+
     const RPT_IVAL: usize = ITERS / 100;
 
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
@@ -48,8 +50,9 @@ mod tests {
         println!("RTX: Generation complete: {:?}", gen_start.elapsed());
         println!("RTX: Running test...");
 
-        let bb = Box::new(BBQueue::new());
-        let bbl = Box::leak(bb);
+
+        let bb = Box::new([0u8; QUEUE_SIZE]);
+        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
         let (mut tx, mut rx) = bbl.split();
 
         let mut last_tx = Instant::now();
@@ -145,8 +148,8 @@ mod tests {
     #[test]
     fn sanity_check() {
         // Hmm, this is probably an interface smell
-        let bb = Box::new(BBQueue::new());
-        let bbl = Box::leak(bb);
+        let bb = Box::new([0u8; QUEUE_SIZE]);
+        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
@@ -240,10 +243,11 @@ mod tests {
     #[test]
     fn sanity_check_grant_max() {
         // Hmm, this is probably an interface smell
-        let bb = Box::new(BBQueue::new());
-        let bbl = Box::leak(bb);
+        let bb = Box::new([0u8; QUEUE_SIZE]);
+        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
+
 
         println!("SCGM: Generating Test Data...");
         let gen_start = Instant::now();

@@ -7,7 +7,8 @@ mod tests {
     #[test]
     fn sanity_check() {
         // Hmm, this is probably an interface smell
-        let mut bb = BBQueue::new();
+        let mut buf = [0u8; 6];
+        let mut bb = BBQueue::new(&mut buf);
 
         const ITERS: usize = 100000;
 

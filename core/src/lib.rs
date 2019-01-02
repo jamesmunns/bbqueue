@@ -16,11 +16,9 @@ pub enum Error {
     GrantInProgress,
 }
 
-const BONELESS_SZ: usize = 6;
-
 #[derive(Debug)]
-pub struct BBQueue {
-    pub buf: [u8; BONELESS_SZ], // TODO, ownership et. al
+pub struct BBQueue<'a> {
+    pub buf: &'a mut [u8], // TODO, ownership et. al
     trk: Track,
 }
 
@@ -28,26 +26,26 @@ pub struct BBQueue {
 unsafe impl<'a> Send for Producer<'a> {}
 pub struct Producer<'bbq> {
     /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue>,
+    pub bbq: NonNull<BBQueue<'bbq>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue>,
+    ltr: PhantomData<&'bbq BBQueue<'bbq>>,
 }
 
 /// An opaque structure, capable of reading data from the queue
 unsafe impl<'a> Send for Consumer<'a> {}
 pub struct Consumer<'bbq> {
     /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue>,
+    pub bbq: NonNull<BBQueue<'bbq>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue>,
+    ltr: PhantomData<&'bbq BBQueue<'bbq>>,
 }
 
-impl BBQueue {
+impl<'bbq> BBQueue<'bbq> {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
-    pub fn split<'bbq>(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
+    pub fn split(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
         (
             Producer {
                 bbq: unsafe { NonNull::new_unchecked(self) },
@@ -185,11 +183,11 @@ impl Track {
     }
 }
 
-impl BBQueue {
-    pub fn new() -> Self {
+impl<'bbq> BBQueue<'bbq> {
+    pub fn new(buffer: &'bbq mut [u8]) -> Self {
         BBQueue {
-            buf: [0u8; BONELESS_SZ],
-            trk: Track::new(BONELESS_SZ),
+            trk: Track::new(buffer.len()),
+            buf: buffer,
         }
     }
 
