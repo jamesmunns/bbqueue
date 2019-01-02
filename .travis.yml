@@ -11,5 +11,8 @@ script:
   - cargo build --target thumbv7em-none-eabihf --manifest-path core/Cargo.toml
 
   # Test using a full std crate
-  - cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture
-  - cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture
+  - cargo test --features="travisci" --manifest-path bbqtest/Cargo.toml -- --nocapture
+  - cargo test --features="travisci" --release --manifest-path bbqtest/Cargo.toml -- --nocapture
+
+  - cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
+  - cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
