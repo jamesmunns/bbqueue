@@ -6,7 +6,9 @@ mod tests {
     use std::time::{Instant, Duration};
     use rand::prelude::*;
 
-    const ITERS: usize = 100_000;
+    const ITERS: usize = 1_000_000;
+    const RPT_IVAL: usize = ITERS / 10;
+
     const TIMEOUT_TX: Duration = Duration::from_millis(180_000);
     const TIMEOUT_RX: Duration = Duration::from_millis(180_100);
 
@@ -42,12 +44,13 @@ mod tests {
         let bbl = Box::leak(bb);
         let (mut tx, mut rx) = bbl.split();
 
-
-
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
         let tx_thr = spawn(move || {
+            let mut txd_ct = 0;
+            let mut txd_ivl = 0;
+
             for (i, ch) in chunks.iter().rev().enumerate() {
                 let mut semichunk = ch.to_owned();
                 // println!("semi: {:?}", semichunk);
@@ -64,6 +67,14 @@ mod tests {
                                 gr.buf[idx] = semichunk.remove(0);
                             });
                             tx.commit(sz, gr);
+
+                            // Update tracking
+                            txd_ct += sz;
+                            if (txd_ct / RPT_IVAL) > txd_ivl {
+                                txd_ivl = txd_ct / RPT_IVAL;
+                                println!("{:?} - rtxtx: {}", start_tx.elapsed(), txd_ct);
+                            }
+
                             break 'sizer
                         }
                     }
@@ -72,6 +83,9 @@ mod tests {
         });
 
         let rx_thr = spawn(move || {
+            let mut rxd_ct = 0;
+            let mut rxd_ivl = 0;
+
             for (_idx, i) in data_rx.drain(..).enumerate() {
                 'inner: loop {
                     ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
@@ -92,6 +106,14 @@ mod tests {
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
                     rx.release(1, gr);
+
+                    // Update tracking
+                    rxd_ct += 1;
+                    if (rxd_ct / RPT_IVAL) > rxd_ivl {
+                        rxd_ivl = rxd_ct / RPT_IVAL;
+                        println!("{:?} - rtxrx: {}", start_rx.elapsed(), rxd_ct);
+                    }
+
                     break 'inner;
                 }
             }
@@ -113,6 +135,9 @@ mod tests {
         let start_rx = start_tx.clone();
 
         let tx_thr = spawn(move || {
+            let mut txd_ct = 0;
+            let mut txd_ivl = 0;
+
             for i in 0..ITERS {
                 'inner: loop {
                     if start_tx.elapsed() > TIMEOUT_TX {
@@ -122,6 +147,15 @@ mod tests {
                         Ok(gr) => {
                             gr.buf[0] = (i & 0xFF) as u8;
                             tx.commit(1, gr);
+
+
+                            // Update tracking
+                            txd_ct += 1;
+                            if (txd_ct / RPT_IVAL) > txd_ivl {
+                                txd_ivl = txd_ct / RPT_IVAL;
+                                println!("{:?} - sctx: {}", start_tx.elapsed(), txd_ct);
+                            }
+
                             break 'inner;
                         }
                         Err(_) => {}
@@ -131,6 +165,9 @@ mod tests {
         });
 
         let rx_thr = spawn(move || {
+            let mut rxd_ct = 0;
+            let mut rxd_ivl = 0;
+
             for i in 0..ITERS {
                 'inner: loop {
                     ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
@@ -152,6 +189,14 @@ mod tests {
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
                     rx.release(1, gr);
+
+                    // Update tracking
+                    rxd_ct += 1;
+                    if (rxd_ct / RPT_IVAL) > rxd_ivl {
+                        rxd_ivl = rxd_ct / RPT_IVAL;
+                        println!("{:?} - scrx: {}", start_rx.elapsed(), rxd_ct);
+                    }
+
                     break 'inner;
                 }
             }
@@ -177,17 +222,29 @@ mod tests {
         let mut data_rx = data_tx.clone();
 
         let tx_thr = spawn(move || {
+            let mut txd_ct = 0;
+            let mut txd_ivl = 0;
+
             while !data_tx.is_empty() {
                 'inner: loop {
                     if start_tx.elapsed() > TIMEOUT_TX {
                         panic!("tx timeout");
                     }
-                    match tx.grant_max(3) { // TODO - use bufsize
+                    match tx.grant_max(6) { // TODO - use bufsize
                         Ok(gr) => {
                             // println!("wrlen: {}", gr.buf.len());
-                            for i in 0..::std::cmp::min(data_tx.len(), gr.buf.len()) {
+                            let sz = ::std::cmp::min(data_tx.len(), gr.buf.len());
+                            for i in 0..sz {
                                 gr.buf[i] = data_tx.pop().unwrap();
                             }
+
+                            // Update tracking
+                            txd_ct += sz;
+                            if (txd_ct / RPT_IVAL) > txd_ivl {
+                                txd_ivl = txd_ct / RPT_IVAL;
+                                println!("{:?} - scgmtx: {}", start_tx.elapsed(), txd_ct);
+                            }
+
                             tx.commit(gr.buf.len(), gr);
                             break 'inner;
                         }
@@ -199,6 +256,9 @@ mod tests {
         });
 
         let rx_thr = spawn(move || {
+            let mut rxd_ct = 0;
+            let mut rxd_ivl = 0;
+
             while !data_rx.is_empty() {
                 'inner: loop {
                     if start_rx.elapsed() > TIMEOUT_RX {
@@ -220,6 +280,14 @@ mod tests {
                         panic!("RX Iter: {}");
                     }
                     rx.release(1, gr);
+
+                    // Update tracking
+                    rxd_ct += 1;
+                    if (rxd_ct / RPT_IVAL) > rxd_ivl {
+                        rxd_ivl = rxd_ct / RPT_IVAL;
+                        println!("{:?} - scgmrx: {}", start_rx.elapsed(), rxd_ct);
+                    }
+
                     break 'inner;
                 }
             }

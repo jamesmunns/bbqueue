@@ -374,16 +374,16 @@ impl BBQueue {
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
-            read = 0;
-            // This has some room for error, the other thread reads this
-            // MOVING READ BACKWARDS!
-            self.trk.read.store(0, SeqCst);
             if last != max {
                 // This is pretty tricky, we have two writers!
                 // MOVING LAST FORWARDS
                 self.trk.last.store(max, SeqCst);
                 last = max;
             }
+            read = 0;
+            // This has some room for error, the other thread reads this
+            // MOVING READ BACKWARDS!
+            self.trk.read.store(0, SeqCst);
         }
 
         let sz = if write < read {
