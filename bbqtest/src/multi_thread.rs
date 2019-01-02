@@ -7,14 +7,12 @@ mod tests {
     use rand::prelude::*;
 
     #[cfg(feature = "travisci")]
-    const ITERS: usize = 1_000;
-    #[cfg(feature = "travisci")]
-    const RPT_IVAL: usize = 100;
-
+    const ITERS: usize = 10_000;
     #[cfg(not(feature = "travisci"))]
     const ITERS: usize = 10_000_000;
+
     #[cfg(not(feature = "travisci"))]
-    const RPT_IVAL: usize = 10_000;
+    const RPT_IVAL: usize = ITERS / 100;
 
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
 
