@@ -42,8 +42,8 @@ mod tests {
         let (mut tx, mut rx) = bbl.split();
 
 
-        let timeout_tx = Duration::from_millis(60000);
-        let timeout_rx = Duration::from_millis(60100);
+        let timeout_tx = Duration::from_millis(180_000);
+        let timeout_rx = Duration::from_millis(180_100);
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
@@ -107,8 +107,8 @@ mod tests {
 
         const ITERS: usize = 10_000_000;
 
-        let timeout_tx = Duration::from_millis(60000);
-        let timeout_rx = Duration::from_millis(60100);
+        let timeout_tx = Duration::from_millis(180_000);
+        let timeout_rx = Duration::from_millis(180_100);
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
@@ -172,8 +172,8 @@ mod tests {
 
         const ITERS: usize = 10_000_000;
 
-        let timeout_tx = Duration::from_millis(60000);
-        let timeout_rx = Duration::from_millis(60100);
+        let timeout_tx = Duration::from_millis(180_000);
+        let timeout_rx = Duration::from_millis(180_100);
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
