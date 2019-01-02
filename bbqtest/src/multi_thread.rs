@@ -186,7 +186,7 @@ mod tests {
                     if start_tx.elapsed() > timeout_tx {
                         panic!("tx timeout");
                     }
-                    match tx.grant_max(6) { // TODO - use bufsize
+                    match tx.grant_max(3) { // TODO - use bufsize
                         Ok(gr) => {
                             println!("wrlen: {}", gr.buf.len());
                             for i in 0..::std::cmp::min(data_tx.len(), gr.buf.len()) {
