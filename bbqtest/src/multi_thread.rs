@@ -59,6 +59,10 @@ mod tests {
 
                 while !semichunk.is_empty() {
                     if start_tx.elapsed() > TIMEOUT_TX {
+                        println!(
+                            "DEADLOCK DUMP, TX: {:?}",
+                            unsafe { tx.bbq.as_ref() }
+                        );
                         panic!("tx timeout, iter {}", i);
                     }
 
@@ -90,8 +94,12 @@ mod tests {
 
             for (_idx, i) in data_rx.drain(..).enumerate() {
                 'inner: loop {
-                    ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
+                    // ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
                     if start_rx.elapsed() > TIMEOUT_RX {
+                        println!(
+                            "DEADLOCK DUMP, RX: {:?}",
+                            unsafe { rx.bbq.as_ref() }
+                        );
                         panic!("rx timeout, iter {}", i);
                     }
                     let gr = rx.read();
@@ -143,6 +151,10 @@ mod tests {
             for i in 0..ITERS {
                 'inner: loop {
                     if start_tx.elapsed() > TIMEOUT_TX {
+                        println!(
+                            "DEADLOCK DUMP, TX: {:?}",
+                            unsafe { tx.bbq.as_ref() }
+                        );
                         panic!("tx timeout, iter {}", i);
                     }
                     match tx.grant(1) {
@@ -172,8 +184,12 @@ mod tests {
 
             for i in 0..ITERS {
                 'inner: loop {
-                    ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
+                    // ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
                     if start_rx.elapsed() > TIMEOUT_RX {
+                        println!(
+                            "DEADLOCK DUMP, RX: {:?}",
+                            unsafe { rx.bbq.as_ref() }
+                        );
                         panic!("rx timeout, iter {}", i);
                     }
                     let gr = rx.read();
@@ -236,6 +252,10 @@ mod tests {
             while !data_tx.is_empty() {
                 'inner: loop {
                     if start_tx.elapsed() > TIMEOUT_TX {
+                        println!(
+                            "DEADLOCK DUMP, TX: {:?}",
+                            unsafe { tx.bbq.as_ref() }
+                        );
                         panic!("tx timeout");
                     }
                     match tx.grant_max(6) { // TODO - use bufsize
@@ -270,6 +290,10 @@ mod tests {
             while !data_rx.is_empty() {
                 'inner: loop {
                     if start_rx.elapsed() > TIMEOUT_RX {
+                        println!(
+                            "DEADLOCK DUMP, RX: {:?}",
+                            unsafe { rx.bbq.as_ref() }
+                        );
                         panic!("rx timeout");
                     }
                     let gr = rx.read();

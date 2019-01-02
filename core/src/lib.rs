@@ -28,7 +28,7 @@ pub struct BBQueue {
 unsafe impl<'a> Send for Producer<'a> {}
 pub struct Producer<'bbq> {
     /// The underlying `BBQueue` object`
-    bbq: NonNull<BBQueue>,
+    pub bbq: NonNull<BBQueue>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
     ltr: PhantomData<&'bbq BBQueue>,
@@ -38,7 +38,7 @@ pub struct Producer<'bbq> {
 unsafe impl<'a> Send for Consumer<'a> {}
 pub struct Consumer<'bbq> {
     /// The underlying `BBQueue` object`
-    bbq: NonNull<BBQueue>,
+    pub bbq: NonNull<BBQueue>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
     ltr: PhantomData<&'bbq BBQueue>,
