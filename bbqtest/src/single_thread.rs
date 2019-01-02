@@ -15,35 +15,35 @@ mod tests {
             let j = (i & 255) as u8;
 
 
-            eprintln!("===========================");
-            eprintln!("INDEX: {:?}", j);
-            eprintln!("===========================");
+            // eprintln!("===========================");
+            // eprintln!("INDEX: {:?}", j);
+            // eprintln!("===========================");
 
-            eprintln!("START: {:?}", bb);
+            // eprintln!("START: {:?}", bb);
 
             let wgr = bb.grant(1).unwrap();
 
-            eprintln!("GRANT: {:?}", bb);
+            // eprintln!("GRANT: {:?}", bb);
 
             wgr.buf[0] = j;
 
-            eprintln!("WRITE: {:?}", bb);
+            // eprintln!("WRITE: {:?}", bb);
 
             bb.commit(1, wgr);
 
-            eprintln!("COMIT: {:?}", bb);
+            // eprintln!("COMIT: {:?}", bb);
 
             let rgr = bb.read();
 
-            eprintln!("READ : {:?}", bb);
+            // eprintln!("READ : {:?}", bb);
 
             assert_eq!(rgr.buf[0], j);
 
-            eprintln!("RELSE: {:?}", bb);
+            // eprintln!("RELSE: {:?}", bb);
 
             bb.release(1, rgr);
 
-            eprintln!("FINSH: {:?}", bb);
+            // eprintln!("FINSH: {:?}", bb);
         }
     }
 }

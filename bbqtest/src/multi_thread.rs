@@ -6,10 +6,13 @@ mod tests {
     use std::time::{Instant, Duration};
     use rand::prelude::*;
 
+    const ITERS: usize = 100_000;
+    const TIMEOUT_TX: Duration = Duration::from_millis(180_000);
+    const TIMEOUT_RX: Duration = Duration::from_millis(180_100);
+
     #[test]
     fn randomize_tx() {
-        println!("Generating Test Data...");
-        const ITERS: usize = 100_000;
+        // println!("Generating Test Data...");
         let mut data = Vec::with_capacity(ITERS);
         (0..ITERS)
             .for_each(|_| {
@@ -20,9 +23,7 @@ mod tests {
         let mut trng = thread_rng();
         let mut chunks = vec![];
         while !data.is_empty() {
-            // NOTE: We must never take chunks larger than 1/2 of
-            // the size, otherwise deadlock could happen!
-            let chunk_sz = trng.gen_range(1, 3);
+            let chunk_sz = trng.gen_range(1, 7);
             if chunk_sz > data.len() {
                 continue;
             }
@@ -35,33 +36,36 @@ mod tests {
         // println!("{:?}", chunks);
         // println!("{:?}", data_rx);
 
-        eprintln!("Running test...");
+        // eprintln!("Running test...");
 
         let bb = Box::new(BBQueue::new());
         let bbl = Box::leak(bb);
         let (mut tx, mut rx) = bbl.split();
 
 
-        let timeout_tx = Duration::from_millis(180_000);
-        let timeout_rx = Duration::from_millis(180_100);
+
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
         let tx_thr = spawn(move || {
             for (i, ch) in chunks.iter().rev().enumerate() {
-                'inner: loop {
-                    if start_tx.elapsed() > timeout_tx {
+                let mut semichunk = ch.to_owned();
+                // println!("semi: {:?}", semichunk);
+
+                while !semichunk.is_empty() {
+                    if start_tx.elapsed() > TIMEOUT_TX {
                         panic!("tx timeout, iter {}", i);
                     }
 
-                    match tx.grant(ch.len()) {
-                        Ok(gr) => {
-                            println!("Push {}: {:?}", gr.buf.len(), ch);
-                            gr.buf.copy_from_slice(&ch);
-                            tx.commit(ch.len(), gr);
-                            break 'inner;
+                    'sizer: for sz in (1..(semichunk.len() + 1)).rev() {
+                        if let Ok(gr) = tx.grant(sz) {
+                            // how do you do this idiomatically?
+                            (0..sz).for_each(|idx| {
+                                gr.buf[idx] = semichunk.remove(0);
+                            });
+                            tx.commit(sz, gr);
+                            break 'sizer
                         }
-                        Err(_) => {}
                     }
                 }
             }
@@ -71,14 +75,14 @@ mod tests {
             for (_idx, i) in data_rx.drain(..).enumerate() {
                 'inner: loop {
                     ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
-                    if start_rx.elapsed() > timeout_rx {
+                    if start_rx.elapsed() > TIMEOUT_RX {
                         panic!("rx timeout, iter {}", i);
                     }
                     let gr = rx.read();
                     if gr.buf.is_empty() {
                         continue 'inner;
                     }
-                    println!("Pop  {}: {:?}", _idx, gr.buf);
+                    // println!("Pop  {}: {:?}", _idx, gr.buf);
                     let act = gr.buf[0] as u8;
                     let exp = i;
                     if act != exp {
@@ -105,17 +109,13 @@ mod tests {
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
-        const ITERS: usize = 100_000;
-
-        let timeout_tx = Duration::from_millis(180_000);
-        let timeout_rx = Duration::from_millis(180_100);
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
         let tx_thr = spawn(move || {
             for i in 0..ITERS {
                 'inner: loop {
-                    if start_tx.elapsed() > timeout_tx {
+                    if start_tx.elapsed() > TIMEOUT_TX {
                         panic!("tx timeout, iter {}", i);
                     }
                     match tx.grant(1) {
@@ -134,7 +134,7 @@ mod tests {
             for i in 0..ITERS {
                 'inner: loop {
                     ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
-                    if start_rx.elapsed() > timeout_rx {
+                    if start_rx.elapsed() > TIMEOUT_RX {
                         panic!("rx timeout, iter {}", i);
                     }
                     let gr = rx.read();
@@ -170,10 +170,6 @@ mod tests {
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
-        const ITERS: usize = 100_000;
-
-        let timeout_tx = Duration::from_millis(180_000);
-        let timeout_rx = Duration::from_millis(180_100);
         let start_tx = Instant::now();
         let start_rx = start_tx.clone();
 
@@ -183,12 +179,12 @@ mod tests {
         let tx_thr = spawn(move || {
             while !data_tx.is_empty() {
                 'inner: loop {
-                    if start_tx.elapsed() > timeout_tx {
+                    if start_tx.elapsed() > TIMEOUT_TX {
                         panic!("tx timeout");
                     }
                     match tx.grant_max(3) { // TODO - use bufsize
                         Ok(gr) => {
-                            println!("wrlen: {}", gr.buf.len());
+                            // println!("wrlen: {}", gr.buf.len());
                             for i in 0..::std::cmp::min(data_tx.len(), gr.buf.len()) {
                                 gr.buf[i] = data_tx.pop().unwrap();
                             }
@@ -199,20 +195,20 @@ mod tests {
                     }
                 }
             }
-            println!("TX Complete");
+            // println!("TX Complete");
         });
 
         let rx_thr = spawn(move || {
             while !data_rx.is_empty() {
                 'inner: loop {
-                    if start_rx.elapsed() > timeout_rx {
+                    if start_rx.elapsed() > TIMEOUT_RX {
                         panic!("rx timeout");
                     }
                     let gr = rx.read();
                     if gr.buf.is_empty() {
                         continue 'inner;
                     }
-                    println!("rdlen: {}", gr.buf.len());
+                    // println!("rdlen: {}", gr.buf.len());
                     let act = gr.buf[0];
                     let exp = data_rx.pop().unwrap();
                     if act != exp {
