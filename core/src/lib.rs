@@ -146,7 +146,7 @@ pub struct Track {
     /// Used by the Writer to remember what bytes are currently
     /// allowed to be written to, but are not yet ready to be
     /// read from
-    reserve: AtomicUsize,
+    reserve: usize,
 }
 
 #[derive(Debug)]
@@ -174,7 +174,7 @@ impl Track {
             last: AtomicUsize::new(sz),
 
             /// Owned by the Writer, "private"
-            reserve: AtomicUsize::new(0), // AJM - is this necessary?
+            reserve: 0,
         }
     }
 }
@@ -198,10 +198,9 @@ impl<'bbq> BBQueue<'bbq> {
         let read = self.trk.read.load(Acquire);
 
         let write = self.trk.write.load(Relaxed);
-        let reserve = self.trk.reserve.load(Relaxed);
         let max = self.buf.len();
 
-        if reserve != write {
+        if self.trk.reserve != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
@@ -238,7 +237,7 @@ impl<'bbq> BBQueue<'bbq> {
         };
 
         // Safe write, only viewed by this task
-        self.trk.reserve.store(start + sz, Relaxed);
+        self.trk.reserve = start + sz;
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
@@ -258,10 +257,9 @@ impl<'bbq> BBQueue<'bbq> {
         let read = self.trk.read.load(Acquire);
 
         let write = self.trk.write.load(Relaxed);
-        let reserve = self.trk.reserve.load(Relaxed);
         let max = self.buf.len();
 
-        if reserve != write {
+        if self.trk.reserve != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
@@ -302,7 +300,7 @@ impl<'bbq> BBQueue<'bbq> {
         };
 
         // Safe write, only viewed by this task
-        self.trk.reserve.store(start + sz, Relaxed);
+        self.trk.reserve = start + sz;
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
@@ -324,14 +322,10 @@ impl<'bbq> BBQueue<'bbq> {
         drop(grant);
 
         let write = self.trk.write.load(Relaxed);
-        let old_reserve = self.trk.reserve.load(Relaxed);
-        let new_reserve = old_reserve - (len - used);
-
-        // Safe write, only read by this thread
-        self.trk.reserve.store(new_reserve, Relaxed);
+        self.trk.reserve -= len - used;
 
         // Inversion case, we have begun writing
-        if (new_reserve < write) && (write != self.buf.len()) {
+        if (self.trk.reserve < write) && (write != self.buf.len()) {
             // This has potential for danger. We have two writers!
             // MOVING LAST BACKWARDS
             self.trk.last.store(write, Release);
@@ -340,7 +334,7 @@ impl<'bbq> BBQueue<'bbq> {
         // This has some potential for danger. The other thread (READ)
         // does look at this variable!
         // MOVING WRITE FORWARDS
-        self.trk.write.store(new_reserve, Release);
+        self.trk.write.store(self.trk.reserve, Release);
     }
 
     /// Obtains a contiguous slice of committed bytes. This slice may not
