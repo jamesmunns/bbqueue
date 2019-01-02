@@ -22,7 +22,7 @@ mod tests {
         while !data.is_empty() {
             // NOTE: We must never take chunks larger than 1/2 of
             // the size, otherwise deadlock could happen!
-            let chunk_sz = trng.gen_range(1, 4);
+            let chunk_sz = trng.gen_range(1, 3);
             if chunk_sz > data.len() {
                 continue;
             }
