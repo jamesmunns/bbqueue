@@ -56,7 +56,7 @@ mod tests {
 
                     match tx.grant(ch.len()) {
                         Ok(gr) => {
-                            // println!("Push {}: {:?}", gr.buf.len(), ch);
+                            println!("Push {}: {:?}", gr.buf.len(), ch);
                             gr.buf.copy_from_slice(&ch);
                             tx.commit(ch.len(), gr);
                             break 'inner;
@@ -78,7 +78,7 @@ mod tests {
                     if gr.buf.is_empty() {
                         continue 'inner;
                     }
-                    // println!("{}: {:?}", _idx, gr.buf);
+                    println!("Pop  {}: {:?}", _idx, gr.buf);
                     let act = gr.buf[0] as u8;
                     let exp = i;
                     if act != exp {
@@ -188,7 +188,7 @@ mod tests {
                     }
                     match tx.grant_max(6) { // TODO - use bufsize
                         Ok(gr) => {
-                            // println!("grlen: {}", gr.buf.len());
+                            println!("wrlen: {}", gr.buf.len());
                             for i in 0..::std::cmp::min(data_tx.len(), gr.buf.len()) {
                                 gr.buf[i] = data_tx.pop().unwrap();
                             }
@@ -212,7 +212,7 @@ mod tests {
                     if gr.buf.is_empty() {
                         continue 'inner;
                     }
-                    // println!("rdlen: {}", gr.buf.len());
+                    println!("rdlen: {}", gr.buf.len());
                     let act = gr.buf[0];
                     let exp = data_rx.pop().unwrap();
                     if act != exp {
@@ -221,7 +221,7 @@ mod tests {
                         println!("act: {:?}, exp: {:?}", act, exp);
                         println!("len: {:?}", gr.buf.len());
                         println!("{:?}", gr.buf);
-                        // panic!("RX Iter: {}, mod: {}", i, i % 6);
+                        panic!("RX Iter: {}");
                     }
                     rx.release(1, gr);
                     break 'inner;
