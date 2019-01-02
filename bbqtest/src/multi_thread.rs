@@ -7,7 +7,7 @@ mod tests {
     use rand::prelude::*;
 
     const ITERS: usize = 10_000_000;
-    const RPT_IVAL: usize = ITERS / 10;
+    const RPT_IVAL: usize = 1_000;
 
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
 
