@@ -6,3 +6,10 @@ edition = "2018"
 
 [dependencies.bbqueue]
 path = "../core"
+
+[dev-dependencies]
+rand = "0.6"
+
+[features]
+travisci = []
+default = []
