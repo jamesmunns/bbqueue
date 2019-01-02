@@ -12,5 +12,5 @@ script:
 
   # Test using a full std crate
   - export RUST_BACKTRACE=full
-  - cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
-  - cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
+  - cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture
+  - cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture
