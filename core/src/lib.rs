@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::result::Result as CoreResult;
+use core::cmp::min;
 
 pub type Result<T> = CoreResult<T, Error>;
 
@@ -56,6 +57,13 @@ impl<'a> Producer<'a> {
     pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
         unsafe {
             self.bbq.as_mut().grant(sz)
+        }
+    }
+
+    #[inline(always)]
+    pub fn grant_max(&mut self, sz: usize) -> Result<GrantW> {
+        unsafe {
+            self.bbq.as_mut().grant_max(sz)
         }
     }
 
@@ -201,6 +209,64 @@ impl BBQueue {
         })
     }
 
+    /// Writer component. Must never write to `read`,
+    /// be careful writing to `load`
+    pub fn grant_max(&mut self, mut sz: usize) -> Result<GrantW> {
+        // Load all items first. Order matters here!
+        let read = self.trk.read.load(SeqCst);
+
+        let write = self.trk.write.load(SeqCst);
+        let reserve = self.trk.reserve.load(SeqCst);
+        let max = self.buf.len();
+
+        if reserve != write {
+            // GRANT IN PROCESS, do not allow further grants
+            // until the current one has been completed
+            return Err(Error::GrantInProgress);
+        }
+
+        let already_inverted = write < read;
+
+        let start = if already_inverted {
+            // In inverted case, read is always > write
+            let remain = read - write - 1;
+
+            if remain != 0 {
+                sz = min(remain, sz);
+                write
+            } else {
+                // Inverted, no room is available
+                return Err(Error::InsufficientSize);
+            }
+        } else {
+            if write != max {
+                // Some (or all) room remaining in un-inverted case
+                sz = min(max - write, sz);
+                write
+            } else {
+                // Not inverted, but need to go inverted
+
+                // NOTE: We check read > 1, NOT read > 1, because
+                // write must never == read in an inverted condition, since
+                // we will then not be able to tell if we are inverted or not
+                if read > 1 {
+                    sz = min(read - 1, sz);
+                    0
+                } else {
+                    // Not invertible, no space
+                    return Err(Error::InsufficientSize);
+                }
+            }
+        };
+
+        // Safe write, only viewed by this task
+        self.trk.reserve.store(start + sz, SeqCst);
+
+        Ok(GrantW {
+            buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
+        })
+    }
+
     /// Writer component. Must never write to READ,
     /// be careful writing to LAST
     pub fn commit(&mut self, used: usize, grant: GrantW) {
@@ -229,17 +295,10 @@ impl BBQueue {
     }
 
     pub fn read(&mut self) -> GrantR {
-        // This could have some problems
         let write = self.trk.write.load(SeqCst);
-        // This could have some problems
         let mut last = self.trk.last.load(SeqCst);
-
-        // This read is safe, only written by this thread
         let mut read = self.trk.read.load(SeqCst);
-
         let max = self.buf.len();
-
-        // AJM: How do we deal with knowing
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -257,19 +316,12 @@ impl BBQueue {
         }
 
         let sz = if write < read {
-            // eprint!(" last");
             // Inverted, only believe last
             last
         } else {
-            // eprint!(" write");
             // Not inverted, only believe write
             write
         } - read;
-
-        // eprint!(" wr {:?} la {:?} rd {:?}", write, last, read);
-
-        // eprintln!(" sz: {:?}", sz);
-
 
         GrantR {
             buf: if read == max {
