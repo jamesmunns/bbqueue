@@ -9,7 +9,7 @@ mod tests {
     #[test]
     fn randomize_tx() {
         println!("Generating Test Data...");
-        const ITERS: usize = 10_000_000;
+        const ITERS: usize = 100_000;
         let mut data = Vec::with_capacity(ITERS);
         (0..ITERS)
             .for_each(|_| {
@@ -105,7 +105,7 @@ mod tests {
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
-        const ITERS: usize = 10_000_000;
+        const ITERS: usize = 100_000;
 
         let timeout_tx = Duration::from_millis(180_000);
         let timeout_rx = Duration::from_millis(180_100);
@@ -170,7 +170,7 @@ mod tests {
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
-        const ITERS: usize = 10_000_000;
+        const ITERS: usize = 100_000;
 
         let timeout_tx = Duration::from_millis(180_000);
         let timeout_rx = Duration::from_millis(180_100);
