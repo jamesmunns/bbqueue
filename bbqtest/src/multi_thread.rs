@@ -11,7 +11,6 @@ mod tests {
     #[cfg(not(feature = "travisci"))]
     const ITERS: usize = 10_000_000;
 
-    #[cfg(not(feature = "travisci"))]
     const RPT_IVAL: usize = ITERS / 100;
 
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
