@@ -15,6 +15,7 @@ use core::sync::atomic::{
     },
 };
 use generic_array::{GenericArray, ArrayLength};
+pub use generic_array::typenum as typenum;
 
 pub type Result<T> = CoreResult<T, Error>;
 
@@ -64,14 +65,14 @@ impl<'bbq, N> BBQueue<N> where
 {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
-    pub fn split(&'bbq mut self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
+    pub fn split(&'bbq self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
         (
             Producer {
-                bbq: unsafe { NonNull::new_unchecked(self) },
+                bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                 ltr: PhantomData,
             },
             Consumer {
-                bbq: unsafe { NonNull::new_unchecked(self) },
+                bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                 ltr: PhantomData,
             },
         )

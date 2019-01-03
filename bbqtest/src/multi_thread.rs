@@ -1,17 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use bbqueue::BBQueue;
     use rand::prelude::*;
     use std::thread::spawn;
     use std::time::{Duration, Instant};
-    use generic_array::typenum::*;
+    use bbqueue::{
+        BBQueue,
+        typenum::*,
+    };
 
     #[cfg(feature = "travisci")]
     const ITERS: usize = 10_000;
     #[cfg(not(feature = "travisci"))]
     const ITERS: usize = 10_000_000;
 
-    const QUEUE_SIZE: usize = 1024;
+    type QueueSize = U1024;
 
     const RPT_IVAL: usize = ITERS / 100;
 
@@ -31,7 +33,7 @@ mod tests {
         let mut trng = thread_rng();
         let mut chunks = vec![];
         while !data.is_empty() {
-            let chunk_sz = trng.gen_range(1, (QUEUE_SIZE - 1) / 2);
+            let chunk_sz = trng.gen_range(1, (1024 - 1) / 2);
             if chunk_sz > data.len() {
                 continue;
             }
@@ -47,7 +49,7 @@ mod tests {
         println!("RTX: Generation complete: {:?}", gen_start.elapsed());
         println!("RTX: Running test...");
 
-        let bbl: BBQueue<U6> = BBQueue::new();
+        let bbl: BBQueue<QueueSize> = BBQueue::new();
         let bbl = Box::leak(Box::new(bbl));
         let (mut tx, mut rx) = bbl.split();
 
@@ -137,7 +139,7 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        let bbl: BBQueue<U6> = BBQueue::new();
+        let bbl: BBQueue<QueueSize> = BBQueue::new();
         let bbl = Box::leak(Box::new(bbl));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
@@ -229,7 +231,7 @@ mod tests {
 
     #[test]
     fn sanity_check_grant_max() {
-        let bbl: BBQueue<U6> = BBQueue::new();
+        let bbl: BBQueue<QueueSize> = BBQueue::new();
         let bbl = Box::leak(Box::new(bbl));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();

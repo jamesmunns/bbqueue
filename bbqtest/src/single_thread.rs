@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use bbqueue::BBQueue;
-    use generic_array::typenum::*;
+    use bbqueue::{
+        BBQueue,
+        typenum::*,
+    };
 
     // AJM: This test hangs/fails!
     #[test]

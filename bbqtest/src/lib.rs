@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn spsc_usage_sanity() {
-        let mut bb: BBQueue<U6> = BBQueue::new();
+        let bb: BBQueue<U6> = BBQueue::new();
 
         let (mut tx, mut rx) = bb.split();
         assert_eq!(rx.read().buf, &[]);
