@@ -1,16 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use bbqueue::BBQueue;
     use rand::prelude::*;
     use std::thread::spawn;
     use std::time::{Duration, Instant};
+    use bbqueue::{
+        BBQueue,
+        typenum::*,
+    };
 
     #[cfg(feature = "travisci")]
     const ITERS: usize = 10_000;
     #[cfg(not(feature = "travisci"))]
     const ITERS: usize = 10_000_000;
 
-    const QUEUE_SIZE: usize = 1024;
+    type QueueSize = U1024;
 
     const RPT_IVAL: usize = ITERS / 100;
 
@@ -30,7 +33,7 @@ mod tests {
         let mut trng = thread_rng();
         let mut chunks = vec![];
         while !data.is_empty() {
-            let chunk_sz = trng.gen_range(1, 7);
+            let chunk_sz = trng.gen_range(1, (1024 - 1) / 2);
             if chunk_sz > data.len() {
                 continue;
             }
@@ -46,8 +49,8 @@ mod tests {
         println!("RTX: Generation complete: {:?}", gen_start.elapsed());
         println!("RTX: Running test...");
 
-        let bb = Box::new([0u8; QUEUE_SIZE]);
-        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
+        let bbl: BBQueue<QueueSize> = BBQueue::new();
+        let bbl = Box::leak(Box::new(bbl));
         let (mut tx, mut rx) = bbl.split();
 
         let mut last_tx = Instant::now();
@@ -136,9 +139,8 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        // Hmm, this is probably an interface smell
-        let bb = Box::new([0u8; QUEUE_SIZE]);
-        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
+        let bbl: BBQueue<QueueSize> = BBQueue::new();
+        let bbl = Box::leak(Box::new(bbl));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
@@ -181,38 +183,43 @@ mod tests {
             let mut rxd_ct = 0;
             let mut rxd_ivl = 0;
 
-            for i in 0..ITERS {
-                'inner: loop {
-                    // ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
-                    if last_rx.elapsed() > TIMEOUT_NODATA {
-                        println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
-                        panic!("rx timeout, iter {}", i);
-                    }
-                    let gr = rx.read();
-                    if gr.buf.is_empty() {
-                        continue 'inner;
-                    }
-                    let act = gr.buf[0] as u8;
+            let mut i = 0;
+
+
+            while i < ITERS {
+                if last_rx.elapsed() > TIMEOUT_NODATA {
+                    println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
+                    panic!("rx timeout, iter {}", i);
+                }
+
+                let gr = rx.read();
+                if gr.buf.is_empty() {
+                    continue;
+                }
+
+                for data in gr.buf {
+                    let act = *data;
                     let exp = (i & 0xFF) as u8;
                     if act != exp {
                         println!("baseptr: {}", panny);
                         println!("offendr: {:p}", &gr.buf[0]);
                         println!("act: {:?}, exp: {:?}", act, exp);
                         println!("len: {:?}", gr.buf.len());
-                        println!("{:?}", gr.buf);
+                        println!("{:?}", &gr.buf);
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
-                    rx.release(1, gr);
 
-                    // Update tracking
-                    last_rx = Instant::now();
-                    rxd_ct += 1;
-                    if (rxd_ct / RPT_IVAL) > rxd_ivl {
-                        rxd_ivl = rxd_ct / RPT_IVAL;
-                        println!("{:?} - scrx: {}", start_time.elapsed(), rxd_ct);
-                    }
+                    i += 1;
+                }
 
-                    break 'inner;
+                rxd_ct += gr.buf.len();
+                rx.release(gr.buf.len(), gr);
+
+                // Update tracking
+                last_rx = Instant::now();
+                if (rxd_ct / RPT_IVAL) > rxd_ivl {
+                    rxd_ivl = rxd_ct / RPT_IVAL;
+                    println!("{:?} - scrx: {}", start_time.elapsed(), rxd_ct);
                 }
             }
         });
@@ -221,11 +228,11 @@ mod tests {
         rx_thr.join().unwrap();
     }
 
+
     #[test]
     fn sanity_check_grant_max() {
-        // Hmm, this is probably an interface smell
-        let bb = Box::new([0u8; QUEUE_SIZE]);
-        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
+        let bbl: BBQueue<QueueSize> = BBQueue::new();
+        let bbl = Box::leak(Box::new(bbl));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 

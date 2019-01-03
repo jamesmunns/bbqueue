@@ -6,7 +6,16 @@ use core::ptr::NonNull;
 use core::result::Result as CoreResult;
 use core::slice::from_raw_parts;
 use core::slice::from_raw_parts_mut;
-use core::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering::{
+        Acquire,
+        Relaxed,
+        Release,
+    },
+};
+use generic_array::{GenericArray, ArrayLength};
+pub use generic_array::typenum as typenum;
 
 pub type Result<T> = CoreResult<T, Error>;
 
@@ -17,49 +26,62 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct BBQueue<'a> {
-    pub buf: &'a mut [u8], // TODO, ownership et. al
+pub struct BBQueue<N> where
+    N: ArrayLength<u8>
+{
+    pub buf: GenericArray<u8, N>,
     trk: Track,
 }
 
 /// An opaque structure, capable of writing data to the queue
-unsafe impl<'a> Send for Producer<'a> {}
-pub struct Producer<'bbq> {
+unsafe impl<'bbq, N> Send for Producer<'bbq, N> where
+    N: ArrayLength<u8> {}
+pub struct Producer<'bbq, N> where
+    N: ArrayLength<u8>
+{
     /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue<'bbq>>,
+    pub bbq: NonNull<BBQueue<N>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue<'bbq>>,
+    ltr: PhantomData<&'bbq ()>,
 }
 
 /// An opaque structure, capable of reading data from the queue
-unsafe impl<'a> Send for Consumer<'a> {}
-pub struct Consumer<'bbq> {
+unsafe impl<'bbq, N> Send for Consumer<'bbq, N> where
+    N: ArrayLength<u8> {}
+
+pub struct Consumer<'bbq, N>  where
+    N: ArrayLength<u8>
+{
     /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue<'bbq>>,
+    pub bbq: NonNull<BBQueue<N>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue<'bbq>>,
+    ltr: PhantomData<&'bbq ()>,
 }
 
-impl<'bbq> BBQueue<'bbq> {
+impl<'bbq, N> BBQueue<N> where
+    N: ArrayLength<u8>
+{
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
-    pub fn split(&'bbq mut self) -> (Producer<'bbq>, Consumer<'bbq>) {
+    pub fn split(&'bbq self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
         (
             Producer {
-                bbq: unsafe { NonNull::new_unchecked(self) },
+                bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                 ltr: PhantomData,
             },
             Consumer {
-                bbq: unsafe { NonNull::new_unchecked(self) },
+                bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                 ltr: PhantomData,
             },
         )
     }
 }
 
-impl<'a> Producer<'a> {
+impl<'a, N> Producer<'a, N> where
+    N: ArrayLength<u8>
+{
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
@@ -88,7 +110,9 @@ impl<'a> Producer<'a> {
     }
 }
 
-impl<'a> Consumer<'a> {
+impl<'a, N> Consumer<'a, N> where
+    N: ArrayLength<u8>
+{
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
@@ -139,7 +163,7 @@ pub struct Track {
     /// Used by the Writer to remember what bytes are currently
     /// allowed to be written to, but are not yet ready to be
     /// read from
-    reserve: AtomicUsize,
+    reserve: usize,
 }
 
 #[derive(Debug)]
@@ -167,16 +191,20 @@ impl Track {
             last: AtomicUsize::new(sz),
 
             /// Owned by the Writer, "private"
-            reserve: AtomicUsize::new(0), // AJM - is this necessary?
+            reserve: 0,
         }
     }
 }
 
-impl<'bbq> BBQueue<'bbq> {
-    pub fn new(buffer: &'bbq mut [u8]) -> Self {
+impl<'bbq, N> BBQueue<N> where
+    N: ArrayLength<u8>
+{
+    pub fn new() -> Self {
+        let buf: GenericArray<u8, N> = unsafe { core::mem::uninitialized() };
+
         BBQueue {
-            trk: Track::new(buffer.len()),
-            buf: buffer,
+            trk: Track::new(buf.len()),
+            buf,
         }
     }
 
@@ -187,18 +215,16 @@ impl<'bbq> BBQueue<'bbq> {
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
 
-        // Load all items first. Order matters here!
-        let read = self.trk.read.load(SeqCst);
+        let write = self.trk.write.load(Relaxed);
 
-        let write = self.trk.write.load(SeqCst);
-        let reserve = self.trk.reserve.load(SeqCst);
-        let max = self.buf.len();
-
-        if reserve != write {
+        if self.trk.reserve != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
         }
+
+        let read = self.trk.read.load(Acquire);
+        let max = self.buf.len();
 
         let already_inverted = write < read;
 
@@ -231,7 +257,7 @@ impl<'bbq> BBQueue<'bbq> {
         };
 
         // Safe write, only viewed by this task
-        self.trk.reserve.store(start + sz, SeqCst);
+        self.trk.reserve = start + sz;
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
@@ -247,18 +273,16 @@ impl<'bbq> BBQueue<'bbq> {
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
 
-        // Load all items first. Order matters here!
-        let read = self.trk.read.load(SeqCst);
+        let write = self.trk.write.load(Relaxed);
 
-        let write = self.trk.write.load(SeqCst);
-        let reserve = self.trk.reserve.load(SeqCst);
-        let max = self.buf.len();
-
-        if reserve != write {
+        if self.trk.reserve != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
         }
+
+        let read = self.trk.read.load(Acquire);
+        let max = self.buf.len();
 
         let already_inverted = write < read;
 
@@ -295,7 +319,7 @@ impl<'bbq> BBQueue<'bbq> {
         };
 
         // Safe write, only viewed by this task
-        self.trk.reserve.store(start + sz, SeqCst);
+        self.trk.reserve = start + sz;
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
@@ -316,24 +340,20 @@ impl<'bbq> BBQueue<'bbq> {
         assert!(len >= used);
         drop(grant);
 
-        let write = self.trk.write.load(SeqCst);
-        let old_reserve = self.trk.reserve.load(SeqCst);
-        let new_reserve = old_reserve - (len - used);
-
-        // Safe write, only read by this thread
-        self.trk.reserve.store(new_reserve, SeqCst);
+        let write = self.trk.write.load(Relaxed);
+        self.trk.reserve -= len - used;
 
         // Inversion case, we have begun writing
-        if (new_reserve < write) && (write != self.buf.len()) {
+        if (self.trk.reserve < write) && (write != self.buf.len()) {
             // This has potential for danger. We have two writers!
             // MOVING LAST BACKWARDS
-            self.trk.last.store(write, SeqCst);
+            self.trk.last.store(write, Release);
         }
 
         // This has some potential for danger. The other thread (READ)
         // does look at this variable!
         // MOVING WRITE FORWARDS
-        self.trk.write.store(new_reserve, SeqCst);
+        self.trk.write.store(self.trk.reserve, Release);
     }
 
     /// Obtains a contiguous slice of committed bytes. This slice may not
@@ -354,9 +374,9 @@ impl<'bbq> BBQueue<'bbq> {
     /// This behavior will be fixed in later releases
     pub fn read(&mut self) -> GrantR {
         // TODO: Ensure only one read grant is live at a given time!
-        let write = self.trk.write.load(SeqCst);
-        let mut last = self.trk.last.load(SeqCst);
-        let mut read = self.trk.read.load(SeqCst);
+        let write = self.trk.write.load(Acquire);
+        let mut last = self.trk.last.load(Acquire);
+        let mut read = self.trk.read.load(Relaxed);
         let max = self.buf.len();
 
         // Resolve the inverted case or end of read
@@ -370,11 +390,11 @@ impl<'bbq> BBQueue<'bbq> {
             //   Commit does not check read, but if Grant has started an inversion,
             //   grant could move Last to the prior write position
             // MOVING READ BACKWARDS!
-            self.trk.read.store(0, SeqCst);
+            self.trk.read.store(0, Release);
             if last != max {
                 // This is pretty tricky, we have two writers!
                 // MOVING LAST FORWARDS
-                self.trk.last.store(max, SeqCst);
+                self.trk.last.store(max, Release);
                 last = max;
             }
         }
@@ -405,6 +425,6 @@ impl<'bbq> BBQueue<'bbq> {
         drop(grant);
 
         // This should be fine, purely incrementing
-        let _ = self.trk.read.fetch_add(used, SeqCst);
+        let _ = self.trk.read.fetch_add(used, Release);
     }
 }
