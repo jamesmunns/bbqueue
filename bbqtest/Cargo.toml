@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 [dependencies.bbqueue]
 path = "../core"
 
+[dependencies.generic-array]
+version = "0.12"
+
 [dev-dependencies]
 rand = "0.6"
 

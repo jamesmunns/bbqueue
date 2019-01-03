@@ -4,6 +4,7 @@ mod tests {
     use rand::prelude::*;
     use std::thread::spawn;
     use std::time::{Duration, Instant};
+    use generic_array::typenum::*;
 
     #[cfg(feature = "travisci")]
     const ITERS: usize = 10_000;
@@ -46,8 +47,8 @@ mod tests {
         println!("RTX: Generation complete: {:?}", gen_start.elapsed());
         println!("RTX: Running test...");
 
-        let bb = Box::new([0u8; QUEUE_SIZE]);
-        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
+        let bbl: BBQueue<U6> = BBQueue::new();
+        let bbl = Box::leak(Box::new(bbl));
         let (mut tx, mut rx) = bbl.split();
 
         let mut last_tx = Instant::now();
@@ -136,9 +137,8 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        // Hmm, this is probably an interface smell
-        let bb = Box::new([0u8; QUEUE_SIZE]);
-        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
+        let bbl: BBQueue<U6> = BBQueue::new();
+        let bbl = Box::leak(Box::new(bbl));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 
@@ -210,11 +210,11 @@ mod tests {
                     i += 1;
                 }
 
+                rxd_ct += gr.buf.len();
                 rx.release(gr.buf.len(), gr);
 
                 // Update tracking
                 last_rx = Instant::now();
-                rxd_ct += 1;
                 if (rxd_ct / RPT_IVAL) > rxd_ivl {
                     rxd_ivl = rxd_ct / RPT_IVAL;
                     println!("{:?} - scrx: {}", start_time.elapsed(), rxd_ct);
@@ -226,11 +226,11 @@ mod tests {
         rx_thr.join().unwrap();
     }
 
+
     #[test]
     fn sanity_check_grant_max() {
-        // Hmm, this is probably an interface smell
-        let bb = Box::new([0u8; QUEUE_SIZE]);
-        let bbl = Box::leak(Box::new(BBQueue::new(Box::leak(bb))));
+        let bbl: BBQueue<U6> = BBQueue::new();
+        let bbl = Box::leak(Box::new(bbl));
         let panny = format!("{:p}", &bbl.buf[0]);
         let (mut tx, mut rx) = bbl.split();
 

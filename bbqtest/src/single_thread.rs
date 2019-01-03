@@ -1,13 +1,12 @@
 #[cfg(test)]
 mod tests {
     use bbqueue::BBQueue;
+    use generic_array::typenum::*;
 
     // AJM: This test hangs/fails!
     #[test]
     fn sanity_check() {
-        // Hmm, this is probably an interface smell
-        let mut buf = [0u8; 6];
-        let mut bb = BBQueue::new(&mut buf);
+        let mut bb: BBQueue<U6> = BBQueue::new();
 
         const ITERS: usize = 100000;
 

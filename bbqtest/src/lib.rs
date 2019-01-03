@@ -7,18 +7,19 @@ mod single_thread;
 #[cfg(test)]
 mod tests {
     use bbqueue::BBQueue;
+    use generic_array::{
+        typenum::*,
+    };
 
     #[test]
     fn create_queue() {
-        let mut buf = [0u8; 6];
-        let _b = BBQueue::new(&mut buf);
+        let _b: BBQueue<U6> = BBQueue::new();
     }
 
     #[test]
     fn direct_usage_sanity() {
         // Initialize
-        let mut buf = [0u8; 6];
-        let mut bb = BBQueue::new(&mut buf);
+        let mut bb: BBQueue<U6> = BBQueue::new();
         assert_eq!(bb.read().buf, &[]);
 
         // Initial grant, shouldn't roll over
@@ -86,8 +87,7 @@ mod tests {
 
     #[test]
     fn spsc_usage_sanity() {
-        let mut buf = [0u8; 6];
-        let mut bb = BBQueue::new(&mut buf);
+        let mut bb: BBQueue<U6> = BBQueue::new();
 
         let (mut tx, mut rx) = bb.split();
         assert_eq!(rx.read().buf, &[]);
