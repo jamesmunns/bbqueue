@@ -1,4 +1,5 @@
-#![no_std]
+// #![no_std]
+#![allow(unused)]
 
 use core::cmp::min;
 use core::marker::PhantomData;
@@ -14,6 +15,8 @@ use core::sync::atomic::{
         Release,
     },
 };
+use core::cell::UnsafeCell;
+
 pub use generic_array::{GenericArray, ArrayLength};
 pub use generic_array::typenum as typenum;
 
@@ -26,133 +29,6 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct BBQueue<N> where
-    N: ArrayLength<u8>
-{
-    pub buf: GenericArray<u8, N>,
-    is_split: bool,
-    trk: Track,
-}
-
-/// An opaque structure, capable of writing data to the queue
-unsafe impl<'bbq, N> Send for Producer<'bbq, N> where
-    N: ArrayLength<u8> {}
-pub struct Producer<'bbq, N> where
-    N: ArrayLength<u8>
-{
-    /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue<N>>,
-
-    /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue<N>>,
-}
-
-/// An opaque structure, capable of reading data from the queue
-unsafe impl<'bbq, N> Send for Consumer<'bbq, N> where
-    N: ArrayLength<u8> {}
-
-pub struct Consumer<'bbq, N>  where
-    N: ArrayLength<u8>
-{
-    /// The underlying `BBQueue` object`
-    pub bbq: NonNull<BBQueue<N>>,
-
-    /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq BBQueue<N>>,
-}
-
-impl<'bbq, N> BBQueue<N> where
-    N: ArrayLength<u8>
-{
-    /// This method takes a `BBQueue`, and returns a set of SPSC handles
-    /// that may be given to separate threads
-    pub fn split(&'bbq self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
-        assert!(!self.is_split);
-
-        let mut ret = (
-            Producer {
-                bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
-                ltr: PhantomData,
-            },
-            Consumer {
-                bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
-                ltr: PhantomData,
-            },
-        );
-
-        // Well, this is awful. I can't set the flag if we use a mut ref above, but that makes
-        // Let's just kick off our unsafe usage quickly, why don't we?
-        unsafe { ret.0.bbq.as_mut().is_split = true };
-        ret
-    }
-}
-
-impl<'a, N> Producer<'a, N> where
-    N: ArrayLength<u8>
-{
-    /// Request a writable, contiguous section of memory of exactly
-    /// `sz` bytes. If the buffer size requested is not available,
-    /// an error will be returned.
-    #[inline(always)]
-    pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
-        unsafe { self.bbq.as_mut().grant(sz) }
-    }
-
-    /// Request a writable, contiguous section of memory of up to
-    /// `sz` bytes. If a buffer of size `sz` is not available, but
-    /// some space (0 < available < sz) is available, then a grant
-    /// will be given for the remaining size. If no space is available
-    /// for writing, an error will be returned
-    #[inline(always)]
-    pub fn grant_max(&mut self, sz: usize) -> Result<GrantW> {
-        unsafe { self.bbq.as_mut().grant_max(sz) }
-    }
-
-    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
-    /// This makes the data available to be read via `read()`.
-    ///
-    /// If `used` is larger than the given grant, this function will panic.
-    #[inline(always)]
-    pub fn commit(&mut self, used: usize, grant: GrantW) {
-        unsafe { self.bbq.as_mut().commit(used, grant) }
-    }
-}
-
-impl<'a, N> Consumer<'a, N> where
-    N: ArrayLength<u8>
-{
-    /// Obtains a contiguous slice of committed bytes. This slice may not
-    /// contain ALL available bytes, if the writer has wrapped around. The
-    /// remaining bytes will be available after all readable bytes are
-    /// released
-    ///
-    /// NOTE: For now, it is possible to have multiple read grants. However,
-    /// care must be taken NOT to do something like this:
-    ///
-    /// ```rust,skip
-    /// let grant_1 = bbq.read();
-    /// let grant_2 = bbq.read();
-    /// bbq.release(grant_1.buf.len(), grant1); // OK, but now `grant_2` is invalid
-    /// bbq.release(grant_2.buf.len(), grant2); // UNDEFINED BEHAVIOR!
-    /// ```
-    ///
-    /// This behavior will be fixed in later releases
-    #[inline(always)]
-    pub fn read(&mut self) -> Result<GrantR> {
-        unsafe { self.bbq.as_mut().read() }
-    }
-
-    /// Release a sequence of bytes from the buffer, allowing the space
-    /// to be used by later writes
-    ///
-    /// If `used` is larger than the given grant, this function will panic.
-    #[inline(always)]
-    pub fn release(&mut self, used: usize, grant: GrantR) {
-        unsafe { self.bbq.as_mut().release(used, grant) }
-    }
-}
-
-#[derive(Debug)]
 pub struct Track {
     /// Where the next byte will be written
     write: AtomicUsize,
@@ -161,10 +37,10 @@ pub struct Track {
     read: AtomicUsize,
 
     /// Used in the inverted case to mark the end of the
-    /// readable streak. Otherwise will == self.buf.len().
+    /// readable streak. Otherwise will == unsafe { (*self.buf.get()).len() }.
     /// Writer is responsible for placing this at the correct
     /// place when entering an inverted condition, and Reader
-    /// is responsible for moving it back to self.buf.len()
+    /// is responsible for moving it back to unsafe { (*self.buf.get()).len() }
     /// when exiting the inverted condition
     last: AtomicUsize,
 
@@ -175,22 +51,6 @@ pub struct Track {
 
     /// Is there an active read grant?
     read_in_progress: bool,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GrantW {
-    pub buf: &'static mut [u8],
-
-    // Zero sized type preventing external construction
-    internal: (),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GrantR {
-    pub buf: &'static [u8],
-
-    // Zero sized type preventing external construction
-    internal: (),
 }
 
 impl Track {
@@ -214,16 +74,23 @@ impl Track {
     }
 }
 
-impl<'bbq, N> BBQueue<N> where
-    N: ArrayLength<u8>
-{
-    pub fn new() -> Self {
-        let buf: GenericArray<u8, N> = unsafe { core::mem::uninitialized() };
+#[derive(Debug)]
+pub struct BBQueue<'a> {
+    pub buf: UnsafeCell<&'a mut [u8]>,
+    is_split: bool,
+    trk: Track,
+    prod_token: (),
+    cons_token: (),
+}
 
+impl<'a> BBQueue<'a> {
+    pub fn new(buf: &'static mut [u8]) -> Self {
         BBQueue {
             trk: Track::new(buf.len()),
-            buf,
+            buf: UnsafeCell::new(buf),
             is_split: false,
+            cons_token: (),
+            prod_token: (),
         }
     }
 
@@ -243,7 +110,7 @@ impl<'bbq, N> BBQueue<N> where
         }
 
         let read = self.trk.read.load(Acquire);
-        let max = self.buf.len();
+        let max = unsafe { (*self.buf.get()).len() };
 
         let already_inverted = write < read;
 
@@ -279,7 +146,7 @@ impl<'bbq, N> BBQueue<N> where
         self.trk.reserve = start + sz;
 
         Ok(GrantW {
-            buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
+            buf: unsafe { from_raw_parts_mut(&mut unsafe { (*self.buf.get())[start] }, sz) },
             internal: (),
         })
     }
@@ -302,7 +169,7 @@ impl<'bbq, N> BBQueue<N> where
         }
 
         let read = self.trk.read.load(Acquire);
-        let max = self.buf.len();
+        let max = unsafe { (*self.buf.get()).len() };
 
         let already_inverted = write < read;
 
@@ -342,7 +209,7 @@ impl<'bbq, N> BBQueue<N> where
         self.trk.reserve = start + sz;
 
         Ok(GrantW {
-            buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
+            buf: unsafe { from_raw_parts_mut(&mut unsafe { (*self.buf.get())[start] }, sz) },
             internal: (),
         })
     }
@@ -365,7 +232,7 @@ impl<'bbq, N> BBQueue<N> where
         self.trk.reserve -= len - used;
 
         // Inversion case, we have begun writing
-        if (self.trk.reserve < write) && (write != self.buf.len()) {
+        if (self.trk.reserve < write) && (write != unsafe { (*self.buf.get()).len() }) {
             // This has potential for danger. We have two writers!
             // MOVING LAST BACKWARDS
             self.trk.last.store(write, Release);
@@ -389,7 +256,7 @@ impl<'bbq, N> BBQueue<N> where
         let write = self.trk.write.load(Acquire);
         let mut last = self.trk.last.load(Acquire);
         let mut read = self.trk.read.load(Relaxed);
-        let max = self.buf.len();
+        let max = unsafe { (*self.buf.get()).len() };
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -426,7 +293,7 @@ impl<'bbq, N> BBQueue<N> where
         self.trk.read_in_progress = true;
 
         Ok(GrantR {
-            buf: unsafe { from_raw_parts(&self.buf[read], sz) },
+            buf: unsafe { from_raw_parts(&unsafe { (*self.buf.get())[read] }, sz) },
             internal: (),
         })
     }
@@ -445,3 +312,123 @@ impl<'bbq, N> BBQueue<N> where
         self.trk.read_in_progress = false;
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub struct GrantW {
+    pub buf: &'static mut [u8],
+
+    // Zero sized type preventing external construction
+    internal: (),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct GrantR {
+    pub buf: &'static [u8],
+
+    // Zero sized type preventing external construction
+    internal: (),
+}
+
+/// An opaque structure, capable of reading data from the queue
+unsafe impl<'a> Send for Consumer<'a> {}
+pub struct Consumer<'a> {
+    /// The underlying `BBQueue` object`
+    pub bbq: NonNull<BBQueue<'a>>,
+    token: &'a mut (),
+}
+
+/// An opaque structure, capable of writing data to the queue
+unsafe impl<'a> Send for Producer<'a> {}
+pub struct Producer<'a> {
+    /// The underlying `BBQueue` object`
+    pub bbq: NonNull<BBQueue<'a>>,
+    token: &'a mut (),
+}
+
+impl<'a> BBQueue<'a> {
+    /// This method takes a `BBQueue`, and returns a set of SPSC handles
+    /// that may be given to separate threads
+    pub fn split(&'a mut self) -> (Producer<'a>, Consumer<'a>) {
+        assert!(!self.is_split);
+
+        let x = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
+        let y = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
+
+
+        let mut ret = (
+            Producer {
+                bbq: x,
+                // ltr: PhantomData,
+                token: &mut self.prod_token,
+            },
+            Consumer {
+                bbq: y,
+                // ltr: PhantomData,
+                token: &mut self.cons_token,
+            },
+        );
+        ret
+    }
+}
+
+impl<'a> Producer<'a> {
+    /// Request a writable, contiguous section of memory of exactly
+    /// `sz` bytes. If the buffer size requested is not available,
+    /// an error will be returned.
+    #[inline(always)]
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
+        unsafe { self.bbq.as_mut().grant(sz) }
+    }
+
+    /// Request a writable, contiguous section of memory of up to
+    /// `sz` bytes. If a buffer of size `sz` is not available, but
+    /// some space (0 < available < sz) is available, then a grant
+    /// will be given for the remaining size. If no space is available
+    /// for writing, an error will be returned
+    #[inline(always)]
+    pub fn grant_max(&mut self, sz: usize) -> Result<GrantW> {
+        unsafe { self.bbq.as_mut().grant_max(sz) }
+    }
+
+    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
+    /// This makes the data available to be read via `read()`.
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
+    #[inline(always)]
+    pub fn commit(&mut self, used: usize, grant: GrantW) {
+        unsafe { self.bbq.as_mut().commit(used, grant) }
+    }
+}
+
+impl<'a> Consumer<'a> {
+    /// Obtains a contiguous slice of committed bytes. This slice may not
+    /// contain ALL available bytes, if the writer has wrapped around. The
+    /// remaining bytes will be available after all readable bytes are
+    /// released
+    ///
+    /// NOTE: For now, it is possible to have multiple read grants. However,
+    /// care must be taken NOT to do something like this:
+    ///
+    /// ```rust,skip
+    /// let grant_1 = bbq.read();
+    /// let grant_2 = bbq.read();
+    /// bbq.release(grant_1.buf.len(), grant1); // OK, but now `grant_2` is invalid
+    /// bbq.release(grant_2.buf.len(), grant2); // UNDEFINED BEHAVIOR!
+    /// ```
+    ///
+    /// This behavior will be fixed in later releases
+    #[inline(always)]
+    pub fn read(&mut self) -> Result<GrantR> {
+        unsafe { self.bbq.as_mut().read() }
+    }
+
+    /// Release a sequence of bytes from the buffer, allowing the space
+    /// to be used by later writes
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
+    #[inline(always)]
+    pub fn release(&mut self, used: usize, grant: GrantR) {
+        unsafe { self.bbq.as_mut().release(used, grant) }
+    }
+}
+
