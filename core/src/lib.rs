@@ -19,7 +19,7 @@ pub use generic_array::typenum as typenum;
 
 pub type Result<T> = CoreResult<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Error {
     InsufficientSize,
     GrantInProgress,
@@ -130,7 +130,7 @@ impl<'a, N> Consumer<'a, N> where
     ///
     /// This behavior will be fixed in later releases
     #[inline(always)]
-    pub fn read(&mut self) -> GrantR {
+    pub fn read(&mut self) -> Result<GrantR> {
         unsafe { self.bbq.as_mut().read() }
     }
 
@@ -164,15 +164,18 @@ pub struct Track {
     /// allowed to be written to, but are not yet ready to be
     /// read from
     reserve: usize,
+
+    /// Is there an active read grant?
+    read_in_progress: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GrantW {
     // TODO, how to tie this to the lifetime of BBQueue?
     pub buf: &'static mut [u8],
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GrantR {
     // TODO, how to tie this to the lifetime of BBQueue?
     pub buf: &'static [u8],
@@ -192,6 +195,9 @@ impl Track {
 
             /// Owned by the Writer, "private"
             reserve: 0,
+
+            /// Owned by the Reader, "private"
+            read_in_progress: false,
         }
     }
 }
@@ -360,20 +366,11 @@ impl<'bbq, N> BBQueue<N> where
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
     /// released
-    ///
-    /// NOTE: For now, it is possible to have multiple read grants. However,
-    /// care must be taken NOT to do something like this:
-    ///
-    /// ```rust,skip
-    /// let grant_1 = bbq.read();
-    /// let grant_2 = bbq.read();
-    /// bbq.release(grant_1.buf.len(), grant1); // OK, but now `grant_2` is invalid
-    /// bbq.release(grant_2.buf.len(), grant2); // UNDEFINED BEHAVIOR!
-    /// ```
-    ///
-    /// This behavior will be fixed in later releases
-    pub fn read(&mut self) -> GrantR {
-        // TODO: Ensure only one read grant is live at a given time!
+    pub fn read(&mut self) -> Result<GrantR> {
+        if self.trk.read_in_progress {
+            return Err(Error::GrantInProgress);
+        }
+
         let write = self.trk.write.load(Acquire);
         let mut last = self.trk.last.load(Acquire);
         let mut read = self.trk.read.load(Relaxed);
@@ -407,13 +404,15 @@ impl<'bbq, N> BBQueue<N> where
             write
         } - read;
 
-        GrantR {
-            buf: if read == max {
-                &[]
-            } else {
-                unsafe { from_raw_parts(&self.buf[read], sz) }
-            },
+        if sz == 0 {
+            return Err(Error::InsufficientSize);
         }
+
+        self.trk.read_in_progress = true;
+
+        Ok(GrantR {
+            buf: unsafe { from_raw_parts(&self.buf[read], sz) },
+        })
     }
 
     /// Release a sequence of bytes from the buffer, allowing the space
@@ -426,5 +425,7 @@ impl<'bbq, N> BBQueue<N> where
 
         // This should be fine, purely incrementing
         let _ = self.trk.read.fetch_add(used, Release);
+
+        self.trk.read_in_progress = false;
     }
 }

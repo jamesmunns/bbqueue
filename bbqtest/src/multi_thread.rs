@@ -5,6 +5,7 @@ mod tests {
     use std::time::{Duration, Instant};
     use bbqueue::{
         BBQueue,
+        Error,
         typenum::*,
     };
 
@@ -105,10 +106,12 @@ mod tests {
                         println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
                         panic!("rx timeout, iter {}", i);
                     }
-                    let gr = rx.read();
-                    if gr.buf.is_empty() {
-                        continue 'inner;
-                    }
+                    let gr = match rx.read() {
+                        Ok(gr) => gr,
+                        Err(Error::InsufficientSize) => continue 'inner,
+                        Err(_) => panic!(),
+                    };
+
                     // println!("Pop  {}: {:?}", _idx, gr.buf);
                     let act = gr.buf[0] as u8;
                     let exp = i;
@@ -192,10 +195,11 @@ mod tests {
                     panic!("rx timeout, iter {}", i);
                 }
 
-                let gr = rx.read();
-                if gr.buf.is_empty() {
-                    continue;
-                }
+                let gr = match rx.read() {
+                    Ok(gr) => gr,
+                    Err(Error::InsufficientSize) => continue,
+                    Err(_) => panic!(),
+                };
 
                 for data in gr.buf {
                     let act = *data;
@@ -296,10 +300,12 @@ mod tests {
                         println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
                         panic!("rx timeout");
                     }
-                    let gr = rx.read();
-                    if gr.buf.is_empty() {
-                        continue 'inner;
-                    }
+                    let gr = match rx.read() {
+                        Ok(gr) => gr,
+                        Err(Error::InsufficientSize) => continue 'inner,
+                        Err(_) => panic!(),
+                    };
+
                     // println!("rdlen: {}", gr.buf.len());
                     let act = gr.buf[0];
                     let exp = data_rx.pop().unwrap();
