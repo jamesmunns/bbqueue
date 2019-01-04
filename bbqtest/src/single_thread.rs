@@ -33,7 +33,7 @@ mod tests {
 
             // eprintln!("COMIT: {:?}", bb);
 
-            let rgr = bb.read();
+            let rgr = bb.read().unwrap();
 
             // eprintln!("READ : {:?}", bb);
 
