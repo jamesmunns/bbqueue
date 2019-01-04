@@ -14,7 +14,7 @@ use core::sync::atomic::{
         Release,
     },
 };
-use generic_array::{GenericArray, ArrayLength};
+pub use generic_array::{GenericArray, ArrayLength};
 pub use generic_array::typenum as typenum;
 
 pub type Result<T> = CoreResult<T, Error>;
