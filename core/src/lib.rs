@@ -171,14 +171,18 @@ pub struct Track {
 
 #[derive(Debug, PartialEq)]
 pub struct GrantW {
-    // TODO, how to tie this to the lifetime of BBQueue?
     pub buf: &'static mut [u8],
+
+    // Zero sized type preventing external construction
+    internal: (),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct GrantR {
-    // TODO, how to tie this to the lifetime of BBQueue?
     pub buf: &'static [u8],
+
+    // Zero sized type preventing external construction
+    internal: (),
 }
 
 impl Track {
@@ -267,6 +271,7 @@ impl<'bbq, N> BBQueue<N> where
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
+            internal: (),
         })
     }
 
@@ -329,6 +334,7 @@ impl<'bbq, N> BBQueue<N> where
 
         Ok(GrantW {
             buf: unsafe { from_raw_parts_mut(&mut self.buf[start], sz) },
+            internal: (),
         })
     }
 
@@ -412,6 +418,7 @@ impl<'bbq, N> BBQueue<N> where
 
         Ok(GrantR {
             buf: unsafe { from_raw_parts(&self.buf[read], sz) },
+            internal: (),
         })
     }
 
