@@ -30,6 +30,7 @@ pub struct BBQueue<N> where
     N: ArrayLength<u8>
 {
     pub buf: GenericArray<u8, N>,
+    is_split: bool,
     trk: Track,
 }
 
@@ -43,7 +44,7 @@ pub struct Producer<'bbq, N> where
     pub bbq: NonNull<BBQueue<N>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq ()>,
+    ltr: PhantomData<&'bbq BBQueue<N>>,
 }
 
 /// An opaque structure, capable of reading data from the queue
@@ -57,7 +58,7 @@ pub struct Consumer<'bbq, N>  where
     pub bbq: NonNull<BBQueue<N>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq ()>,
+    ltr: PhantomData<&'bbq BBQueue<N>>,
 }
 
 impl<'bbq, N> BBQueue<N> where
@@ -66,7 +67,9 @@ impl<'bbq, N> BBQueue<N> where
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
     pub fn split(&'bbq self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
-        (
+        assert!(!self.is_split);
+
+        let mut ret = (
             Producer {
                 bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                 ltr: PhantomData,
@@ -75,7 +78,12 @@ impl<'bbq, N> BBQueue<N> where
                 bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
                 ltr: PhantomData,
             },
-        )
+        );
+
+        // Well, this is awful. I can't set the flag if we use a mut ref above, but that makes
+        // Let's just kick off our unsafe usage quickly, why don't we?
+        unsafe { ret.0.bbq.as_mut().is_split = true };
+        ret
     }
 }
 
@@ -215,6 +223,7 @@ impl<'bbq, N> BBQueue<N> where
         BBQueue {
             trk: Track::new(buf.len()),
             buf,
+            is_split: false,
         }
     }
 
