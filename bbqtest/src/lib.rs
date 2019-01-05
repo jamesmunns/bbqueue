@@ -16,7 +16,9 @@ mod tests {
 
     #[test]
     fn create_queue() {
-        let _b: BBQueue<U6> = BBQueue::new();
+        let mut _b: BBQueue<U6> = BBQueue::new();
+        let (_prod, _cons) = _b.split();
+        let (_pro2, _con2) = _b.split();
     }
 
     #[test]
@@ -104,7 +106,7 @@ mod tests {
 
     #[test]
     fn spsc_usage_sanity() {
-        let bb: BBQueue<U6> = BBQueue::new();
+        let mut bb: BBQueue<U6> = BBQueue::new();
 
         let (mut tx, mut rx) = bb.split();
         assert_eq!(rx.read(), Err(BBQError::InsufficientSize));

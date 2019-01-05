@@ -1,7 +1,6 @@
 #![no_std]
 
 use core::cmp::min;
-use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::result::Result as CoreResult;
 use core::slice::from_raw_parts;
@@ -31,6 +30,8 @@ pub struct BBQueue<N> where
 {
     pub buf: GenericArray<u8, N>,
     trk: Track,
+    prod_token: (),
+    cons_token: (),
 }
 
 /// An opaque structure, capable of writing data to the queue
@@ -43,7 +44,7 @@ pub struct Producer<'bbq, N> where
     pub bbq: NonNull<BBQueue<N>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq ()>,
+    _ltr: &'bbq (),
 }
 
 /// An opaque structure, capable of reading data from the queue
@@ -57,7 +58,7 @@ pub struct Consumer<'bbq, N>  where
     pub bbq: NonNull<BBQueue<N>>,
 
     /// Phantom data retaining the lifetime of the reference to the `BBQueue`
-    ltr: PhantomData<&'bbq ()>,
+    _ltr: &'bbq (),
 }
 
 impl<'bbq, N> BBQueue<N> where
@@ -65,15 +66,15 @@ impl<'bbq, N> BBQueue<N> where
 {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
-    pub fn split(&'bbq self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
+    pub fn split(&'bbq mut self) -> (Producer<'bbq, N>, Consumer<'bbq, N>) {
         (
             Producer {
                 bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
-                ltr: PhantomData,
+                _ltr: &self.prod_token,
             },
             Consumer {
                 bbq: unsafe { NonNull::new_unchecked(self as *const _ as *mut _) },
-                ltr: PhantomData,
+                _ltr: &self.cons_token,
             },
         )
     }
@@ -215,6 +216,8 @@ impl<'bbq, N> BBQueue<N> where
         BBQueue {
             trk: Track::new(buf.len()),
             buf,
+            prod_token: (),
+            cons_token: (),
         }
     }
 
