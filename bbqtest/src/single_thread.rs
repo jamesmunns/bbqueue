@@ -2,13 +2,13 @@
 mod tests {
     use bbqueue::{
         BBQueue,
-        typenum::*,
     };
 
     // AJM: This test hangs/fails!
     #[test]
     fn sanity_check() {
-        let mut bb: BBQueue<U6> = BBQueue::new();
+        static mut DATA: [u8; 6] = [0u8; 6];
+        let mut bb = BBQueue::new(unsafe { &mut DATA });
 
         const ITERS: usize = 100000;
 

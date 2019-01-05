@@ -1,8 +1,8 @@
 //! NOTE: this crate is really just a shim for testing
 //! the other no-std crate.
 
-// mod multi_thread;
-// mod single_thread;
+mod multi_thread;
+mod single_thread;
 
 #[cfg(test)]
 mod tests {
@@ -10,18 +10,20 @@ mod tests {
         BBQueue,
         Error as BBQError,
     };
-    use generic_array::{
-        typenum::*,
-    };
-
-
 
     #[test]
     fn create_queue() {
+        // Create queue using "no_std" style
         static mut DATA: [u8; 6] = [0u8; 6];
         let mut _b = BBQueue::new(unsafe { &mut DATA });
-        let (prod, cons) = _b.split();
-        // let (prod2, cons2) = _b.split();
+        let (_prod, _cons) = _b.split();
+    }
+
+    #[test]
+    fn create_boxed_queue() {
+        // Create queue using leaky "boxed" style
+        let bbq = BBQueue::new_boxed(1024);
+        let (_prod, _cons) = BBQueue::split_box(bbq);
     }
 
     #[test]
