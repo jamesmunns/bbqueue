@@ -354,7 +354,6 @@ impl<'a> BBQueue<'a> {
         let x = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
         let y = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
 
-
         let mut ret = (
             Producer {
                 bbq: x,
