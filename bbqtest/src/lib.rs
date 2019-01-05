@@ -18,7 +18,9 @@ mod tests {
     fn create_queue() {
         let mut _b: BBQueue<U6> = BBQueue::new();
         let (_prod, _cons) = _b.split();
-        let (_pro2, _con2) = _b.split();
+
+        // This doesn't work!
+        // let (_pro2, _con2) = _b.split();
     }
 
     #[test]
