@@ -27,9 +27,9 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct BBQueue<'a> {
+pub struct BBQueue {
     // Underlying data storage
-    buf: UnsafeCell<&'a mut [u8]>,
+    buf: NonNull<[u8]>,
 
     // These ZSTs are used to tie the lifetime of the Producer and Consumer
     //   back to the original structure. We have two tokens, so we can simultaneously
@@ -44,10 +44,10 @@ pub struct BBQueue<'a> {
     read: AtomicUsize,
 
     /// Used in the inverted case to mark the end of the
-    /// readable streak. Otherwise will == unsafe { (*self.buf.get()).len() }.
+    /// readable streak. Otherwise will == unsafe { self.buf.as_mut().len() }.
     /// Writer is responsible for placing this at the correct
     /// place when entering an inverted condition, and Reader
-    /// is responsible for moving it back to unsafe { (*self.buf.get()).len() }
+    /// is responsible for moving it back to unsafe { self.buf.as_mut().len() }
     /// when exiting the inverted condition
     last: AtomicUsize,
 
@@ -63,12 +63,12 @@ pub struct BBQueue<'a> {
     already_split: AtomicBool,
 }
 
-impl<'a> BBQueue<'a> {
+impl BBQueue {
     pub fn new(buf: &'static mut [u8]) -> Self {
         let sz = buf.len();
         assert!(sz != 0);
         BBQueue {
-            buf: UnsafeCell::new(buf),
+            buf: unsafe { NonNull::new_unchecked(buf) },
             cons_token: (),
             prod_token: (),
 
@@ -94,7 +94,7 @@ impl<'a> BBQueue<'a> {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
-    pub fn grant(&self, sz: usize) -> Result<GrantW> {
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
 
@@ -107,7 +107,7 @@ impl<'a> BBQueue<'a> {
         }
 
         let read = self.read.load(Acquire);
-        let max = unsafe { (*self.buf.get()).len() };
+        let max = unsafe { self.buf.as_mut().len() };
 
         let already_inverted = write < read;
 
@@ -142,7 +142,7 @@ impl<'a> BBQueue<'a> {
         // Safe write, only viewed by this task
         self.reserve.store(start + sz, Relaxed);
 
-        let c = unsafe { (*self.buf.get()).as_mut_ptr() };
+        let c = unsafe { self.buf.as_mut().as_mut_ptr() };
         let d = unsafe { from_raw_parts_mut(c, max) };
 
         Ok(GrantW {
@@ -156,7 +156,7 @@ impl<'a> BBQueue<'a> {
     /// some space (0 < available < sz) is available, then a grant
     /// will be given for the remaining size. If no space is available
     /// for writing, an error will be returned
-    pub fn grant_max(&self, mut sz: usize) -> Result<GrantW> {
+    pub fn grant_max(&mut self, mut sz: usize) -> Result<GrantW> {
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
 
@@ -169,7 +169,7 @@ impl<'a> BBQueue<'a> {
         }
 
         let read = self.read.load(Acquire);
-        let max = unsafe { (*self.buf.get()).len() };
+        let max = unsafe { self.buf.as_mut().len() };
 
         let already_inverted = write < read;
 
@@ -208,7 +208,7 @@ impl<'a> BBQueue<'a> {
         // Safe write, only viewed by this task
         self.reserve.store(start + sz, Relaxed);
 
-        let c = unsafe { (*self.buf.get()).as_mut_ptr() };
+        let c = unsafe { self.buf.as_mut().as_mut_ptr() };
         let d = unsafe { from_raw_parts_mut(c, max) };
 
 
@@ -222,7 +222,7 @@ impl<'a> BBQueue<'a> {
     /// This makes the data available to be read via `read()`.
     ///
     /// If `used` is larger than the given grant, this function will panic.
-    pub fn commit(&self, used: usize, grant: GrantW) {
+    pub fn commit(&mut self, used: usize, grant: GrantW) {
         // Writer component. Must never write to READ,
         // be careful writing to LAST
 
@@ -236,7 +236,7 @@ impl<'a> BBQueue<'a> {
         self.reserve.fetch_sub(len - used, Relaxed);
 
         // Inversion case, we have begun writing
-        if (self.reserve.load(Relaxed) < write) && (write != unsafe { (*self.buf.get()).len() }) {
+        if (self.reserve.load(Relaxed) < write) && (write != unsafe { self.buf.as_mut().len() }) {
             // This has potential for danger. We have two writers!
             // MOVING LAST BACKWARDS
             self.last.store(write, Release);
@@ -252,7 +252,7 @@ impl<'a> BBQueue<'a> {
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
     /// released
-    pub fn read(&self) -> Result<GrantR> {
+    pub fn read(&mut self) -> Result<GrantR> {
         if self.read_in_progress.load(Relaxed) {
             return Err(Error::GrantInProgress);
         }
@@ -260,7 +260,7 @@ impl<'a> BBQueue<'a> {
         let write = self.write.load(Acquire);
         let mut last = self.last.load(Acquire);
         let mut read = self.read.load(Relaxed);
-        let max = unsafe { (*self.buf.get()).len() };
+        let max = unsafe { self.buf.as_mut().len() };
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -296,7 +296,7 @@ impl<'a> BBQueue<'a> {
 
         self.read_in_progress.store(true, Relaxed);
 
-        let c = unsafe { (*self.buf.get()).as_ptr() };
+        let c = unsafe { self.buf.as_mut().as_ptr() };
         let d = unsafe { from_raw_parts(c, max) };
 
         Ok(GrantR {
@@ -320,10 +320,10 @@ impl<'a> BBQueue<'a> {
     }
 }
 
-impl<'a> BBQueue<'a> {
+impl BBQueue {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads
-    pub fn split(&'a self) -> (Producer<'a>, Consumer<'a>) {
+    pub fn split(&self) -> (Producer, Consumer) {
         assert!(
             !unsafe { self.already_split.load(Relaxed) }
         );
@@ -348,13 +348,13 @@ impl<'a> BBQueue<'a> {
 }
 
 #[cfg(feature = "std")]
-impl BBQueue<'static> {
+impl BBQueue {
     pub fn new_boxed(capacity: usize) -> Box<Self> {
         let mut data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
         Box::new(Self::new(data))
     }
 
-    pub fn split_box(queue: Box<Self>) -> (Producer<'static>, Consumer<'static>) {
+    pub fn split_box(queue: Box<Self>) -> (Producer, Consumer) {
         let self_ref = Box::leak(queue);
         Self::split(self_ref)
     }
@@ -377,20 +377,20 @@ pub struct GrantR {
 }
 
 /// An opaque structure, capable of reading data from the queue
-unsafe impl<'a> Send for Consumer<'a> {}
-pub struct Consumer<'a> {
+unsafe impl Send for Consumer {}
+pub struct Consumer {
     /// The underlying `BBQueue` object`
-    bbq: NonNull<BBQueue<'a>>,
+    bbq: NonNull<BBQueue>,
 }
 
 /// An opaque structure, capable of writing data to the queue
-unsafe impl<'a> Send for Producer<'a> {}
-pub struct Producer<'a> {
+unsafe impl Send for Producer {}
+pub struct Producer {
     /// The underlying `BBQueue` object`
-    bbq: NonNull<BBQueue<'a>>,
+    bbq: NonNull<BBQueue>,
 }
 
-impl<'a> Producer<'a> {
+impl Producer {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
@@ -419,7 +419,7 @@ impl<'a> Producer<'a> {
     }
 }
 
-impl<'a> Consumer<'a> {
+impl Consumer {
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
