@@ -1,3 +1,99 @@
+//! # BBQueue
+//!
+//! BBQueue, short for "BipBuffer Queue", is a (work in progress) Single Producer Single Consumer,
+//! lockless, no_std, thread safe, queue, based on [BipBuffers].
+//!
+//! [BipBuffers]: https://www.codeproject.com/Articles/3479/%2FArticles%2F3479%2FThe-Bip-Buffer-The-Circular-Buffer-with-a-Twist
+//!
+//! It is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded
+//! systems.
+//!
+//! While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to
+//! main code), you must push the data one piece at a time. With BBQueue, you instead are granted a
+//! block of contiguous memory, which can be filled (or emptied) by a DMA engine.
+//!
+//! ## Using in a single threaded context
+//!
+//! ```rust
+//! use bbqueue::{BBQueue, bbq};
+//!
+//! fn main() {
+//!     // Create a statically allocated instance
+//!     let bbq = bbq!(1024).unwrap();
+//!
+//!     // Obtain a write grant of size 128 bytes
+//!     let wgr = bbq.grant(128).unwrap();
+//!
+//!     // Fill the buffer with data
+//!     wgr.buf.copy_from_slice(&[0xAFu8; 128]);
+//!
+//!     // Commit the write, to make the data available to be read
+//!     bbq.commit(wgr.buf.len(), wgr);
+//!
+//!     // Obtain a read grant of all available and contiguous bytes
+//!     let rgr = bbq.read().unwrap();
+//!
+//!     for i in 0..128 {
+//!         assert_eq!(rgr.buf[i], 0xAFu8);
+//!     }
+//!
+//!     // Release the bytes, allowing the space
+//!     // to be re-used for writing
+//!     bbq.release(rgr.buf.len(), rgr);
+//! }
+//! ```
+//!
+//! ## Using in a multi-threaded environment (or with interrupts, etc.)
+//!
+//! ```rust
+//! use bbqueue::{BBQueue, bbq};
+//! use std::thread::spawn;
+//!
+//! fn main() {
+//!     // Create a statically allocated instance
+//!     let bbq = bbq!(1024).unwrap();
+//!     let (mut tx, mut rx) = bbq.split();
+//!
+//!     let txt = spawn(move || {
+//!         for tx_i in 0..128 {
+//!             'inner: loop {
+//!                 match tx.grant(4) {
+//!                     Ok(gr) => {
+//!                         gr.buf.copy_from_slice(&[tx_i as u8; 4]);
+//!                         tx.commit(4, gr);
+//!                         break 'inner;
+//!                     }
+//!                     _ => {}
+//!                 }
+//!             }
+//!         }
+//!     });
+//!
+//!     let rxt = spawn(move || {
+//!         for rx_i in 0..128 {
+//!             'inner: loop {
+//!                 match rx.read() {
+//!                     Ok(gr) => {
+//!                         if gr.buf.len() < 4 {
+//!                             rx.release(0, gr);
+//!                             continue 'inner;
+//!                         }
+//!
+//!                         assert_eq!(&gr.buf[..4], &[rx_i as u8; 4]);
+//!                         rx.release(4, gr);
+//!                         break 'inner;
+//!                     }
+//!                     _ => {}
+//!                 }
+//!             }
+//!         }
+//!     });
+//!
+//!     txt.join().unwrap();
+//!     rxt.join().unwrap();
+//! }
+//! ```
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unused)]
 
@@ -18,14 +114,17 @@ use core::sync::atomic::{
 };
 use core::cell::UnsafeCell;
 
+/// Result type used by the `BBQueue` interfaces
 pub type Result<T> = CoreResult<T, Error>;
 
+/// Error type used by the `BBQueue` interfaces
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Error {
     InsufficientSize,
     GrantInProgress,
 }
 
+/// A single producer, single consumer, thread safe queue
 #[derive(Debug)]
 pub struct BBQueue {
     // Underlying data storage
@@ -64,6 +163,13 @@ pub struct BBQueue {
 }
 
 impl BBQueue {
+    /// Create a new BBQueue with a given backing buffer. After giving this
+    /// buffer to `BBQueue::new(), the backing buffer must not be used, or
+    /// undefined behavior could occur!
+    ///
+    /// Consider using the `bbq!()` macro to safely create a statically
+    /// allocated instance, or enable the "std" feature, and instead use the
+    /// `BBQueue::new_boxed()` constructor.
     pub fn new(buf: &'static mut [u8]) -> Self {
         let sz = buf.len();
         assert!(sz != 0);
@@ -322,44 +428,46 @@ impl BBQueue {
 
 impl BBQueue {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
-    /// that may be given to separate threads
+    /// that may be given to separate threads. May only be called once
+    /// per `BBQueue` object, or this function will panic
     pub fn split(&self) -> (Producer, Consumer) {
-        assert!(
-            !unsafe { self.already_split.load(Relaxed) }
-        );
+        assert!(!self.already_split.swap(true, Relaxed));
 
         let nn1 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
         let nn2 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
 
-        // update the split
-
-
-
-        let mut ret = (
+        (
             Producer {
                 bbq: nn1,
             },
             Consumer {
                 bbq: nn2,
             },
-        );
-        ret
+        )
     }
 }
 
 #[cfg(feature = "std")]
 impl BBQueue {
+    /// Creates a Boxed `BBQueue`
+    ///
+    /// NOTE: This function essentially "leaks" the backing buffer
+    /// (e.g. `BBQueue::new_boxed(1024)` will leak 1024 bytes). This
+    /// may be changed in the future.
     pub fn new_boxed(capacity: usize) -> Box<Self> {
         let mut data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
         Box::new(Self::new(data))
     }
 
+    /// Splits a boxed `BBQueue` into a producer and consumer
     pub fn split_box(queue: Box<Self>) -> (Producer, Consumer) {
         let self_ref = Box::leak(queue);
         Self::split(self_ref)
     }
 }
 
+/// A structure representing a contiguous region of memory that
+/// may be written to, and potentially "committed" to the queue
 #[derive(Debug, PartialEq)]
 pub struct GrantW {
     pub buf: &'static mut [u8],
@@ -368,6 +476,9 @@ pub struct GrantW {
     internal: (),
 }
 
+/// A structure representing a contiguous region of memory that
+/// may be read from, and potentially "released" (or cleared)
+/// from the queue
 #[derive(Debug, PartialEq)]
 pub struct GrantR {
     pub buf: &'static [u8],
@@ -376,15 +487,17 @@ pub struct GrantR {
     internal: (),
 }
 
-/// An opaque structure, capable of reading data from the queue
 unsafe impl Send for Consumer {}
+
+/// An opaque structure, capable of reading data from the queue
 pub struct Consumer {
     /// The underlying `BBQueue` object`
     bbq: NonNull<BBQueue>,
 }
 
-/// An opaque structure, capable of writing data to the queue
 unsafe impl Send for Producer {}
+
+/// An opaque structure, capable of writing data to the queue
 pub struct Producer {
     /// The underlying `BBQueue` object`
     bbq: NonNull<BBQueue>,
@@ -439,6 +552,27 @@ impl Consumer {
     }
 }
 
+/// Statically allocate a `BBQueue` singleton object with a given size (in bytes).
+///
+/// This function must only ever be called once in the same place
+/// per function. For example:
+///
+/// ```rust,ignore
+/// // this creates two separate/distinct buffers, and is an acceptable usage
+/// let bbq1 = bbq!(1024).unwrap(); // Returns Some(BBQueue)
+/// let bbq2 = bbq!(1024).unwrap(); // Returns Some(BBQueue)
+///
+/// // this is a bad example, as the same instance is executed twice!
+/// // On the first call, this macro will return `Some(BBQueue)`. On the
+/// // second call, this macro will return `None`!
+/// for _ in 0..2 {
+///     let _ = bbq!(1024).unwrap();
+/// }
+///
+/// Additionally: this macro is not intrinsically thread safe! You must ensure that
+/// calls to this macro happen "atomically"/in a "critical section", or in
+/// a single-threaded context. If you are using this in a cortex-m
+/// microcontroller system, consider using the cortex_m_bbq!() macro instead.
 #[macro_export]
 macro_rules! bbq {
     ($expr:expr) => {
@@ -456,6 +590,8 @@ macro_rules! bbq {
     }
 }
 
+/// Like the `bbq!()` macro, but wraps the initialization in a cortex-m
+/// "critical section" by disabling interrupts
 #[cfg_attr(feature="cortex-m", macro_export)]
 macro_rules! cortex_m_bbq {
     ($expr:expr) => {
