@@ -6,7 +6,6 @@ mod tests {
     use bbqueue::{
         BBQueue,
         Error,
-        typenum::*,
     };
 
     #[cfg(feature = "travisci")]
@@ -14,10 +13,9 @@ mod tests {
     #[cfg(not(feature = "travisci"))]
     const ITERS: usize = 10_000_000;
 
-    type QueueSize = U1024;
-
     const RPT_IVAL: usize = ITERS / 100;
 
+    const QUEUE_SIZE: usize = 1024;
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
 
     #[test]
@@ -44,15 +42,11 @@ mod tests {
             chunks.push(data.split_off(data.len() - chunk_sz));
         }
 
-        // println!("{:?}", chunks);
-        // println!("{:?}", data_rx);
-
         println!("RTX: Generation complete: {:?}", gen_start.elapsed());
         println!("RTX: Running test...");
 
-        let bbl: BBQueue<QueueSize> = BBQueue::new();
-        let bbl = Box::leak(Box::new(bbl));
-        let (mut tx, mut rx) = bbl.split();
+        let bbq = BBQueue::new_boxed(QUEUE_SIZE);
+        let (mut tx, mut rx) = BBQueue::split_box(bbq);
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();
@@ -68,7 +62,6 @@ mod tests {
 
                 while !semichunk.is_empty() {
                     if last_tx.elapsed() > TIMEOUT_NODATA {
-                        println!("DEADLOCK DUMP, TX: {:?}", unsafe { tx.bbq.as_ref() });
                         panic!("tx timeout, iter {}", i);
                     }
 
@@ -101,9 +94,7 @@ mod tests {
 
             for (_idx, i) in data_rx.drain(..).enumerate() {
                 'inner: loop {
-                    // ::std::sync::atomic::fence(::std::sync::atomic::Ordering::SeqCst);
                     if last_rx.elapsed() > TIMEOUT_NODATA {
-                        println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
                         panic!("rx timeout, iter {}", i);
                     }
                     let gr = match rx.read() {
@@ -112,7 +103,6 @@ mod tests {
                         Err(_) => panic!(),
                     };
 
-                    // println!("Pop  {}: {:?}", _idx, gr.buf);
                     let act = gr.buf[0] as u8;
                     let exp = i;
                     if act != exp {
@@ -142,9 +132,9 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        let bbl: BBQueue<QueueSize> = BBQueue::new();
-        let bbl = Box::leak(Box::new(bbl));
-        let panny = format!("{:p}", &bbl.buf[0]);
+        static mut DATA: [u8; QUEUE_SIZE] = [0u8; QUEUE_SIZE];
+        let bb = Box::new(BBQueue::new(unsafe { &mut DATA }));
+        let bbl = Box::leak(bb);
         let (mut tx, mut rx) = bbl.split();
 
         let mut last_tx = Instant::now();
@@ -158,7 +148,6 @@ mod tests {
             for i in 0..ITERS {
                 'inner: loop {
                     if last_tx.elapsed() > TIMEOUT_NODATA {
-                        println!("DEADLOCK DUMP, TX: {:?}", unsafe { tx.bbq.as_ref() });
                         panic!("tx timeout, iter {}", i);
                     }
                     match tx.grant(1) {
@@ -191,7 +180,6 @@ mod tests {
 
             while i < ITERS {
                 if last_rx.elapsed() > TIMEOUT_NODATA {
-                    println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
                     panic!("rx timeout, iter {}", i);
                 }
 
@@ -205,7 +193,7 @@ mod tests {
                     let act = *data;
                     let exp = (i & 0xFF) as u8;
                     if act != exp {
-                        println!("baseptr: {}", panny);
+                        // println!("baseptr: {}", panny);
                         println!("offendr: {:p}", &gr.buf[0]);
                         println!("act: {:?}, exp: {:?}", act, exp);
                         println!("len: {:?}", gr.buf.len());
@@ -235,10 +223,8 @@ mod tests {
 
     #[test]
     fn sanity_check_grant_max() {
-        let bbl: BBQueue<QueueSize> = BBQueue::new();
-        let bbl = Box::leak(Box::new(bbl));
-        let panny = format!("{:p}", &bbl.buf[0]);
-        let (mut tx, mut rx) = bbl.split();
+        let bbq = BBQueue::new_boxed(QUEUE_SIZE);
+        let (mut tx, mut rx) = BBQueue::split_box(bbq);
 
         println!("SCGM: Generating Test Data...");
         let gen_start = Instant::now();
@@ -257,16 +243,15 @@ mod tests {
             let mut txd_ct = 0;
             let mut txd_ivl = 0;
 
+            let mut trng = thread_rng();
+
             while !data_tx.is_empty() {
                 'inner: loop {
                     if last_tx.elapsed() > TIMEOUT_NODATA {
-                        println!("DEADLOCK DUMP, TX: {:?}", unsafe { tx.bbq.as_ref() });
                         panic!("tx timeout");
                     }
-                    match tx.grant_max(6) {
-                        // TODO - use bufsize
+                    match tx.grant_max(trng.gen_range(QUEUE_SIZE / 3, (2 * QUEUE_SIZE) / 3)) {
                         Ok(gr) => {
-                            // println!("wrlen: {}", gr.buf.len());
                             let sz = ::std::cmp::min(data_tx.len(), gr.buf.len());
                             for i in 0..sz {
                                 gr.buf[i] = data_tx.pop().unwrap();
@@ -287,7 +272,6 @@ mod tests {
                     }
                 }
             }
-            // println!("TX Complete");
         });
 
         let rx_thr = spawn(move || {
@@ -297,7 +281,6 @@ mod tests {
             while !data_rx.is_empty() {
                 'inner: loop {
                     if last_rx.elapsed() > TIMEOUT_NODATA {
-                        println!("DEADLOCK DUMP, RX: {:?}", unsafe { rx.bbq.as_ref() });
                         panic!("rx timeout");
                     }
                     let gr = match rx.read() {
@@ -306,11 +289,9 @@ mod tests {
                         Err(_) => panic!(),
                     };
 
-                    // println!("rdlen: {}", gr.buf.len());
                     let act = gr.buf[0];
                     let exp = data_rx.pop().unwrap();
                     if act != exp {
-                        println!("baseptr: {}", panny);
                         println!("offendr: {:p}", &gr.buf[0]);
                         println!("act: {:?}, exp: {:?}", act, exp);
                         println!("len: {:?}", gr.buf.len());

@@ -9,20 +9,48 @@ mod tests {
     use bbqueue::{
         BBQueue,
         Error as BBQError,
-    };
-    use generic_array::{
-        typenum::*,
+        bbq,
     };
 
     #[test]
+    fn static_allocator() {
+        // Check we can make multiple static items...
+        let bbq1 = bbq!(8).unwrap();
+        let bbq2 = bbq!(8).unwrap();
+
+        // ... and they aren't the same
+        let wgr1 = bbq1.grant(3).unwrap();
+        wgr1.buf.copy_from_slice(&[1, 2, 3]);
+        bbq1.commit(3, wgr1);
+
+        // no data here...
+        assert!(bbq2.read().is_err());
+
+        // ...data is here!
+        let rgr1 = bbq1.read().unwrap();
+        assert_eq!(rgr1.buf, &[1, 2, 3]);
+    }
+
+    #[test]
     fn create_queue() {
-        let _b: BBQueue<U6> = BBQueue::new();
+        // Create queue using "no_std" style
+        static mut DATA: [u8; 6] = [0u8; 6];
+        let mut _b = BBQueue::new(unsafe { &mut DATA });
+        let (_prod, _cons) = _b.split();
+    }
+
+    #[test]
+    fn create_boxed_queue() {
+        // Create queue using leaky "boxed" style
+        let bbq = BBQueue::new_boxed(1024);
+        let (_prod, _cons) = BBQueue::split_box(bbq);
     }
 
     #[test]
     fn direct_usage_sanity() {
         // Initialize
-        let mut bb: BBQueue<U6> = BBQueue::new();
+        static mut DATA: [u8; 6] = [0u8; 6];
+        let mut bb = BBQueue::new(unsafe { &mut DATA });
         assert_eq!(bb.read(), Err(BBQError::InsufficientSize));
 
         // Initial grant, shouldn't roll over
@@ -39,6 +67,10 @@ mod tests {
 
         // Commit data
         bb.commit(4, x);
+
+        ::std::sync::atomic::fence(
+            std::sync::atomic::Ordering::SeqCst
+        );
 
         let a = bb.read().unwrap();
         assert_eq!(a.buf, &[1, 2, 3, 4]);
@@ -104,7 +136,8 @@ mod tests {
 
     #[test]
     fn spsc_usage_sanity() {
-        let bb: BBQueue<U6> = BBQueue::new();
+        static mut DATA: [u8; 6] = [0u8; 6];
+        let mut bb = BBQueue::new(unsafe { &mut DATA });
 
         let (mut tx, mut rx) = bb.split();
         assert_eq!(rx.read(), Err(BBQError::InsufficientSize));
