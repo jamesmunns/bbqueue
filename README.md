@@ -90,6 +90,13 @@ fn main() {
 
 The `bbqueue` crate is located in `core/`, and tests are located in `bbqtest/`.
 
+## Features
+
+| Feature Name | On by default? | Description |
+| :--- | :--- | :--- |
+| `std` | No | Enables convenience methods for allocating on the Heap, instead of statically |
+| `cortex-m` | No | Provides a convenience macro for safely allocating in a critical section on Cortex-M devices |
+
 # License
 
 Licensed under either of
