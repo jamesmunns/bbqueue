@@ -1,6 +1,6 @@
 [package]
 name = "bbqueue"
-version = "0.2.0"
+version = "0.2.1"
 description = "A (WIP) SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"
 authors = ["James Munns <james.munns@ferrous-systems.com>"]
@@ -18,3 +18,6 @@ license = "MIT OR Apache-2.0"
 std = []
 default = []
 cortex-m = []
+
+[package.metadata.docs.rs]
+all-features = true

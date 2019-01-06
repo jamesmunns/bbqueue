@@ -568,6 +568,7 @@ impl Consumer {
 /// for _ in 0..2 {
 ///     let _ = bbq!(1024).unwrap();
 /// }
+/// ```
 ///
 /// Additionally: this macro is not intrinsically thread safe! You must ensure that
 /// calls to this macro happen "atomically"/in a "critical section", or in
