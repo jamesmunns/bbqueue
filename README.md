@@ -1,10 +1,15 @@
 # BBQueue
 
+![Documentation](https://docs.rs/bbqueue/badge.svg)
+![Testing](https://travis-ci.org/jamesmunns/bbqueue.svg?branch=master)
+
 BBQueue, short for "BipBuffer Queue", is a (work in progress) Single Producer Single Consumer, lockless, no_std, thread safe, queue, based on BipBuffers. It is written in the Rust Programming Language.
 
 It is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded systems.
 
 While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to main code), you must push the data one piece at a time. With BBQueue, you instead are granted a block of contiguous memory, which can be filled (or emptied) by a DMA engine.
+
+See [The Documentation](https://docs.rs/bbqueue) for more details
 
 ## Using in a single threaded context
 
