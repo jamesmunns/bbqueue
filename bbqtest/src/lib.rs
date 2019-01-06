@@ -9,7 +9,27 @@ mod tests {
     use bbqueue::{
         BBQueue,
         Error as BBQError,
+        bbq,
     };
+
+    #[test]
+    fn static_allocator() {
+        // Check we can make multiple static items...
+        let bbq1 = bbq!(8).unwrap();
+        let bbq2 = bbq!(8).unwrap();
+
+        // ... and they aren't the same
+        let wgr1 = bbq1.grant(3).unwrap();
+        wgr1.buf.copy_from_slice(&[1, 2, 3]);
+        bbq1.commit(3, wgr1);
+
+        // no data here...
+        assert!(bbq2.read().is_err());
+
+        // ...data is here!
+        let rgr1 = bbq1.read().unwrap();
+        assert_eq!(rgr1.buf, &[1, 2, 3]);
+    }
 
     #[test]
     fn create_queue() {

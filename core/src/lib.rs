@@ -439,3 +439,28 @@ impl Consumer {
     }
 }
 
+#[macro_export]
+macro_rules! bbq {
+    ($expr:expr) => {
+        unsafe {
+            static mut BUFFER: [u8; $expr] = [0u8; $expr];
+            static mut BBQ: Option<BBQueue> = None;
+
+            if BBQ.is_some() {
+                None
+            } else {
+                BBQ = Some(BBQueue::new(&mut BUFFER));
+                Some(BBQ.as_mut().unwrap())
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature="cortex-m", macro_export)]
+macro_rules! cortex_m_bbq {
+    ($expr:expr) => {
+        cortex_m::interrupt::free(|_|
+            $crate::bbq!($expr)
+        )
+    }
+}
