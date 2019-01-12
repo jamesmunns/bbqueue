@@ -25,21 +25,21 @@
 //!     let mut wgr = bbq.grant(128).unwrap();
 //!
 //!     // Fill the buffer with data
-//!     wgr.buf().copy_from_slice(&[0xAFu8; 128]);
+//!     wgr.copy_from_slice(&[0xAFu8; 128]);
 //!
 //!     // Commit the write, to make the data available to be read
-//!     bbq.commit(wgr.buf().len(), wgr);
+//!     bbq.commit(wgr.len(), wgr);
 //!
 //!     // Obtain a read grant of all available and contiguous bytes
 //!     let rgr = bbq.read().unwrap();
 //!
 //!     for i in 0..128 {
-//!         assert_eq!(rgr.buf()[i], 0xAFu8);
+//!         assert_eq!(rgr[i], 0xAFu8);
 //!     }
 //!
 //!     // Release the bytes, allowing the space
 //!     // to be re-used for writing
-//!     bbq.release(rgr.buf().len(), rgr);
+//!     bbq.release(rgr.len(), rgr);
 //! }
 //! ```
 //!
@@ -59,7 +59,7 @@
 //!             'inner: loop {
 //!                 match tx.grant(4) {
 //!                     Ok(mut gr) => {
-//!                         gr.buf().copy_from_slice(&[tx_i as u8; 4]);
+//!                         gr.copy_from_slice(&[tx_i as u8; 4]);
 //!                         tx.commit(4, gr);
 //!                         break 'inner;
 //!                     }
@@ -74,12 +74,12 @@
 //!             'inner: loop {
 //!                 match rx.read() {
 //!                     Ok(mut gr) => {
-//!                         if gr.buf().len() < 4 {
+//!                         if gr.len() < 4 {
 //!                             rx.release(0, gr);
 //!                             continue 'inner;
 //!                         }
 //!
-//!                         assert_eq!(&gr.buf()[..4], &[rx_i as u8; 4]);
+//!                         assert_eq!(&gr[..4], &[rx_i as u8; 4]);
 //!                         rx.release(4, gr);
 //!                         break 'inner;
 //!                     }
@@ -95,10 +95,9 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(unused)]
 
 use core::cmp::min;
-use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use core::result::Result as CoreResult;
 use core::slice::from_raw_parts;
@@ -112,7 +111,6 @@ use core::sync::atomic::{
         Release,
     },
 };
-use core::cell::UnsafeCell;
 
 /// Result type used by the `BBQueue` interfaces
 pub type Result<T> = CoreResult<T, Error>;
@@ -455,7 +453,7 @@ impl BBQueue {
     /// (e.g. `BBQueue::new_boxed(1024)` will leak 1024 bytes). This
     /// may be changed in the future.
     pub fn new_boxed(capacity: usize) -> Box<Self> {
-        let mut data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
+        let data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
         Box::new(unsafe { Self::unpinned_new(data) })
     }
 
@@ -473,12 +471,6 @@ pub struct GrantW {
     buf: &'static mut [u8],
 }
 
-impl GrantW {
-    pub fn buf(&mut self) -> &mut [u8] {
-        self.buf
-    }
-}
-
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
 /// from the queue
@@ -487,8 +479,36 @@ pub struct GrantR {
     buf: &'static [u8],
 }
 
+impl GrantW {
+    pub fn buf(&mut self) -> &mut [u8] {
+        self.buf
+    }
+}
+
 impl GrantR {
     pub fn buf(&self) -> &[u8] {
+        self.buf
+    }
+}
+
+impl Deref for GrantW {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.buf
+    }
+}
+
+impl DerefMut for GrantW {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.buf
+    }
+}
+
+impl Deref for GrantR {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
         self.buf
     }
 }
@@ -600,6 +620,7 @@ macro_rules! bbq {
 /// Like the `bbq!()` macro, but wraps the initialization in a cortex-m
 /// "critical section" by disabling interrupts
 #[cfg_attr(feature="cortex-m", macro_export)]
+#[allow(unused_macros)]
 macro_rules! cortex_m_bbq {
     ($expr:expr) => {
         cortex_m::interrupt::free(|_|

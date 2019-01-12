@@ -25,7 +25,7 @@ mod tests {
 
             // eprintln!("GRANT: {:?}", bb);
 
-            wgr.buf()[0] = j;
+            wgr[0] = j;
 
             // eprintln!("WRITE: {:?}", bb);
 
@@ -37,7 +37,7 @@ mod tests {
 
             // eprintln!("READ : {:?}", bb);
 
-            assert_eq!(rgr.buf()[0], j);
+            assert_eq!(rgr[0], j);
 
             // eprintln!("RELSE: {:?}", bb);
 

@@ -13,6 +13,27 @@ mod tests {
     };
 
     #[test]
+    fn deref_deref_mut() {
+        let bb = bbq!(6).unwrap();
+
+        let mut wgr = bb.grant(1).unwrap();
+
+        // deref_mut
+        wgr[0] = 123;
+
+        assert_eq!(wgr.len(), 1);
+
+        bb.commit(1, wgr);
+
+        // deref
+        let rgr = bb.read().unwrap();
+
+        assert_eq!(rgr[0], 123);
+
+        bb.release(1, rgr);
+    }
+
+    #[test]
     fn static_allocator() {
         // Check we can make multiple static items...
         let bbq1 = bbq!(8).unwrap();
