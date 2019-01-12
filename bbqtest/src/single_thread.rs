@@ -2,13 +2,13 @@
 mod tests {
     use bbqueue::{
         BBQueue,
+        bbq,
     };
 
     // AJM: This test hangs/fails!
     #[test]
     fn sanity_check() {
-        static mut DATA: [u8; 6] = [0u8; 6];
-        let mut bb = BBQueue::new(unsafe { &mut DATA });
+        let bb = bbq!(6).unwrap();
 
         const ITERS: usize = 100000;
 
@@ -21,11 +21,11 @@ mod tests {
 
             // eprintln!("START: {:?}", bb);
 
-            let wgr = bb.grant(1).unwrap();
+            let mut wgr = bb.grant(1).unwrap();
 
             // eprintln!("GRANT: {:?}", bb);
 
-            wgr.buf[0] = j;
+            wgr.buf()[0] = j;
 
             // eprintln!("WRITE: {:?}", bb);
 
@@ -37,7 +37,7 @@ mod tests {
 
             // eprintln!("READ : {:?}", bb);
 
-            assert_eq!(rgr.buf[0], j);
+            assert_eq!(rgr.buf()[0], j);
 
             // eprintln!("RELSE: {:?}", bb);
 

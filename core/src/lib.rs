@@ -22,24 +22,24 @@
 //!     let bbq = bbq!(1024).unwrap();
 //!
 //!     // Obtain a write grant of size 128 bytes
-//!     let wgr = bbq.grant(128).unwrap();
+//!     let mut wgr = bbq.grant(128).unwrap();
 //!
 //!     // Fill the buffer with data
-//!     wgr.buf.copy_from_slice(&[0xAFu8; 128]);
+//!     wgr.buf().copy_from_slice(&[0xAFu8; 128]);
 //!
 //!     // Commit the write, to make the data available to be read
-//!     bbq.commit(wgr.buf.len(), wgr);
+//!     bbq.commit(wgr.buf().len(), wgr);
 //!
 //!     // Obtain a read grant of all available and contiguous bytes
 //!     let rgr = bbq.read().unwrap();
 //!
 //!     for i in 0..128 {
-//!         assert_eq!(rgr.buf[i], 0xAFu8);
+//!         assert_eq!(rgr.buf()[i], 0xAFu8);
 //!     }
 //!
 //!     // Release the bytes, allowing the space
 //!     // to be re-used for writing
-//!     bbq.release(rgr.buf.len(), rgr);
+//!     bbq.release(rgr.buf().len(), rgr);
 //! }
 //! ```
 //!
@@ -58,8 +58,8 @@
 //!         for tx_i in 0..128 {
 //!             'inner: loop {
 //!                 match tx.grant(4) {
-//!                     Ok(gr) => {
-//!                         gr.buf.copy_from_slice(&[tx_i as u8; 4]);
+//!                     Ok(mut gr) => {
+//!                         gr.buf().copy_from_slice(&[tx_i as u8; 4]);
 //!                         tx.commit(4, gr);
 //!                         break 'inner;
 //!                     }
@@ -73,13 +73,13 @@
 //!         for rx_i in 0..128 {
 //!             'inner: loop {
 //!                 match rx.read() {
-//!                     Ok(gr) => {
-//!                         if gr.buf.len() < 4 {
+//!                     Ok(mut gr) => {
+//!                         if gr.buf().len() < 4 {
 //!                             rx.release(0, gr);
 //!                             continue 'inner;
 //!                         }
 //!
-//!                         assert_eq!(&gr.buf[..4], &[rx_i as u8; 4]);
+//!                         assert_eq!(&gr.buf()[..4], &[rx_i as u8; 4]);
 //!                         rx.release(4, gr);
 //!                         break 'inner;
 //!                     }
@@ -167,14 +167,17 @@ impl BBQueue {
     /// buffer to `BBQueue::new(), the backing buffer must not be used, or
     /// undefined behavior could occur!
     ///
+    /// Additionally, when using `BBQueue::split()`, the `BBQueue` struct must
+    /// never be moved, otherwise `Producer` and `Consumer` could corrupt memory
+    ///
     /// Consider using the `bbq!()` macro to safely create a statically
     /// allocated instance, or enable the "std" feature, and instead use the
     /// `BBQueue::new_boxed()` constructor.
-    pub fn new(buf: &'static mut [u8]) -> Self {
+    pub unsafe fn unpinned_new(buf: &'static mut [u8]) -> Self {
         let sz = buf.len();
         assert!(sz != 0);
         BBQueue {
-            buf: unsafe { NonNull::new_unchecked(buf) },
+            buf: NonNull::new_unchecked(buf),
             cons_token: (),
             prod_token: (),
 
@@ -253,7 +256,6 @@ impl BBQueue {
 
         Ok(GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
-            internal: (),
         })
     }
 
@@ -320,7 +322,6 @@ impl BBQueue {
 
         Ok(GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
-            internal: (),
         })
     }
 
@@ -407,7 +408,6 @@ impl BBQueue {
 
         Ok(GrantR {
             buf: &d[read..read+sz],
-            internal: (),
         })
     }
 
@@ -456,7 +456,7 @@ impl BBQueue {
     /// may be changed in the future.
     pub fn new_boxed(capacity: usize) -> Box<Self> {
         let mut data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
-        Box::new(Self::new(data))
+        Box::new(unsafe { Self::unpinned_new(data) })
     }
 
     /// Splits a boxed `BBQueue` into a producer and consumer
@@ -470,10 +470,13 @@ impl BBQueue {
 /// may be written to, and potentially "committed" to the queue
 #[derive(Debug, PartialEq)]
 pub struct GrantW {
-    pub buf: &'static mut [u8],
+    buf: &'static mut [u8],
+}
 
-    // Zero sized type preventing external construction
-    internal: (),
+impl GrantW {
+    pub fn buf(&mut self) -> &mut [u8] {
+        self.buf
+    }
 }
 
 /// A structure representing a contiguous region of memory that
@@ -481,10 +484,13 @@ pub struct GrantW {
 /// from the queue
 #[derive(Debug, PartialEq)]
 pub struct GrantR {
-    pub buf: &'static [u8],
+    buf: &'static [u8],
+}
 
-    // Zero sized type preventing external construction
-    internal: (),
+impl GrantR {
+    pub fn buf(&self) -> &[u8] {
+        self.buf
+    }
 }
 
 unsafe impl Send for Consumer {}
@@ -584,7 +590,7 @@ macro_rules! bbq {
             if BBQ.is_some() {
                 None
             } else {
-                BBQ = Some(BBQueue::new(&mut BUFFER));
+                BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
                 Some(BBQ.as_mut().unwrap())
             }
         }
