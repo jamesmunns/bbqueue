@@ -13,6 +13,13 @@ cargo test --manifest-path core/Cargo.toml
 cargo test --features="travisci" --manifest-path bbqtest/Cargo.toml -- --nocapture
 cargo test --features="travisci" --release --manifest-path bbqtest/Cargo.toml -- --nocapture
 
+if [ $TRAVIS_RUST_VERSION = nightly ]; then
+    export RUSTFLAGS="-Z sanitizer=thread"
+    export RUST_TEST_THREADS=1
+    export TSAN_OPTIONS="suppressions=$(pwd)/tsan-blacklist.txt"
+fi
+
 # Test using a full std crate, long test with a single thread (it's faster)
 cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
 cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
+
