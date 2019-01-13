@@ -128,12 +128,6 @@ pub struct BBQueue {
     // Underlying data storage
     buf: NonNull<[u8]>,
 
-    // These ZSTs are used to tie the lifetime of the Producer and Consumer
-    //   back to the original structure. We have two tokens, so we can simultaneously
-    //   hand out two references to the "parent" structure
-    prod_token: (),
-    cons_token: (),
-
     /// Where the next byte will be written
     write: AtomicUsize,
 
@@ -176,8 +170,6 @@ impl BBQueue {
         assert!(sz != 0);
         BBQueue {
             buf: NonNull::new_unchecked(buf),
-            cons_token: (),
-            prod_token: (),
 
             /// Owned by the writer
             write: AtomicUsize::new(0),
