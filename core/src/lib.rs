@@ -335,6 +335,10 @@ impl BBQueue {
         // grant
         let len = grant.buf.len();
         assert!(len >= used);
+
+        // Verify we are committing OUR grant
+        assert!(self.is_our_grant_w(&grant.buf));
+
         drop(grant);
 
         let write = self.write.load(Relaxed);
@@ -415,12 +419,52 @@ impl BBQueue {
     /// If `used` is larger than the given grant, this function will panic.
     pub fn release(&self, used: usize, grant: GrantR) {
         assert!(used <= grant.buf.len());
+
+        // Verify we are committing OUR grant
+        assert!(self.is_our_grant_r(&grant.buf));
+
         drop(grant);
 
         // This should be fine, purely incrementing
         let _ = self.read.fetch_add(used, Release);
 
         self.read_in_progress.store(false, Relaxed);
+    }
+
+    #[inline(always)]
+    fn is_our_grant_r(&self, gr_buf: &[u8]) -> bool {
+        // Grant should always be the same as the read offset
+        let read_idx = self.read.load(Relaxed);
+        let len   = unsafe { self.buf.as_ref().len() };
+
+        if read_idx < len {
+            let read  = unsafe { self.buf.as_ref()[read_idx] as *const u8 };
+            let grant = gr_buf[0] as *const u8;
+
+            read == grant
+        } else {
+            // We can't give out a read grant if we are at the end
+            false
+        }
+    }
+
+    #[inline(always)]
+    fn is_our_grant_w(&self, gr_buf: &[u8]) -> bool {
+        // Grant should always be either zero or the same as
+        // the write offset
+        let grant = gr_buf[0] as *const u8;
+        let len   = unsafe { self.buf.as_ref().len() };
+        let write_idx = self.write.load(Relaxed);
+
+        if write_idx < len {
+            let write = unsafe { self.buf.as_ref()[self.write.load(Relaxed)] as *const u8 };
+            if write == grant {
+                return true;
+            }
+        }
+
+        let zero = unsafe { self.buf.as_ref()[0] as *const u8 };
+        grant == zero
     }
 }
 
