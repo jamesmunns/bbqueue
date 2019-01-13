@@ -19,7 +19,7 @@ if [ $TRAVIS_RUST_VERSION = nightly ]; then
     export RUSTFLAGS="-Z sanitizer=thread"
     export RUST_TEST_THREADS=1
     export TSAN_OPTIONS="suppressions=$(pwd)/tsan-blacklist.txt"
-    export SHORT_TEST="--features=\"travisci\""
+    export SHORT_TEST="--features=travisci"
 fi
 
 # Test using a full std crate, long test with a single thread (it's faster)
