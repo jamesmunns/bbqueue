@@ -6,6 +6,7 @@ mod tests {
     use bbqueue::{
         BBQueue,
         Error,
+        bbq,
     };
 
     #[cfg(feature = "travisci")]
@@ -66,10 +67,10 @@ mod tests {
                     }
 
                     'sizer: for sz in (1..(semichunk.len() + 1)).rev() {
-                        if let Ok(gr) = tx.grant(sz) {
+                        if let Ok(mut gr) = tx.grant(sz) {
                             // how do you do this idiomatically?
                             (0..sz).for_each(|idx| {
-                                gr.buf[idx] = semichunk.remove(0);
+                                gr[idx] = semichunk.remove(0);
                             });
                             tx.commit(sz, gr);
 
@@ -103,12 +104,12 @@ mod tests {
                         Err(_) => panic!(),
                     };
 
-                    let act = gr.buf[0] as u8;
+                    let act = gr[0] as u8;
                     let exp = i;
                     if act != exp {
                         println!("act: {:?}, exp: {:?}", act, exp);
-                        println!("len: {:?}", gr.buf.len());
-                        println!("{:?}", gr.buf);
+                        println!("len: {:?}", gr.len());
+                        println!("{:?}", gr);
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
                     rx.release(1, gr);
@@ -132,10 +133,7 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        static mut DATA: [u8; QUEUE_SIZE] = [0u8; QUEUE_SIZE];
-        let bb = Box::new(BBQueue::new(unsafe { &mut DATA }));
-        let bbl = Box::leak(bb);
-        let (mut tx, mut rx) = bbl.split();
+        let (mut tx, mut rx) = bbq!(QUEUE_SIZE).unwrap().split();
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();
@@ -151,8 +149,8 @@ mod tests {
                         panic!("tx timeout, iter {}", i);
                     }
                     match tx.grant(1) {
-                        Ok(gr) => {
-                            gr.buf[0] = (i & 0xFF) as u8;
+                        Ok(mut gr) => {
+                            gr[0] = (i & 0xFF) as u8;
                             tx.commit(1, gr);
 
                             // Update tracking
@@ -189,23 +187,23 @@ mod tests {
                     Err(_) => panic!(),
                 };
 
-                for data in gr.buf {
+                for data in gr.buf() {
                     let act = *data;
                     let exp = (i & 0xFF) as u8;
                     if act != exp {
                         // println!("baseptr: {}", panny);
-                        println!("offendr: {:p}", &gr.buf[0]);
+                        println!("offendr: {:p}", &gr[0]);
                         println!("act: {:?}, exp: {:?}", act, exp);
-                        println!("len: {:?}", gr.buf.len());
-                        println!("{:?}", &gr.buf);
+                        println!("len: {:?}", gr.len());
+                        println!("{:?}", &gr);
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
 
                     i += 1;
                 }
 
-                rxd_ct += gr.buf.len();
-                rx.release(gr.buf.len(), gr);
+                rxd_ct += gr.len();
+                rx.release(gr.len(), gr);
 
                 // Update tracking
                 last_rx = Instant::now();
@@ -251,10 +249,10 @@ mod tests {
                         panic!("tx timeout");
                     }
                     match tx.grant_max(trng.gen_range(QUEUE_SIZE / 3, (2 * QUEUE_SIZE) / 3)) {
-                        Ok(gr) => {
-                            let sz = ::std::cmp::min(data_tx.len(), gr.buf.len());
+                        Ok(mut gr) => {
+                            let sz = ::std::cmp::min(data_tx.len(), gr.len());
                             for i in 0..sz {
-                                gr.buf[i] = data_tx.pop().unwrap();
+                                gr[i] = data_tx.pop().unwrap();
                             }
 
                             // Update tracking
@@ -265,7 +263,7 @@ mod tests {
                                 println!("{:?} - scgmtx: {}", start_time.elapsed(), txd_ct);
                             }
 
-                            tx.commit(gr.buf.len(), gr);
+                            tx.commit(gr.len(), gr);
                             break 'inner;
                         }
                         Err(_) => {}
@@ -289,13 +287,13 @@ mod tests {
                         Err(_) => panic!(),
                     };
 
-                    let act = gr.buf[0];
+                    let act = gr[0];
                     let exp = data_rx.pop().unwrap();
                     if act != exp {
-                        println!("offendr: {:p}", &gr.buf[0]);
+                        println!("offendr: {:p}", &gr[0]);
                         println!("act: {:?}, exp: {:?}", act, exp);
-                        println!("len: {:?}", gr.buf.len());
-                        println!("{:?}", gr.buf);
+                        println!("len: {:?}", gr.len());
+                        println!("{:?}", gr);
                         panic!("RX Iter: {}");
                     }
                     rx.release(1, gr);

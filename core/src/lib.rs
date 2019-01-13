@@ -22,24 +22,24 @@
 //!     let bbq = bbq!(1024).unwrap();
 //!
 //!     // Obtain a write grant of size 128 bytes
-//!     let wgr = bbq.grant(128).unwrap();
+//!     let mut wgr = bbq.grant(128).unwrap();
 //!
 //!     // Fill the buffer with data
-//!     wgr.buf.copy_from_slice(&[0xAFu8; 128]);
+//!     wgr.copy_from_slice(&[0xAFu8; 128]);
 //!
 //!     // Commit the write, to make the data available to be read
-//!     bbq.commit(wgr.buf.len(), wgr);
+//!     bbq.commit(wgr.len(), wgr);
 //!
 //!     // Obtain a read grant of all available and contiguous bytes
 //!     let rgr = bbq.read().unwrap();
 //!
 //!     for i in 0..128 {
-//!         assert_eq!(rgr.buf[i], 0xAFu8);
+//!         assert_eq!(rgr[i], 0xAFu8);
 //!     }
 //!
 //!     // Release the bytes, allowing the space
 //!     // to be re-used for writing
-//!     bbq.release(rgr.buf.len(), rgr);
+//!     bbq.release(rgr.len(), rgr);
 //! }
 //! ```
 //!
@@ -58,8 +58,8 @@
 //!         for tx_i in 0..128 {
 //!             'inner: loop {
 //!                 match tx.grant(4) {
-//!                     Ok(gr) => {
-//!                         gr.buf.copy_from_slice(&[tx_i as u8; 4]);
+//!                     Ok(mut gr) => {
+//!                         gr.copy_from_slice(&[tx_i as u8; 4]);
 //!                         tx.commit(4, gr);
 //!                         break 'inner;
 //!                     }
@@ -73,13 +73,13 @@
 //!         for rx_i in 0..128 {
 //!             'inner: loop {
 //!                 match rx.read() {
-//!                     Ok(gr) => {
-//!                         if gr.buf.len() < 4 {
+//!                     Ok(mut gr) => {
+//!                         if gr.len() < 4 {
 //!                             rx.release(0, gr);
 //!                             continue 'inner;
 //!                         }
 //!
-//!                         assert_eq!(&gr.buf[..4], &[rx_i as u8; 4]);
+//!                         assert_eq!(&gr[..4], &[rx_i as u8; 4]);
 //!                         rx.release(4, gr);
 //!                         break 'inner;
 //!                     }
@@ -95,10 +95,9 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(unused)]
 
 use core::cmp::min;
-use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use core::result::Result as CoreResult;
 use core::slice::from_raw_parts;
@@ -112,7 +111,6 @@ use core::sync::atomic::{
         Release,
     },
 };
-use core::cell::UnsafeCell;
 
 /// Result type used by the `BBQueue` interfaces
 pub type Result<T> = CoreResult<T, Error>;
@@ -167,14 +165,17 @@ impl BBQueue {
     /// buffer to `BBQueue::new(), the backing buffer must not be used, or
     /// undefined behavior could occur!
     ///
+    /// Additionally, when using `BBQueue::split()`, the `BBQueue` struct must
+    /// never be moved, otherwise `Producer` and `Consumer` could corrupt memory
+    ///
     /// Consider using the `bbq!()` macro to safely create a statically
     /// allocated instance, or enable the "std" feature, and instead use the
     /// `BBQueue::new_boxed()` constructor.
-    pub fn new(buf: &'static mut [u8]) -> Self {
+    pub unsafe fn unpinned_new(buf: &'static mut [u8]) -> Self {
         let sz = buf.len();
         assert!(sz != 0);
         BBQueue {
-            buf: unsafe { NonNull::new_unchecked(buf) },
+            buf: NonNull::new_unchecked(buf),
             cons_token: (),
             prod_token: (),
 
@@ -253,7 +254,6 @@ impl BBQueue {
 
         Ok(GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
-            internal: (),
         })
     }
 
@@ -320,7 +320,6 @@ impl BBQueue {
 
         Ok(GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
-            internal: (),
         })
     }
 
@@ -336,6 +335,10 @@ impl BBQueue {
         // grant
         let len = grant.buf.len();
         assert!(len >= used);
+
+        // Verify we are committing OUR grant
+        assert!(self.is_our_grant_w(&grant.buf));
+
         drop(grant);
 
         let write = self.write.load(Relaxed);
@@ -407,7 +410,6 @@ impl BBQueue {
 
         Ok(GrantR {
             buf: &d[read..read+sz],
-            internal: (),
         })
     }
 
@@ -417,12 +419,52 @@ impl BBQueue {
     /// If `used` is larger than the given grant, this function will panic.
     pub fn release(&self, used: usize, grant: GrantR) {
         assert!(used <= grant.buf.len());
+
+        // Verify we are committing OUR grant
+        assert!(self.is_our_grant_r(&grant.buf));
+
         drop(grant);
 
         // This should be fine, purely incrementing
         let _ = self.read.fetch_add(used, Release);
 
         self.read_in_progress.store(false, Relaxed);
+    }
+
+    #[inline(always)]
+    fn is_our_grant_r(&self, gr_buf: &[u8]) -> bool {
+        // Grant should always be the same as the read offset
+        let read_idx = self.read.load(Relaxed);
+        let len   = unsafe { self.buf.as_ref().len() };
+
+        if read_idx < len {
+            let read  = unsafe { self.buf.as_ref()[read_idx] as *const u8 };
+            let grant = gr_buf[0] as *const u8;
+
+            read == grant
+        } else {
+            // We can't give out a read grant if we are at the end
+            false
+        }
+    }
+
+    #[inline(always)]
+    fn is_our_grant_w(&self, gr_buf: &[u8]) -> bool {
+        // Grant should always be either zero or the same as
+        // the write offset
+        let grant = gr_buf[0] as *const u8;
+        let len   = unsafe { self.buf.as_ref().len() };
+        let write_idx = self.write.load(Relaxed);
+
+        if write_idx < len {
+            let write = unsafe { self.buf.as_ref()[self.write.load(Relaxed)] as *const u8 };
+            if write == grant {
+                return true;
+            }
+        }
+
+        let zero = unsafe { self.buf.as_ref()[0] as *const u8 };
+        grant == zero
     }
 }
 
@@ -455,8 +497,8 @@ impl BBQueue {
     /// (e.g. `BBQueue::new_boxed(1024)` will leak 1024 bytes). This
     /// may be changed in the future.
     pub fn new_boxed(capacity: usize) -> Box<Self> {
-        let mut data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
-        Box::new(Self::new(data))
+        let data: &mut [u8] = Box::leak(vec![0; capacity].into_boxed_slice());
+        Box::new(unsafe { Self::unpinned_new(data) })
     }
 
     /// Splits a boxed `BBQueue` into a producer and consumer
@@ -470,10 +512,7 @@ impl BBQueue {
 /// may be written to, and potentially "committed" to the queue
 #[derive(Debug, PartialEq)]
 pub struct GrantW {
-    pub buf: &'static mut [u8],
-
-    // Zero sized type preventing external construction
-    internal: (),
+    buf: &'static mut [u8],
 }
 
 /// A structure representing a contiguous region of memory that
@@ -481,10 +520,41 @@ pub struct GrantW {
 /// from the queue
 #[derive(Debug, PartialEq)]
 pub struct GrantR {
-    pub buf: &'static [u8],
+    buf: &'static [u8],
+}
 
-    // Zero sized type preventing external construction
-    internal: (),
+impl GrantW {
+    pub fn buf(&mut self) -> &mut [u8] {
+        self.buf
+    }
+}
+
+impl GrantR {
+    pub fn buf(&self) -> &[u8] {
+        self.buf
+    }
+}
+
+impl Deref for GrantW {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.buf
+    }
+}
+
+impl DerefMut for GrantW {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.buf
+    }
+}
+
+impl Deref for GrantR {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.buf
+    }
 }
 
 unsafe impl Send for Consumer {}
@@ -570,22 +640,20 @@ impl Consumer {
 /// }
 /// ```
 ///
-/// Additionally: this macro is not intrinsically thread safe! You must ensure that
-/// calls to this macro happen "atomically"/in a "critical section", or in
-/// a single-threaded context. If you are using this in a cortex-m
-/// microcontroller system, consider using the cortex_m_bbq!() macro instead.
+/// If you are using this in a cortex-m microcontroller system,
+/// consider using the cortex_m_bbq!() macro instead.
 #[macro_export]
 macro_rules! bbq {
     ($expr:expr) => {
-        unsafe {
-            static mut BUFFER: [u8; $expr] = [0u8; $expr];
-            static mut BBQ: Option<BBQueue> = None;
+        {
+            use core::sync::atomic::{AtomicBool, Ordering};
 
-            if BBQ.is_some() {
+            static TAKEN: AtomicBool = AtomicBool::new(false);
+
+            if TAKEN.compare_and_swap(false, true, Ordering::AcqRel) {
                 None
             } else {
-                BBQ = Some(BBQueue::new(&mut BUFFER));
-                Some(BBQ.as_mut().unwrap())
+                unsafe { $crate::unchecked_bbq!($expr) }
             }
         }
     }
@@ -594,10 +662,34 @@ macro_rules! bbq {
 /// Like the `bbq!()` macro, but wraps the initialization in a cortex-m
 /// "critical section" by disabling interrupts
 #[cfg_attr(feature="cortex-m", macro_export)]
+#[allow(unused_macros)]
 macro_rules! cortex_m_bbq {
     ($expr:expr) => {
         cortex_m::interrupt::free(|_|
-            $crate::bbq!($expr)
+            unsafe { $crate::unchecked_bbq!($expr) }
         )
+    }
+}
+
+/// This macro does try to provide similar guarantees as `bbq!()`,
+/// but is not thread safe.
+#[macro_export]
+macro_rules! unchecked_bbq {
+    ($expr:expr) => {
+        {
+            static mut BUFFER: [u8; $expr] = [0u8; $expr];
+
+            // Really, this shouldn't be an option. But for now, there is
+            // no stable way to get an uninitialized static, so we pay the
+            // option cost for compatibility
+            static mut BBQ: Option<BBQueue> = None;
+
+            if BBQ.is_some() {
+                None
+            } else {
+                BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
+                BBQ.as_mut()
+            }
+        }
     }
 }
