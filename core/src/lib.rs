@@ -329,7 +329,7 @@ impl BBQueue {
         assert!(len >= used);
 
         // Verify we are committing OUR grant
-        assert!(self.is_our_grant_w(&grant.buf));
+        assert!(self.is_our_grant(&grant.buf));
 
         drop(grant);
 
@@ -413,7 +413,7 @@ impl BBQueue {
         assert!(used <= grant.buf.len());
 
         // Verify we are committing OUR grant
-        assert!(self.is_our_grant_r(&grant.buf));
+        assert!(self.is_our_grant(&grant.buf));
 
         drop(grant);
 
@@ -423,41 +423,15 @@ impl BBQueue {
         self.read_in_progress.store(false, Relaxed);
     }
 
-    #[inline(always)]
-    fn is_our_grant_r(&self, gr_buf: &[u8]) -> bool {
-        // Grant should always be the same as the read offset
-        let read_idx = self.read.load(Relaxed);
-        let len   = unsafe { self.buf.as_ref().len() };
+    fn is_our_grant(&self, gr_buf: &[u8]) -> bool {
+        let start = unsafe { self.buf.as_ref().as_ptr() as usize };
+        let end_plus_one = start + unsafe { self.buf.as_ref().len() };
+        let buf = gr_buf.as_ptr() as usize;
 
-        if read_idx < len {
-            let read  = unsafe { self.buf.as_ref()[read_idx] as *const u8 };
-            let grant = gr_buf[0] as *const u8;
-
-            read == grant
-        } else {
-            // We can't give out a read grant if we are at the end
-            false
-        }
+        (buf >= start) && (buf < end_plus_one)
     }
 
-    #[inline(always)]
-    fn is_our_grant_w(&self, gr_buf: &[u8]) -> bool {
-        // Grant should always be either zero or the same as
-        // the write offset
-        let grant = gr_buf[0] as *const u8;
-        let len   = unsafe { self.buf.as_ref().len() };
-        let write_idx = self.write.load(Relaxed);
 
-        if write_idx < len {
-            let write = unsafe { self.buf.as_ref()[self.write.load(Relaxed)] as *const u8 };
-            if write == grant {
-                return true;
-            }
-        }
-
-        let zero = unsafe { self.buf.as_ref()[0] as *const u8 };
-        grant == zero
-    }
 }
 
 impl BBQueue {

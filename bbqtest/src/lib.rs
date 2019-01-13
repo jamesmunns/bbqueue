@@ -53,6 +53,41 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn bad_commit() {
+        // Check we can make multiple static items...
+        let bbq1 = bbq!(8).unwrap();
+        let bbq2 = bbq!(8).unwrap();
+
+        // ... and they aren't the same
+        let mut wgr1 = bbq1.grant(3).unwrap();
+        wgr1.buf().copy_from_slice(&[1, 2, 3]);
+
+        // then give the wrong one the grant
+        bbq2.commit(3, wgr1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_release() {
+        // Check we can make multiple static items...
+        let bbq1 = bbq!(8).unwrap();
+        let bbq2 = bbq!(8).unwrap();
+
+        // ... and they aren't the same
+        let mut wgr1 = bbq1.grant(3).unwrap();
+        wgr1.buf().copy_from_slice(&[1, 2, 3]);
+        bbq1.commit(3, wgr1);
+
+        // Read from the first
+        let rgr1 = bbq1.read().unwrap();
+        assert_eq!(rgr1.buf(), &[1, 2, 3]);
+
+        // Release from 2
+        bbq2.release(1, rgr1);
+    }
+
+    #[test]
     fn create_queue() {
         // Create queue using "no_std" style
         static mut DATA: [u8; 6] = [0u8; 6];
