@@ -596,22 +596,20 @@ impl Consumer {
 /// }
 /// ```
 ///
-/// Additionally: this macro is not intrinsically thread safe! You must ensure that
-/// calls to this macro happen "atomically"/in a "critical section", or in
-/// a single-threaded context. If you are using this in a cortex-m
-/// microcontroller system, consider using the cortex_m_bbq!() macro instead.
+/// If you are using this in a cortex-m microcontroller system,
+/// consider using the cortex_m_bbq!() macro instead.
 #[macro_export]
 macro_rules! bbq {
     ($expr:expr) => {
-        unsafe {
-            static mut BUFFER: [u8; $expr] = [0u8; $expr];
-            static mut BBQ: Option<BBQueue> = None;
+        {
+            use core::sync::atomic::{AtomicBool, Ordering};
 
-            if BBQ.is_some() {
+            static TAKEN: AtomicBool = AtomicBool::new(false);
+
+            if TAKEN.compare_and_swap(false, true, Ordering::AcqRel) {
                 None
             } else {
-                BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
-                Some(BBQ.as_mut().unwrap())
+                unsafe { $crate::unchecked_bbq!($expr) }
             }
         }
     }
@@ -624,7 +622,30 @@ macro_rules! bbq {
 macro_rules! cortex_m_bbq {
     ($expr:expr) => {
         cortex_m::interrupt::free(|_|
-            $crate::bbq!($expr)
+            unsafe { $crate::unchecked_bbq!($expr) }
         )
+    }
+}
+
+/// This macro does try to provide similar guarantees as `bbq!()`,
+/// but is not thread safe.
+#[macro_export]
+macro_rules! unchecked_bbq {
+    ($expr:expr) => {
+        {
+            static mut BUFFER: [u8; $expr] = [0u8; $expr];
+
+            // Really, this shouldn't be an option. But for now, there is
+            // no stable way to get an uninitialized static, so we pay the
+            // option cost for compatibility
+            static mut BBQ: Option<BBQueue> = None;
+
+            if BBQ.is_some() {
+                None
+            } else {
+                BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
+                BBQ.as_mut()
+            }
+        }
     }
 }
