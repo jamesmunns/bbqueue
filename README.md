@@ -1,7 +1,7 @@
 # BBQueue
 
-![Documentation](https://docs.rs/bbqueue/badge.svg)
-![Testing](https://travis-ci.org/jamesmunns/bbqueue.svg?branch=master)
+[![Documentation](https://docs.rs/bbqueue/badge.svg)](https://docs.rs/bbqueue)
+[![Testing](https://travis-ci.org/jamesmunns/bbqueue.svg?branch=master)](https://travis-ci.org/jamesmunns/bbqueue)
 
 BBQueue, short for "BipBuffer Queue", is a (work in progress) Single Producer Single Consumer, lockless, no_std, thread safe, queue, based on BipBuffers. It is written in the Rust Programming Language.
 
