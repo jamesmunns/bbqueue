@@ -290,7 +290,7 @@ impl BBQueue {
             } else {
                 // Not inverted, but need to go inverted
 
-                // NOTE: We check read > 1, NOT read > 1, because
+                // NOTE: We check read > 1, NOT read >= 1, because
                 // write must never == read in an inverted condition, since
                 // we will then not be able to tell if we are inverted or not
                 if read > 1 {
@@ -336,16 +336,18 @@ impl BBQueue {
         let write = self.write.load(Relaxed);
         self.reserve.fetch_sub(len - used, Relaxed);
 
+        let max = unsafe { self.buf.as_mut().len() };
+        let last = self.last.load(Relaxed);
+
         // Inversion case, we have begun writing
-        if (self.reserve.load(Relaxed) < write) && (write != unsafe { self.buf.as_mut().len() }) {
-            // This has potential for danger. We have two writers!
-            // MOVING LAST BACKWARDS
+        if (self.reserve.load(Relaxed) < write) && (write != max) {
             self.last.store(write, Release);
+        } else if write > last {
+            self.last.store(max, Release);
         }
 
-        // This has some potential for danger. The other thread (READ)
-        // does look at this variable!
-        // MOVING WRITE FORWARDS
+        // Write must be updated AFTER last, otherwise read could think it was
+        // time to invert early!
         self.write.store(self.reserve.load(Relaxed), Release);
     }
 
@@ -359,7 +361,7 @@ impl BBQueue {
         }
 
         let write = self.write.load(Acquire);
-        let mut last = self.last.load(Acquire);
+        let last = self.last.load(Acquire);
         let mut read = self.read.load(Relaxed);
         let max = unsafe { self.buf.as_mut().len() };
 
@@ -375,12 +377,6 @@ impl BBQueue {
             //   grant could move Last to the prior write position
             // MOVING READ BACKWARDS!
             self.read.store(0, Release);
-            if last != max {
-                // This is pretty tricky, we have two writers!
-                // MOVING LAST FORWARDS
-                self.last.store(max, Release);
-                last = max;
-            }
         }
 
         let sz = if write < read {
