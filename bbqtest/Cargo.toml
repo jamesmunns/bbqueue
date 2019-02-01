@@ -18,3 +18,5 @@ rand = "0.6"
 [features]
 travisci = []
 default = []
+verbose = []
+extra-verbose = []
