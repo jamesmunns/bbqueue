@@ -15,35 +15,35 @@ mod tests {
         for i in 0..ITERS {
             let j = (i & 255) as u8;
 
-            // eprintln!("===========================");
-            // eprintln!("INDEX: {:?}", j);
-            // eprintln!("===========================");
+            #[cfg(feature = "extra-verbose")] println!("===========================");
+            #[cfg(feature = "extra-verbose")] println!("INDEX: {:?}", j);
+            #[cfg(feature = "extra-verbose")] println!("===========================");
 
-            // eprintln!("START: {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("START: {:?}", bb);
 
             let mut wgr = bb.grant(1).unwrap();
 
-            // eprintln!("GRANT: {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("GRANT: {:?}", bb);
 
             wgr[0] = j;
 
-            // eprintln!("WRITE: {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("WRITE: {:?}", bb);
 
             bb.commit(1, wgr);
 
-            // eprintln!("COMIT: {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("COMIT: {:?}", bb);
 
             let rgr = bb.read().unwrap();
 
-            // eprintln!("READ : {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("READ : {:?}", bb);
 
             assert_eq!(rgr[0], j);
 
-            // eprintln!("RELSE: {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("RELSE: {:?}", bb);
 
             bb.release(1, rgr);
 
-            // eprintln!("FINSH: {:?}", bb);
+            #[cfg(feature = "extra-verbose")] println!("FINSH: {:?}", bb);
         }
     }
 }
