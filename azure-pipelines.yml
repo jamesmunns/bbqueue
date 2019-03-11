@@ -14,6 +14,6 @@ steps:
   parameters:
     rust_version: stable
   env:
-    TRAVIS_RUST_VERSION: ${{parameters.rust_version}}
+    TRAVIS_RUST_VERSION: stable
 
 - script: ./ci/test.sh
