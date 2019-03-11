@@ -10,10 +10,7 @@ pool:
   vmImage: 'Ubuntu-16.04'
 
 steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-
+- template: ci/azure-install-rust.yml
 - script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
+echo "hello, world!"
   displayName: 'Run a multi-line script'
