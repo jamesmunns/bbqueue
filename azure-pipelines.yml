@@ -1,0 +1,8 @@
+jobs:
+- job: cargo-check
+  pool:
+    vmImage: 'ubuntu-16.04'
+  steps:
+    - template: ci/azure-install-rust.yml
+    - script: |
+      echo "hello, world!"
