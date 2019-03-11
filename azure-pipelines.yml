@@ -11,6 +11,6 @@ pool:
 
 steps:
 - template: ci/azure-install-rust.yml
-- script: |
-echo "hello, world!"
-  displayName: 'Run a multi-line script'
+# - script: |
+# echo "hello, world!"
+#   displayName: 'Run a multi-line script'
