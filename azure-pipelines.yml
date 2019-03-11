@@ -6,15 +6,16 @@
 trigger:
 - master
 
-parameters:
-  rust-version: stable
+
 
 pool:
   vmImage: 'Ubuntu-16.04'
 
 steps:
-  - template: ci/azure-install-rust.yml
+- template: ci/azure-install-rust.yml
+  parameters:
+    rust_version: stable
+  displayName: 'Install Rust'
 
-# - script: |
-# echo "hello, world!"
-#   displayName: 'Run a multi-line script'
+- script: ./ci/test.sh
+  displayName: 'Test BBQueue'
