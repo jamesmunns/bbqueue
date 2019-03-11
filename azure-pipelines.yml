@@ -3,15 +3,12 @@
 # Add steps that build, run tests, deploy, and more:
 # https://aka.ms/yaml
 
-trigger:
-- master
-
-pool:
-  vmImage: 'Ubuntu-16.04'
-
-steps:
-- template: ci/azure-install-rust.yml
+jobs:
+  displayName: "stable"
   parameters:
     rust_version: stable
-
-- script: ./ci/test.sh
+  steps:
+    - template: ci/azure-install-rust.yml
+    - script: ./ci/test.sh
+  env:
+    RUST_VERSION: stable
