@@ -13,7 +13,5 @@ steps:
 - template: ci/azure-install-rust.yml
   parameters:
     rust_version: stable
-  env:
-    TRAVIS_RUST_VERSION: stable
 
 - script: ./ci/test.sh
