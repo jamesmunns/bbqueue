@@ -6,11 +6,7 @@ mod single_thread;
 
 #[cfg(test)]
 mod tests {
-    use bbqueue::{
-        BBQueue,
-        Error as BBQError,
-        bbq,
-    };
+    use bbqueue::{bbq, BBQueue, Error as BBQError};
 
     #[test]
     fn deref_deref_mut() {
@@ -124,9 +120,7 @@ mod tests {
         // Commit data
         bb.commit(4, x);
 
-        ::std::sync::atomic::fence(
-            std::sync::atomic::Ordering::SeqCst
-        );
+        ::std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
         let a = bb.read().unwrap();
         assert_eq!(a.buf(), &[1, 2, 3, 4]);
