@@ -104,7 +104,7 @@ use core::slice::from_raw_parts;
 use core::slice::from_raw_parts_mut;
 use core::sync::atomic::{
     AtomicBool, AtomicUsize,
-    Ordering::{Acquire, Relaxed, Release},
+    Ordering::{self, Acquire, Relaxed, Release},
 };
 
 /// Result type used by the `BBQueue` interfaces
@@ -592,6 +592,8 @@ impl Consumer {
 #[macro_export]
 macro_rules! bbq {
     ($expr:expr) => {{
+        use $crate::AtomicBoolExt;
+
         use core::sync::atomic::{AtomicBool, Ordering};
 
         static TAKEN: AtomicBool = AtomicBool::new(false);
@@ -633,4 +635,60 @@ macro_rules! unchecked_bbq {
             BBQ.as_mut()
         }
     }};
+}
+
+#[doc(hidden)]
+pub trait AtomicBoolExt {
+    fn swap(&self, val: bool, order: Ordering) -> bool;
+    fn compare_and_swap(&self, current: bool, new: bool, order: Ordering) -> bool;
+}
+
+#[cfg(feature = "cortex-m")]
+impl AtomicBoolExt for AtomicBool {
+    fn swap(&self, val: bool, _order: Ordering) -> bool {
+        cortex_m::interrupt::free(|_| {
+            let prev = self.load(Ordering::Relaxed);
+            self.store(val, Ordering::Relaxed);
+
+            prev
+        })
+    }
+
+    fn compare_and_swap(&self, current: bool, new: bool, _order: Ordering) -> bool {
+        cortex_m::interrupt::free(|_| {
+            let prev = self.load(Ordering::Relaxed);
+
+            if prev == current {
+                self.store(new, Ordering::Relaxed);
+            }
+
+            prev
+        })
+    }
+}
+
+trait AtomicUsizeExt {
+    fn fetch_add(&self, val: usize, order: Ordering) -> usize;
+    fn fetch_sub(&self, val: usize, order: Ordering) -> usize;
+}
+
+#[cfg(feature = "cortex-m")]
+impl AtomicUsizeExt for AtomicUsize {
+    fn fetch_add(&self, val: usize, _order: Ordering) -> usize {
+        cortex_m::interrupt::free(|_| {
+            let prev = self.load(Ordering::Relaxed);
+            self.store(prev + val, Ordering::Relaxed);
+
+            prev
+        })
+    }
+
+    fn fetch_sub(&self, val: usize, _order: Ordering) -> usize {
+        cortex_m::interrupt::free(|_| {
+            let prev = self.load(Ordering::Relaxed);
+            self.store(prev - val, Ordering::Relaxed);
+
+            prev
+        })
+    }
 }

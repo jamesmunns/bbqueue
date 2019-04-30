@@ -2,9 +2,13 @@ set -euxo pipefail
 
 # Install embedded target for no_std test
 rustup target add thumbv7em-none-eabihf
+rustup target add thumbv6m-none-eabi
 
 # Check with no_std target to make sure it really works for embedded/no_std
 cargo build --target thumbv7em-none-eabihf --manifest-path core/Cargo.toml
+
+# Check that it works on thumbv6 (no atomics)
+cargo build --target thumbv6m-none-eabi --manifest-path core/Cargo.toml --features cortex-m
 
 # Check doctests
 cargo test --manifest-path core/Cargo.toml
@@ -28,4 +32,3 @@ else
     cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
     cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
 fi
-
