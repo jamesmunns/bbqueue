@@ -100,7 +100,7 @@ The `bbqueue` crate is located in `core/`, and tests are located in `bbqtest/`.
 | Feature Name | On by default? | Description |
 | :--- | :--- | :--- |
 | `std` | No | Enables convenience methods for allocating on the Heap, instead of statically |
-| `cortex-m` | No | Provides a convenience macro for safely allocating in a critical section on Cortex-M devices |
+| `cortex-m` | No | Provides a convenience macro for safely allocating in a critical section on Cortex-M devices. Must be enabled for `thumbv6` targets. |
 
 # License
 

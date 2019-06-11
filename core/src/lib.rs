@@ -11,6 +11,8 @@
 //! While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to
 //! main code), you must push the data one piece at a time. With BBQueue, you instead are granted a
 //! block of contiguous memory, which can be filled (or emptied) by a DMA engine.
+//! 
+//! In order to use BBQueue on `thumbv6` targets, the `cortex-m` feature must be enabled.
 //!
 //! ## Using in a single threaded context
 //!
