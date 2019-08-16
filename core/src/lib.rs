@@ -419,6 +419,13 @@ impl BBQueue {
         self.read_in_progress.store(false, Relaxed);
     }
 
+    /// Returns the size of the backing storage.
+    ///
+    /// This is the maximum number of bytes that can be stored in this queue.
+    pub fn capacity(&self) -> usize {
+        unsafe { self.buf.as_ref().len() }
+    }
+
     fn is_our_grant(&self, gr_buf: &[u8]) -> bool {
         let start = unsafe { self.buf.as_ref().as_ptr() as usize };
         let end_plus_one = start + unsafe { self.buf.as_ref().len() };
@@ -562,6 +569,13 @@ impl Producer {
     pub fn commit(&mut self, used: usize, grant: GrantW) {
         unsafe { self.bbq.as_mut().commit(used, grant) }
     }
+
+    /// Returns the size of the backing storage.
+    ///
+    /// This is the maximum number of bytes that can be stored in this queue.
+    pub fn capacity(&self) -> usize {
+        unsafe { self.bbq.as_ref().capacity() }
+    }
 }
 
 impl Consumer {
@@ -581,6 +595,13 @@ impl Consumer {
     #[inline(always)]
     pub fn release(&mut self, used: usize, grant: GrantR) {
         unsafe { self.bbq.as_mut().release(used, grant) }
+    }
+
+    /// Returns the size of the backing storage.
+    ///
+    /// This is the maximum number of bytes that can be stored in this queue.
+    pub fn capacity(&self) -> usize {
+        unsafe { self.bbq.as_ref().capacity() }
     }
 }
 
