@@ -271,4 +271,52 @@ mod tests {
         // Ask for something way too big
         assert!(tx.grant(10).is_err());
     }
+
+    #[test]
+    fn grant_max_returns_largest_possible_buffer() {
+        let bb = bbq!(7).unwrap();
+
+        // Grant and commit most of the buffer
+        let wgr = bb.grant(5).unwrap();
+        bb.commit(5, wgr);
+
+        // And release 
+        let rgr = bb.read().unwrap();
+        assert_eq!(rgr.len(), 5);
+        bb.release(rgr.len(), rgr);
+
+        // Request grant where there is enough room if invert
+        let wgr = bb.grant_max(3).unwrap();
+        assert_eq!(wgr.len(), 3);
+
+        let bb = bbq!(7).unwrap();
+
+        // Grant most of the buffer and commit
+        let wgr = bb.grant(5).unwrap();
+        bb.commit(5, wgr);
+        
+        // And release
+        let rgr = bb.read().unwrap();
+        assert_eq!(rgr.len(), 5);
+        bb.release(rgr.len(), rgr);
+
+        // Request grant where inverting returns largest buffer
+        let wgr = bb.grant_max(6).unwrap();
+        assert_eq!(wgr.len(), 4);
+        
+        let bb = bbq!(7).unwrap();
+
+        // Grant and commit
+        let wgr = bb.grant(2).unwrap();
+        bb.commit(2, wgr);
+        
+        // And release
+        let rgr = bb.read().unwrap();
+        assert_eq!(rgr.len(), 2);
+        bb.release(rgr.len(), rgr);
+
+        // Request grant where not inverting returns largest buffer
+        let wgr = bb.grant_max(6).unwrap();
+        assert_eq!(wgr.len(), 5);        
+    }
 }

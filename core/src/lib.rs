@@ -282,24 +282,26 @@ impl BBQueue {
                 // Inverted, no room is available
                 return Err(Error::InsufficientSize);
             }
+        } else if write + sz <= max {
+            // Enough space for all in un-inverted case
+            write
+        } else if sz < read {
+            // Enough space for all if invert
+            0
+        } else if write == max && read <= 1 {
+            // No space
+            return Err(Error::InsufficientSize);
         } else {
-            if write != max {
-                // Some (or all) room remaining in un-inverted case
-                sz = min(max - write, sz);
+            // Not enough space for all, choose largest option
+            let non_inv_sz = max - write;
+            let inv_sz = if read == 0 { 0 } else { read - 1 };
+
+            if non_inv_sz >= inv_sz {
+                sz = non_inv_sz;
                 write
             } else {
-                // Not inverted, but need to go inverted
-
-                // NOTE: We check read > 1, NOT read >= 1, because
-                // write must never == read in an inverted condition, since
-                // we will then not be able to tell if we are inverted or not
-                if read > 1 {
-                    sz = min(read - 1, sz);
-                    0
-                } else {
-                    // Not invertible, no space
-                    return Err(Error::InsufficientSize);
-                }
+                sz = inv_sz;
+                0
             }
         };
 
@@ -309,10 +311,15 @@ impl BBQueue {
         let c = unsafe { self.buf.as_mut().as_mut_ptr() };
         let d = unsafe { from_raw_parts_mut(c, max) };
 
-
-        Ok(GrantW {
+        let grant = GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
-        })
+        };
+
+        if !self.is_our_grant(&grant.buf) {
+            panic!("{} {}", sz, start);
+        }
+
+        Ok(grant)
     }
 
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
