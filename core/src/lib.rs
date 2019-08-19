@@ -429,9 +429,10 @@ impl BBQueue {
     fn is_our_grant(&self, gr_buf: &[u8]) -> bool {
         let start = unsafe { self.buf.as_ref().as_ptr() as usize };
         let end_plus_one = start + unsafe { self.buf.as_ref().len() };
-        let buf = gr_buf.as_ptr() as usize;
+        let buf_start = gr_buf.as_ptr() as usize;
+        let buf_end_plus_one = buf_start + gr_buf.len();
 
-        (buf >= start) && (buf < end_plus_one)
+        (start <= buf_start) && (buf_end_plus_one <= end_plus_one)
     }
 
 

@@ -271,4 +271,16 @@ mod tests {
         // Ask for something way too big
         assert!(tx.grant(10).is_err());
     }
+
+    #[test]
+    fn zero_sized_grant() {
+        let bbq = bbq!(1000).unwrap();
+
+        let size = 1000;
+        let grant = bbq.grant(size).unwrap();
+        bbq.commit(size, grant);
+
+        let grant = bbq.grant(0).unwrap();
+        bbq.commit(0, grant);
+    }
 }
