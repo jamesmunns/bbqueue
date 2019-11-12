@@ -433,8 +433,7 @@ impl BBQueue {
 
 impl BBQueue {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
-    /// that may be given to separate threads. May only be called once
-    /// per `BBQueue` object, or this function will panic
+    /// that may be given to separate threads.
     pub fn split<'a>(&'a mut self) -> (Producer<'a>, Consumer<'a>) {
         let nn1 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
         let nn2 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
