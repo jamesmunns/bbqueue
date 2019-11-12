@@ -97,6 +97,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::cmp::min;
+use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use core::result::Result as CoreResult;
@@ -149,9 +150,6 @@ pub struct BBQueue {
 
     /// Is there an active read grant?
     read_in_progress: AtomicBool,
-
-    /// Have we already split?
-    already_split: AtomicBool,
 }
 
 impl BBQueue {
@@ -185,8 +183,6 @@ impl BBQueue {
 
             /// Owned by the Reader, "private"
             read_in_progress: AtomicBool::new(false),
-
-            already_split: AtomicBool::new(false),
         }
     }
 
@@ -308,7 +304,6 @@ impl BBQueue {
 
         let c = unsafe { self.buf.as_mut().as_mut_ptr() };
         let d = unsafe { from_raw_parts_mut(c, max) };
-
 
         Ok(GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
@@ -434,26 +429,24 @@ impl BBQueue {
 
         (start <= buf_start) && (buf_end_plus_one <= end_plus_one)
     }
-
-
 }
 
 impl BBQueue {
     /// This method takes a `BBQueue`, and returns a set of SPSC handles
     /// that may be given to separate threads. May only be called once
     /// per `BBQueue` object, or this function will panic
-    pub fn split(&self) -> (Producer, Consumer) {
-        assert!(!self.already_split.swap(true, Relaxed));
-
+    pub fn split<'a>(&'a mut self) -> (Producer<'a>, Consumer<'a>) {
         let nn1 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
         let nn2 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
 
         (
             Producer {
                 bbq: nn1,
+                _marker: PhantomData,
             },
             Consumer {
                 bbq: nn2,
+                _marker: PhantomData,
             },
         )
     }
@@ -472,7 +465,7 @@ impl BBQueue {
     }
 
     /// Splits a boxed `BBQueue` into a producer and consumer
-    pub fn split_box(queue: Box<Self>) -> (Producer, Consumer) {
+    pub fn split_box(queue: Box<Self>) -> (Producer<'static>, Consumer<'static>) {
         let self_ref = Box::leak(queue);
         Self::split(self_ref)
     }
@@ -527,23 +520,25 @@ impl Deref for GrantR {
     }
 }
 
-unsafe impl Send for Consumer {}
+unsafe impl<'a> Send for Consumer<'a> {}
 
 /// An opaque structure, capable of reading data from the queue
-pub struct Consumer {
+pub struct Consumer<'a> {
     /// The underlying `BBQueue` object`
     bbq: NonNull<BBQueue>,
+    _marker: PhantomData<&'a ()>,
 }
 
-unsafe impl Send for Producer {}
+unsafe impl<'a> Send for Producer<'a> {}
 
 /// An opaque structure, capable of writing data to the queue
-pub struct Producer {
+pub struct Producer<'a> {
     /// The underlying `BBQueue` object`
     bbq: NonNull<BBQueue>,
+    _marker: PhantomData<&'a ()>,
 }
 
-impl Producer {
+impl<'a> Producer<'a> {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
@@ -579,7 +574,7 @@ impl Producer {
     }
 }
 
-impl Consumer {
+impl<'a> Consumer<'a> {
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
