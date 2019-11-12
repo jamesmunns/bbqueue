@@ -637,7 +637,7 @@ macro_rules! bbq {
             if TAKEN.compare_and_swap(false, true, Ordering::AcqRel) {
                 None
             } else {
-                unsafe { $crate::unchecked_bbq!($expr) }
+                Some(unsafe { $crate::unchecked_bbq!($expr) })
             }
         }
     }
@@ -661,19 +661,13 @@ macro_rules! cortex_m_bbq {
 macro_rules! unchecked_bbq {
     ($expr:expr) => {
         {
+            use core::mem::MaybeUninit;
+
             static mut BUFFER: [u8; $expr] = [0u8; $expr];
+            static mut BBQ: MaybeUninit<BBQueue> = MaybeUninit::uninit();
 
-            // Really, this shouldn't be an option. But for now, there is
-            // no stable way to get an uninitialized static, so we pay the
-            // option cost for compatibility
-            static mut BBQ: Option<BBQueue> = None;
-
-            if BBQ.is_some() {
-                None
-            } else {
-                BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
-                BBQ.as_mut()
-            }
+            BBQ = MaybeUninit::new(BBQueue::unpinned_new(&mut BUFFER));
+            unsafe { &mut *BBQ.as_mut_ptr() }
         }
     }
 }
