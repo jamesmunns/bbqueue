@@ -667,7 +667,7 @@ macro_rules! unchecked_bbq {
             static mut BBQ: MaybeUninit<BBQueue> = MaybeUninit::uninit();
 
             BBQ = MaybeUninit::new(BBQueue::unpinned_new(&mut BUFFER));
-            unsafe { &mut *BBQ.as_mut_ptr() }
+            &mut *BBQ.as_mut_ptr()
         }
     }
 }
