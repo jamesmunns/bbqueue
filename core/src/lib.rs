@@ -405,7 +405,7 @@ impl BBQueue {
     /// to be used by later writes
     ///
     /// If `used` is larger than the given grant, this function will panic.
-    pub fn release(&self, used: usize, grant: GrantR) {
+    pub fn release(&mut self, used: usize, grant: GrantR) {
         assert!(used <= grant.buf.len());
 
         // Verify we are committing OUR grant
