@@ -12,87 +12,7 @@
 //! main code), you must push the data one piece at a time. With BBQueue, you instead are granted a
 //! block of contiguous memory, which can be filled (or emptied) by a DMA engine.
 //!
-//! ## Using in a single threaded context
-//!
-//! ```rust
-//! use bbqueue::{BBQueue, bbq};
-//!
-//! fn main() {
-//!     // Create a statically allocated instance
-//!     let bbq = bbq!(1024).unwrap();
-//!
-//!     // Obtain a write grant of size 128 bytes
-//!     let mut wgr = bbq.grant(128).unwrap();
-//!
-//!     // Fill the buffer with data
-//!     wgr.copy_from_slice(&[0xAFu8; 128]);
-//!
-//!     // Commit the write, to make the data available to be read
-//!     bbq.commit(wgr.len(), wgr);
-//!
-//!     // Obtain a read grant of all available and contiguous bytes
-//!     let rgr = bbq.read().unwrap();
-//!
-//!     for i in 0..128 {
-//!         assert_eq!(rgr[i], 0xAFu8);
-//!     }
-//!
-//!     // Release the bytes, allowing the space
-//!     // to be re-used for writing
-//!     bbq.release(rgr.len(), rgr);
-//! }
-//! ```
-//!
-//! ## Using in a multi-threaded environment (or with interrupts, etc.)
-//!
-//! ```rust
-//! use bbqueue::{BBQueue, bbq};
-//! use std::thread::spawn;
-//!
-//! fn main() {
-//!     // Create a statically allocated instance
-//!     let bbq = bbq!(1024).unwrap();
-//!     let (mut tx, mut rx) = bbq.split();
-//!
-//!     let txt = spawn(move || {
-//!         for tx_i in 0..128 {
-//!             'inner: loop {
-//!                 match tx.grant(4) {
-//!                     Ok(mut gr) => {
-//!                         gr.copy_from_slice(&[tx_i as u8; 4]);
-//!                         tx.commit(4, gr);
-//!                         break 'inner;
-//!                     }
-//!                     _ => {}
-//!                 }
-//!             }
-//!         }
-//!     });
-//!
-//!     let rxt = spawn(move || {
-//!         for rx_i in 0..128 {
-//!             'inner: loop {
-//!                 match rx.read() {
-//!                     Ok(mut gr) => {
-//!                         if gr.len() < 4 {
-//!                             rx.release(0, gr);
-//!                             continue 'inner;
-//!                         }
-//!
-//!                         assert_eq!(&gr[..4], &[rx_i as u8; 4]);
-//!                         rx.release(4, gr);
-//!                         break 'inner;
-//!                     }
-//!                     _ => {}
-//!                 }
-//!             }
-//!         }
-//!     });
-//!
-//!     txt.join().unwrap();
-//!     rxt.join().unwrap();
-//! }
-//! ```
+//! > TODO: Update usage examples
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -109,17 +29,20 @@ pub enum Error {
     Refactoring,
 }
 
-use core::ops::{Deref, DerefMut};
-use core::result::Result as CoreResult;
-use core::cell::UnsafeCell;
-use core::marker::PhantomData;
-use core::mem::{size_of, MaybeUninit};
-use core::ptr::NonNull;
-use core::slice::from_raw_parts;
-use core::slice::from_raw_parts_mut;
-use core::sync::atomic::{
-    AtomicBool, AtomicUsize,
-    Ordering::{Acquire, Relaxed, Release},
+pub use generic_array::typenum::consts;
+use core::{
+    cell::UnsafeCell,
+    marker::PhantomData,
+    mem::{size_of, MaybeUninit, forget},
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+    result::Result as CoreResult,
+    slice::from_raw_parts,
+    slice::from_raw_parts_mut,
+    sync::atomic::{
+        AtomicBool, AtomicUsize,
+        Ordering::{Acquire, Relaxed, Release}
+    },
 };
 use generic_array::{ArrayLength, GenericArray};
 
@@ -127,14 +50,17 @@ use generic_array::{ArrayLength, GenericArray};
 /// a BBQueue or a split Producer/Consumer pair
 pub struct BBBuffer<N: ArrayLength<u8>> {
     // Underlying data storage
-    inner: ConstBBBuffer<GenericArray<u8, N>>,
+    pub inner: ConstBBBuffer<GenericArray<u8, N>>,
 }
 
-impl<N> BBBuffer<N>
+// unsafe impl<N> Send for BBBuffer<N: ArrayLength<u8>> {}
+unsafe impl<A> Sync for ConstBBBuffer<A> {}
+
+impl<'a, N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
-    pub fn try_split(&self) -> Result<(Producer<N>, Consumer<N>)> {
+    pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         if self.inner.already_split.swap(true, Relaxed) {
             return Err(Error::Refactoring);
         } else {
@@ -228,6 +154,11 @@ where
     pd: PhantomData<&'a ()>,
 }
 
+unsafe impl<'a, N> Send for Producer<'a, N>
+where
+    N: ArrayLength<u8>
+{ }
+
 impl<'a, N> Producer<'a, N>
 where
     N: ArrayLength<u8>,
@@ -235,7 +166,7 @@ where
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
-    pub fn grant(&mut self, sz: usize) -> Result<GrantW> {
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW<N>> {
         let inner = unsafe { &self.bbq.as_ref().inner };
 
         // Writer component. Must never write to `read`,
@@ -286,11 +217,10 @@ where
         inner.reserve.store(start + sz, Relaxed);
 
         let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
-        let d = unsafe { from_raw_parts_mut(c.offset(start as isize), inner.reserve.load(Relaxed)) };
+        let d =
+            unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
 
-        Ok(GrantW {
-            buf: d,
-        })
+        Ok(GrantW { buf: d, bbq: self.bbq })
     }
 
     //     /// Request a writable, contiguous section of memory of up to
@@ -357,45 +287,6 @@ where
     //             buf: &mut d[start..self.inner.reserve.load(Relaxed)],
     //         })
     //     }
-
-
-    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
-    /// This makes the data available to be read via `read()`.
-    ///
-    /// If `used` is larger than the given grant, this function will panic.
-    pub fn commit(&mut self, used: usize, grant: GrantW) {
-        let inner = unsafe { &self.bbq.as_ref().inner };
-
-        // Writer component. Must never write to READ,
-        // be careful writing to LAST
-
-        // Verify we are not committing more than the given
-        // grant
-        let len = grant.buf.len();
-        assert!(len >= used);
-
-        // Verify we are committing OUR grant
-        assert!(unsafe { self.bbq.as_ref().is_our_grant(&grant.buf) });
-
-        drop(grant);
-
-        let write = inner.write.load(Relaxed);
-        inner.reserve.fetch_sub(len - used, Relaxed);
-
-        let max = N::to_usize();
-        let last = inner.last.load(Relaxed);
-
-        // Inversion case, we have begun writing
-        if (inner.reserve.load(Relaxed) < write) && (write != max) {
-            inner.last.store(write, Release);
-        } else if write > last {
-            inner.last.store(max, Release);
-        }
-
-        // Write must be updated AFTER last, otherwise read could think it was
-        // time to invert early!
-        inner.write.store(inner.reserve.load(Relaxed), Release);
-    }
 }
 
 pub struct Consumer<'a, N>
@@ -406,16 +297,20 @@ where
     pd: PhantomData<&'a ()>,
 }
 
+unsafe impl<'a, N> Send for Consumer<'a, N>
+where
+    N: ArrayLength<u8>
+{ }
+
 impl<'a, N> Consumer<'a, N>
 where
     N: ArrayLength<u8>,
 {
-
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
     /// released
-    pub fn read(&mut self) -> Result<GrantR> {
+    pub fn read(&mut self) -> Result<GrantR<N>> {
         let inner = unsafe { &self.bbq.as_ref().inner };
 
         if inner.read_in_progress.load(Relaxed) {
@@ -457,29 +352,7 @@ where
         let c = unsafe { (*inner.buf.get()).as_ptr().cast::<u8>() };
         let d = unsafe { from_raw_parts(c.offset(read as isize), sz) };
 
-        Ok(GrantR {
-            buf: d,
-        })
-    }
-
-    /// Release a sequence of bytes from the buffer, allowing the space
-    /// to be used by later writes
-    ///
-    /// If `used` is larger than the given grant, this function will panic.
-    pub fn release(&mut self, used: usize, grant: GrantR) {
-        let inner = unsafe { &self.bbq.as_ref().inner };
-
-        assert!(used <= grant.buf.len());
-
-        // Verify we are committing OUR grant
-        assert!(unsafe { self.bbq.as_ref().is_our_grant(&grant.buf) });
-
-        drop(grant);
-
-        // This should be fine, purely incrementing
-        let _ = inner.read.fetch_add(used, Release);
-
-        inner.read_in_progress.store(false, Relaxed);
+        Ok(GrantR { buf: d, bbq: self.bbq })
     }
 }
 
@@ -488,14 +361,12 @@ impl<N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
-
     /// Returns the size of the backing storage.
     ///
     /// This is the maximum number of bytes that can be stored in this queue.
     pub fn capacity(&self) -> usize {
         N::to_usize()
     }
-
 
     pub(crate) fn is_our_grant(&self, gr_buf: &[u8]) -> bool {
         let buf_start = self.inner.buf.get() as usize;
@@ -540,31 +411,124 @@ where
 /// A structure representing a contiguous region of memory that
 /// may be written to, and potentially "committed" to the queue
 #[derive(Debug, PartialEq)]
-pub struct GrantW {
-    buf: &'static mut [u8],
+pub struct GrantW<'a, N>
+where
+    N: ArrayLength<u8>
+{
+    buf: &'a mut [u8],
+    bbq: NonNull<BBBuffer<N>>
 }
 
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
 /// from the queue
 #[derive(Debug, PartialEq)]
-pub struct GrantR {
-    buf: &'static [u8],
+pub struct GrantR<'a, N>
+where
+    N: ArrayLength<u8>
+{
+    buf: &'a [u8],
+    bbq: NonNull<BBBuffer<N>>
 }
 
-impl GrantW {
-    pub fn buf(&mut self) -> &mut [u8] {
-        self.buf
+impl<'a, N> GrantW<'a, N>
+where
+    N: ArrayLength<u8>
+{
+    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
+    /// This makes the data available to be read via `read()`.
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
+    pub fn commit(mut self, used: usize) {
+        self.commit_inner(used);
+        forget(self);
+    }
+
+    #[inline(always)]
+    pub(crate) fn commit_inner(&mut self, used: usize) {
+        let inner = unsafe { &self.bbq.as_ref().inner };
+
+        // Writer component. Must never write to READ,
+        // be careful writing to LAST
+
+        // Verify we are not committing more than the given
+        // grant
+        let len = self.buf.len();
+        assert!(len >= used);
+
+        // Verify we are committing OUR grant
+        assert!(unsafe { self.bbq.as_ref().is_our_grant(&self.buf) });
+
+        let write = inner.write.load(Relaxed);
+        inner.reserve.fetch_sub(len - used, Relaxed);
+
+        let max = N::to_usize();
+        let last = inner.last.load(Relaxed);
+
+        // Inversion case, we have begun writing
+        if (inner.reserve.load(Relaxed) < write) && (write != max) {
+            inner.last.store(write, Release);
+        } else if write > last {
+            inner.last.store(max, Release);
+        }
+
+        // Write must be updated AFTER last, otherwise read could think it was
+        // time to invert early!
+        inner.write.store(inner.reserve.load(Relaxed), Release);
     }
 }
 
-impl GrantR {
-    pub fn buf(&self) -> &[u8] {
-        self.buf
+impl<'a, N> GrantR<'a, N>
+where
+    N: ArrayLength<u8>
+{
+    /// Release a sequence of bytes from the buffer, allowing the space
+    /// to be used by later writes
+    ///
+    /// If `used` is larger than the given grant, this function will panic.
+    pub fn release(mut self, used: usize) {
+        self.release_inner(used);
+        forget(self);
+    }
+
+    #[inline(always)]
+    pub(crate) fn release_inner(&mut self, used: usize) {
+        let inner = unsafe { &self.bbq.as_ref().inner };
+
+        assert!(used <= self.buf.len());
+
+        // Verify we are committing OUR grant
+        assert!(unsafe { self.bbq.as_ref().is_our_grant(&self.buf) });
+
+        // This should be fine, purely incrementing
+        let _ = inner.read.fetch_add(used, Release);
+
+        inner.read_in_progress.store(false, Relaxed);
     }
 }
 
-impl Deref for GrantW {
+impl<'a, N> Drop for GrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        self.commit_inner(0)
+    }
+}
+
+impl<'a, N> Drop for GrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        self.release_inner(0)
+    }
+}
+
+impl<'a, N> Deref for GrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -572,20 +536,25 @@ impl Deref for GrantW {
     }
 }
 
-impl DerefMut for GrantW {
+impl<'a, N> DerefMut for GrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
     }
 }
 
-impl Deref for GrantR {
+impl<'a, N> Deref for GrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
         self.buf
     }
 }
-
 
 // /// Statically allocate a `BBQueue` singleton object with a given size (in bytes).
 // ///

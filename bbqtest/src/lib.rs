@@ -2,285 +2,188 @@
 //! the other no-std crate.
 
 mod multi_thread;
-mod single_thread;
+// mod single_thread;
 
 #[cfg(test)]
 mod tests {
     use bbqueue::{
-        BBQueue,
+        BBBuffer,
+        ConstBBBuffer,
         Error as BBQError,
-        bbq,
+        consts::*,
     };
 
     #[test]
     fn deref_deref_mut() {
-        let bb = bbq!(6).unwrap();
+        let bb: BBBuffer<U6> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split().unwrap();
 
-        let mut wgr = bb.grant(1).unwrap();
+        let mut wgr = prod.grant(1).unwrap();
 
         // deref_mut
         wgr[0] = 123;
 
         assert_eq!(wgr.len(), 1);
 
-        bb.commit(1, wgr);
+        wgr.commit(1);
 
         // deref
-        let rgr = bb.read().unwrap();
+        let rgr = cons.read().unwrap();
 
         assert_eq!(rgr[0], 123);
 
-        bb.release(1, rgr);
+        rgr.release(1);
     }
 
     #[test]
     fn static_allocator() {
         // Check we can make multiple static items...
-        let bbq1 = bbq!(8).unwrap();
-        let bbq2 = bbq!(8).unwrap();
+        static BBQ1: BBBuffer<U6> = BBBuffer { inner: ConstBBBuffer::new() };
+        static BBQ2: BBBuffer<U6> = BBBuffer { inner: ConstBBBuffer::new() };
+        let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
+        let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
+
 
         // ... and they aren't the same
-        let mut wgr1 = bbq1.grant(3).unwrap();
-        wgr1.buf().copy_from_slice(&[1, 2, 3]);
-        bbq1.commit(3, wgr1);
+        let mut wgr1 = prod1.grant(3).unwrap();
+        wgr1.copy_from_slice(&[1, 2, 3]);
+        wgr1.commit(3);
 
         // no data here...
-        assert!(bbq2.read().is_err());
+        assert!(cons2.read().is_err());
 
         // ...data is here!
-        let rgr1 = bbq1.read().unwrap();
-        assert_eq!(rgr1.buf(), &[1, 2, 3]);
+        let rgr1 = cons1.read().unwrap();
+        assert_eq!(&*rgr1, &[1, 2, 3]);
     }
 
-    #[test]
-    #[should_panic]
-    fn bad_commit() {
-        // Check we can make multiple static items...
-        let bbq1 = bbq!(8).unwrap();
-        let bbq2 = bbq!(8).unwrap();
+    // #[test]
+    // #[should_panic]
+    // fn bad_release() {
+    //     // Check we can make multiple static items...
+    //     static BBQ1: BBBuffer<U6> = BBBuffer { inner: ConstBBBuffer::new() };
+    //     static BBQ2: BBBuffer<U6> = BBBuffer { inner: ConstBBBuffer::new() };
+    //     let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
+    //     let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
 
-        // ... and they aren't the same
-        let mut wgr1 = bbq1.grant(3).unwrap();
-        wgr1.buf().copy_from_slice(&[1, 2, 3]);
+    //     // ... and they aren't the same
+    //     let mut wgr1 = prod1.grant(3).unwrap();
+    //     wgr1.copy_from_slice(&[1, 2, 3]);
+    //     prod1.commit(3, wgr1);
 
-        // then give the wrong one the grant
-        bbq2.commit(3, wgr1);
-    }
+    //     // Read from the first
+    //     let rgr1 = cons1.read().unwrap();
+    //     assert_eq!(&*rgr1, &[1, 2, 3]);
 
-    #[test]
-    #[should_panic]
-    fn bad_release() {
-        // Check we can make multiple static items...
-        let bbq1 = bbq!(8).unwrap();
-        let bbq2 = bbq!(8).unwrap();
+    //     // Release from 2
+    //     cons2.release(1, rgr1);
+    // }
 
-        // ... and they aren't the same
-        let mut wgr1 = bbq1.grant(3).unwrap();
-        wgr1.buf().copy_from_slice(&[1, 2, 3]);
-        bbq1.commit(3, wgr1);
-
-        // Read from the first
-        let rgr1 = bbq1.read().unwrap();
-        assert_eq!(rgr1.buf(), &[1, 2, 3]);
-
-        // Release from 2
-        bbq2.release(1, rgr1);
-    }
-
-    #[test]
-    fn create_queue() {
-        // Create queue using "no_std" style
-        static mut DATA: [u8; 6] = [0u8; 6];
-        let mut _b = unsafe { BBQueue::unpinned_new(&mut DATA) };
-        let (_prod, _cons) = _b.split();
-    }
-
-    #[test]
-    fn create_boxed_queue() {
-        // Create queue using leaky "boxed" style
-        let bbq = BBQueue::new_boxed(1024);
-        let (_prod, _cons) = BBQueue::split_box(bbq);
-    }
+    // // #[test]
+    // // fn create_boxed_queue() {
+    // //     // Create queue using leaky "boxed" style
+    // //     let bbq = BBQueue::new_boxed(1024);
+    // //     let (_prod, _cons) = BBQueue::split_box(bbq);
+    // // }
 
     #[test]
     fn direct_usage_sanity() {
         // Initialize
-        static mut DATA: [u8; 6] = [0u8; 6];
-        let mut bb = unsafe { BBQueue::unpinned_new(&mut DATA) };
-        assert_eq!(bb.read(), Err(BBQError::InsufficientSize));
+        let bb: BBBuffer<U6> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split().unwrap();
+        assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
         // Initial grant, shouldn't roll over
-        let mut x = bb.grant(4).unwrap();
+        let mut x = prod.grant(4).unwrap();
 
         // Still no data available yet
-        assert_eq!(bb.read(), Err(BBQError::InsufficientSize));
+        assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
         // Add full data from grant
-        x.buf().copy_from_slice(&[1, 2, 3, 4]);
+        x.copy_from_slice(&[1, 2, 3, 4]);
 
         // Still no data available yet
-        assert_eq!(bb.read(), Err(BBQError::InsufficientSize));
+        assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
         // Commit data
-        bb.commit(4, x);
+        x.commit(4);
 
         ::std::sync::atomic::fence(
             std::sync::atomic::Ordering::SeqCst
         );
 
-        let a = bb.read().unwrap();
-        assert_eq!(a.buf(), &[1, 2, 3, 4]);
+        let a = cons.read().unwrap();
+        assert_eq!(&*a, &[1, 2, 3, 4]);
 
         // Release the first two bytes
-        bb.release(2, a);
+        a.release(2);
 
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[3, 4]);
-        bb.release(0, r);
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[3, 4]);
+        r.release(0);
 
         // Grant two more
-        let mut x = bb.grant(2).unwrap();
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[3, 4]);
-        bb.release(0, r);
+        let mut x = prod.grant(2).unwrap();
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[3, 4]);
+        r.release(0);
 
         // Add more data
-        x.buf().copy_from_slice(&[11, 12]);
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[3, 4]);
-        bb.release(0, r);
+        x.copy_from_slice(&[11, 12]);
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[3, 4]);
+        r.release(0);
 
         // Commit
-        bb.commit(2, x);
+        x.commit(2);
 
-        let a = bb.read().unwrap();
-        assert_eq!(a.buf(), &[3, 4, 11, 12]);
+        let a = cons.read().unwrap();
+        assert_eq!(&*a, &[3, 4, 11, 12]);
 
-        bb.release(2, a);
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[11, 12]);
-        bb.release(0, r);
+        a.release(2);
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[11, 12]);
+        r.release(0);
 
-        let mut x = bb.grant(3).unwrap();
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[11, 12]);
-        bb.release(0, r);
+        let mut x = prod.grant(3).unwrap();
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[11, 12]);
+        r.release(0);
 
-        x.buf().copy_from_slice(&[21, 22, 23]);
+        x.copy_from_slice(&[21, 22, 23]);
 
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[11, 12]);
-        bb.release(0, r);
-        bb.commit(3, x);
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[11, 12]);
+        r.release(0);
+        x.commit(3);
 
-        let a = bb.read().unwrap();
+        let a = cons.read().unwrap();
 
         // NOTE: The data we just added isn't available yet,
         // since it has wrapped around
-        assert_eq!(a.buf(), &[11, 12]);
+        assert_eq!(&*a, &[11, 12]);
 
-        bb.release(2, a);
-
-        // And now we can see it
-        let r = bb.read().unwrap();
-        assert_eq!(r.buf(), &[21, 22, 23]);
-        bb.release(0, r);
-
-        // Ask for something way too big
-        assert!(bb.grant(10).is_err());
-    }
-
-    #[test]
-    fn spsc_usage_sanity() {
-        let bb = bbq!(6).unwrap();
-
-        let (mut tx, mut rx) = bb.split();
-        assert_eq!(rx.read(), Err(BBQError::InsufficientSize));
-
-        // Initial grant, shouldn't roll over
-        let mut x = tx.grant(4).unwrap();
-
-        // Still no data available yet
-        assert_eq!(rx.read(), Err(BBQError::InsufficientSize));
-
-        // Add full data from grant
-        x.buf().copy_from_slice(&[1, 2, 3, 4]);
-
-        // Still no data available yet
-        assert_eq!(rx.read(), Err(BBQError::InsufficientSize));
-
-        // Commit data
-        tx.commit(4, x);
-
-        let a = rx.read().unwrap();
-        assert_eq!(a.buf(), &[1, 2, 3, 4]);
-
-        // Release the first two bytes
-        rx.release(2, a);
-
-        let r = rx.read().unwrap();
-        assert_eq!(r.buf(), &[3, 4]);
-        rx.release(0, r);
-
-        // Grant two more
-        let mut x = tx.grant(2).unwrap();
-        let r = rx.read().unwrap();
-        assert_eq!(r.buf(), &[3, 4]);
-        rx.release(0, r);
-
-        // Add more data
-        x.buf().copy_from_slice(&[11, 12]);
-        let r = rx.read().unwrap();
-        assert_eq!(r.buf(), &[3, 4]);
-        rx.release(0, r);
-
-        // Commit
-        tx.commit(2, x);
-
-        let a = rx.read().unwrap();
-        assert_eq!(a.buf(), &[3, 4, 11, 12]);
-        rx.release(2, a);
-
-        let r = rx.read().unwrap();
-        assert_eq!(r.buf(), &[11, 12]);
-        rx.release(0, r);
-
-        let mut x = tx.grant(3).unwrap();
-        let r = rx.read().unwrap();
-        assert_eq!(r.buf(), &[11, 12]);
-        rx.release(0, r);
-
-        x.buf().copy_from_slice(&[21, 22, 23]);
-
-        let r = rx.read().unwrap();
-        assert_eq!(r.buf(), &[11, 12]);
-        rx.release(0, r);
-        tx.commit(3, x);
-
-        let a = rx.read().unwrap();
-
-        // NOTE: The data we just added isn't available yet,
-        // since it has wrapped around
-        assert_eq!(a.buf(), &[11, 12]);
-
-        rx.release(2, a);
+        a.release(2);
 
         // And now we can see it
-        assert_eq!(rx.read().unwrap().buf(), &[21, 22, 23]);
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[21, 22, 23]);
+        r.release(0);
 
         // Ask for something way too big
-        assert!(tx.grant(10).is_err());
+        assert!(prod.grant(10).is_err());
     }
 
     #[test]
     fn zero_sized_grant() {
-        let bbq = bbq!(1000).unwrap();
+        let bb: BBBuffer<U1000> = BBBuffer::new();
+        let (mut prod, mut _cons) = bb.try_split().unwrap();
 
         let size = 1000;
-        let grant = bbq.grant(size).unwrap();
-        bbq.commit(size, grant);
+        let grant = prod.grant(size).unwrap();
+        grant.commit(size);
 
-        let grant = bbq.grant(0).unwrap();
-        bbq.commit(0, grant);
+        let grant = prod.grant(0).unwrap();
+        grant.commit(0);
     }
 }
