@@ -9,12 +9,12 @@ use core::{
     mem::{size_of, MaybeUninit, forget},
     ops::{Deref, DerefMut},
     ptr::NonNull,
-    result::Result as CoreResult,
     slice::from_raw_parts,
     slice::from_raw_parts_mut,
 };
 use generic_array::{ArrayLength, GenericArray};
 use cortex_m::interrupt::free;
+use crate::{Error, Result};
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
