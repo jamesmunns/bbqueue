@@ -17,7 +17,8 @@ mod tests {
 
     const RPT_IVAL: usize = ITERS / 100;
 
-    const QUEUE_SIZE: usize = 1024;
+    const _QUEUE_SIZE: usize = 1024;
+    type  QueueSizeTy        = U1024;
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
 
     #[test]
@@ -47,8 +48,8 @@ mod tests {
         #[cfg(feature = "verbose")] println!("RTX: Generation complete: {:?}", gen_start.elapsed());
         #[cfg(feature = "verbose")] println!("RTX: Running test...");
 
-        static bb: BBBuffer<U6> = BBBuffer { inner: ConstBBBuffer::new() };
-        let (mut tx, mut rx) = bb.try_split().unwrap();
+        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        let (mut tx, mut rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();
@@ -134,8 +135,8 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        static bb: BBBuffer<U6> = BBBuffer { inner: ConstBBBuffer::new() };
-        let (mut tx, mut rx) = bb.try_split().unwrap();
+        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        let (mut tx, mut rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();

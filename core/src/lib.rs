@@ -48,10 +48,10 @@ use generic_array::{ArrayLength, GenericArray};
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<N: ArrayLength<u8>> {
+pub struct BBBuffer<N: ArrayLength<u8>> (
     // Underlying data storage
-    pub inner: ConstBBBuffer<GenericArray<u8, N>>,
-}
+    #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
+);
 
 // unsafe impl<N> Send for BBBuffer<N: ArrayLength<u8>> {}
 unsafe impl<A> Sync for ConstBBBuffer<A> {}
@@ -61,14 +61,14 @@ where
     N: ArrayLength<u8>,
 {
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
-        if self.inner.already_split.swap(true, Relaxed) {
+        if self.0.already_split.swap(true, Relaxed) {
             return Err(Error::Refactoring);
         } else {
             unsafe {
                 // Explicitly zero the data to avoid undefined behavior.
                 // This is required, because we hand out references to the buffers,
                 // which mean that creating them as references is technically UB for now
-                let mu_ptr = self.inner.buf.get();
+                let mu_ptr = self.0.buf.get();
                 (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
                 let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
@@ -166,7 +166,7 @@ where
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
     pub fn grant(&mut self, sz: usize) -> Result<GrantW<N>> {
-        let inner = unsafe { &self.bbq.as_ref().inner };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
@@ -231,16 +231,16 @@ where
     //         // Writer component. Must never write to `read`,
     //         // be careful writing to `load`
 
-    //         let write = self.inner.write.load(Relaxed);
+    //         let write = self.0.write.load(Relaxed);
 
-    //         if self.inner.reserve.load(Relaxed) != write {
+    //         if self.0.reserve.load(Relaxed) != write {
     //             // GRANT IN PROCESS, do not allow further grants
     //             // until the current one has been completed
     //             return Err(Error::GrantInProgress);
     //         }
 
-    //         let read = self.inner.read.load(Acquire);
-    //         let max = unsafe { (*self.inner.buf.as_mut_ptr()).as_mut().len() };
+    //         let read = self.0.read.load(Acquire);
+    //         let max = unsafe { (*self.0.buf.as_mut_ptr()).as_mut().len() };
 
     //         let already_inverted = write < read;
 
@@ -277,13 +277,13 @@ where
     //         };
 
     //         // Safe write, only viewed by this task
-    //         self.inner.reserve.store(start + sz, Relaxed);
+    //         self.0.reserve.store(start + sz, Relaxed);
 
-    //         let c = unsafe { (*self.inner.buf.as_mut_ptr()).as_mut().as_mut_ptr() };
+    //         let c = unsafe { (*self.0.buf.as_mut_ptr()).as_mut().as_mut_ptr() };
     //         let d = unsafe { from_raw_parts_mut(c, max) };
 
     //         Ok(GrantW {
-    //             buf: &mut d[start..self.inner.reserve.load(Relaxed)],
+    //             buf: &mut d[start..self.0.reserve.load(Relaxed)],
     //         })
     //     }
 }
@@ -310,7 +310,7 @@ where
     /// remaining bytes will be available after all readable bytes are
     /// released
     pub fn read(&mut self) -> Result<GrantR<N>> {
-        let inner = unsafe { &self.bbq.as_ref().inner };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
         if inner.read_in_progress.load(Relaxed) {
             return Err(Error::GrantInProgress);
@@ -373,9 +373,9 @@ where
     N: ArrayLength<u8>,
 {
     pub fn new() -> Self {
-        Self {
-            inner: ConstBBBuffer::new(),
-        }
+        Self(
+            ConstBBBuffer::new(),
+        )
     }
 }
 
@@ -436,7 +436,7 @@ where
 
     #[inline(always)]
     pub(crate) fn commit_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref().inner };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
         // Writer component. Must never write to READ,
         // be careful writing to LAST
@@ -480,7 +480,7 @@ where
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref().inner };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
         assert!(used <= self.buf.len());
 
