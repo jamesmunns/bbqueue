@@ -81,5 +81,30 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-mod atomic;
+// #[cfg(all(feature = "atomic", feature = "thumbv6"))]
+// core::compile_error!("You can't select 'atomic' and 'thumbv6' features at the same time")
+
+#[cfg(feature = "atomic")]
+pub mod atomic;
+
+#[cfg(all(feature = "atomic", not(feature = "thumbv6")))]
 pub use atomic::*;
+
+#[cfg(feature = "thumbv6")]
+pub mod cm_mutex;
+
+#[cfg(all(feature = "thumbv6", not(feature = "atomic")))]
+pub use cm_mutex::*;
+
+use core::result::Result as CoreResult;
+
+/// Result type used by the `BBQueue` interfaces
+pub type Result<T> = CoreResult<T, Error>;
+
+/// Error type used by the `BBQueue` interfaces
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Error {
+    InsufficientSize,
+    GrantInProgress,
+    AlreadySplit,
+}
