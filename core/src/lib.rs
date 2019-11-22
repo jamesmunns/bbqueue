@@ -122,8 +122,7 @@ pub struct ConstBBBuffer<A> {
 impl<A> ConstBBBuffer<A> {
     pub const fn new() -> Self {
         Self {
-            // Note, we contain u8's, so zeroing is a sound strategy for
-            // initialization
+            // This will not be initialized until we split the buffer
             buf: UnsafeCell::new(MaybeUninit::uninit()),
 
             /// Owned by the writer
@@ -367,15 +366,6 @@ where
     pub fn capacity(&self) -> usize {
         N::to_usize()
     }
-
-    pub(crate) fn is_our_grant(&self, gr_buf: &[u8]) -> bool {
-        let buf_start = self.inner.buf.get() as usize;
-        let gr_start = gr_buf.as_ptr() as usize;
-        let buf_end_plus_one = buf_start + N::to_usize();
-        let gr_end_plus_one = gr_start + gr_buf.len();
-
-        (buf_start <= gr_start) && (gr_end_plus_one <= buf_end_plus_one)
-    }
 }
 
 impl<N> BBBuffer<N>
@@ -456,9 +446,6 @@ where
         let len = self.buf.len();
         assert!(len >= used);
 
-        // Verify we are committing OUR grant
-        assert!(unsafe { self.bbq.as_ref().is_our_grant(&self.buf) });
-
         let write = inner.write.load(Relaxed);
         inner.reserve.fetch_sub(len - used, Relaxed);
 
@@ -496,9 +483,6 @@ where
         let inner = unsafe { &self.bbq.as_ref().inner };
 
         assert!(used <= self.buf.len());
-
-        // Verify we are committing OUR grant
-        assert!(unsafe { self.bbq.as_ref().is_our_grant(&self.buf) });
 
         // This should be fine, purely incrementing
         let _ = inner.read.fetch_add(used, Release);
