@@ -4,6 +4,7 @@
 use crate::{Error, Result};
 use core::{
     cell::UnsafeCell,
+    cmp::min,
     marker::PhantomData,
     mem::{forget, size_of, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
@@ -125,13 +126,21 @@ impl<A> ConstBBBuffer<A> {
 ///
 /// As a short summary of possible grants:
 ///
+/// * `grant_exact(N)`
+///   * User will receive a grant `sz == N` (or receive an error)
+///   * This may cause a wraparound if a grant of size N is not available
+///       at the end of the ring.
+///   * If this grant caused a wraparound, the bytes that were "skipped" at the
+///       end of the ring will not be available until the reader reaches them,
+///       regardless of whether the grant commited any data or not.
+///   * Maximum possible waste due to skipping: `N - 1` bytes
 /// * `grant_max_remaining(N)`
 ///   * User will receive a grant `0 < sz <= N` (or receive an error)
 ///   * This will only cause a wrap to the beginning of the ring if exactly
 ///       zero bytes are available at the end of the ring.
 ///   * Maximum possible waste due to skipping: 0 bytes
 ///
-/// TODO, these might be added in the future:
+/// These grants might be added in the future:
 ///
 /// * `grant_remaining()`
 ///   * User will receive a grant `0 < sz <= total_buffer_sz` (or receive an error)
@@ -152,17 +161,9 @@ impl<A> ConstBBBuffer<A> {
 ///       beginning of the ring) will be granted to the user.
 ///   * If the region at the beginning was chosen, some bytes at the end of the ring
 ///       will be skipped
-///   * Maximum possible waste due to skipping: `N - 1` bytes
-/// * `grant_exact(N)`
-///   * User will receive a grant `sz == N` (or receive an error)
-///   * This may cause a wraparound if a grant of size N is not available
-///       at the end of the ring.
-///   * If this grant caused a wraparound, the bytes that were "skipped" at the
-///       end of the ring will not be available until the reader reaches them,
-///       regardless of whether the grant commited any data or not.
-///   * Maximum possible waste due to skipping: `N - 1` bytes
+///   * Maximum possible waste due to skipping: `(total_buffer_sz / 2) - 1` bytes
 ///
-/// TODO, the following might introduce the concept of "split grants", which provide two
+/// The following might introduce the concept of "split grants", which provide two
 /// separate contiguous buffers in order to eliminate waste due to splitting, but require
 /// the user to make writes to each buffer.
 ///
@@ -179,7 +180,6 @@ impl<A> ConstBBBuffer<A> {
 ///       `(sz_A + sz_B) == N` (or receive an error)
 ///   * If the grant requested fits without wraparound, then the sizes of the grants
 ///       will be: `sz_A == N, sz_B == 0`.
-
 pub struct Producer<'a, N>
 where
     N: ArrayLength<u8>,
@@ -197,7 +197,7 @@ where
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
-    pub fn grant(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         // Writer component. Must never write to `read`,
@@ -254,70 +254,72 @@ where
         })
     }
 
-    //     /// Request a writable, contiguous section of memory of up to
-    //     /// `sz` bytes. If a buffer of size `sz` is not available, but
-    //     /// some space (0 < available < sz) is available, then a grant
-    //     /// will be given for the remaining size. If no space is available
-    //     /// for writing, an error will be returned
-    //     fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW> {
-    //         // Writer component. Must never write to `read`,
-    //         // be careful writing to `load`
+    /// Request a writable, contiguous section of memory of up to
+    /// `sz` bytes. If a buffer of size `sz` is not available, but
+    /// some space (0 < available < sz) is available, then a grant
+    /// will be given for the remaining size. If no space is available
+    /// for writing, an error will be returned
+    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
-    //         let write = self.0.write.load(Relaxed);
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+        let write = inner.write.load(Relaxed);
 
-    //         if self.0.reserve.load(Relaxed) != write {
-    //             // GRANT IN PROCESS, do not allow further grants
-    //             // until the current one has been completed
-    //             return Err(Error::GrantInProgress);
-    //         }
+        if inner.reserve.load(Relaxed) != write {
+            // GRANT IN PROCESS, do not allow further grants
+            // until the current one has been completed
+            return Err(Error::GrantInProgress);
+        }
 
-    //         let read = self.0.read.load(Acquire);
-    //         let max = unsafe { (*self.0.buf.as_mut_ptr()).as_mut().len() };
+        let read = inner.read.load(Acquire);
+        let max = N::to_usize();
 
-    //         let already_inverted = write < read;
+        let already_inverted = write < read;
 
-    //         let start = if already_inverted {
-    //             // In inverted case, read is always > write
-    //             let remain = read - write - 1;
+        let start = if already_inverted {
+            // In inverted case, read is always > write
+            let remain = read - write - 1;
 
-    //             if remain != 0 {
-    //                 sz = min(remain, sz);
-    //                 write
-    //             } else {
-    //                 // Inverted, no room is available
-    //                 return Err(Error::InsufficientSize);
-    //             }
-    //         } else {
-    //             if write != max {
-    //                 // Some (or all) room remaining in un-inverted case
-    //                 sz = min(max - write, sz);
-    //                 write
-    //             } else {
-    //                 // Not inverted, but need to go inverted
+            if remain != 0 {
+                sz = min(remain, sz);
+                write
+            } else {
+                // Inverted, no room is available
+                return Err(Error::InsufficientSize);
+            }
+        } else {
+            if write != max {
+                // Some (or all) room remaining in un-inverted case
+                sz = min(max - write, sz);
+                write
+            } else {
+                // Not inverted, but need to go inverted
 
-    //                 // NOTE: We check read > 1, NOT read >= 1, because
-    //                 // write must never == read in an inverted condition, since
-    //                 // we will then not be able to tell if we are inverted or not
-    //                 if read > 1 {
-    //                     sz = min(read - 1, sz);
-    //                     0
-    //                 } else {
-    //                     // Not invertible, no space
-    //                     return Err(Error::InsufficientSize);
-    //                 }
-    //             }
-    //         };
+                // NOTE: We check read > 1, NOT read >= 1, because
+                // write must never == read in an inverted condition, since
+                // we will then not be able to tell if we are inverted or not
+                if read > 1 {
+                    sz = min(read - 1, sz);
+                    0
+                } else {
+                    // Not invertible, no space
+                    return Err(Error::InsufficientSize);
+                }
+            }
+        };
 
-    //         // Safe write, only viewed by this task
-    //         self.0.reserve.store(start + sz, Relaxed);
+        // Safe write, only viewed by this task
+        inner.reserve.store(start + sz, Relaxed);
 
-    //         let c = unsafe { (*self.0.buf.as_mut_ptr()).as_mut().as_mut_ptr() };
-    //         let d = unsafe { from_raw_parts_mut(c, max) };
+        let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
+        let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
 
-    //         Ok(GrantW {
-    //             buf: &mut d[start..self.0.reserve.load(Relaxed)],
-    //         })
-    //     }
+        Ok(GrantW {
+            buf: d,
+            bbq: self.bbq,
+        })
+    }
 }
 
 pub struct Consumer<'a, N>

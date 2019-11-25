@@ -1,3 +1,4 @@
+#[cfg_attr(not(feature = "verbose"), allow(unused_variables))]
 #[cfg(test)]
 mod tests {
     use bbqueue::{consts::*, BBBuffer, ConstBBBuffer, Error};
@@ -12,8 +13,10 @@ mod tests {
 
     const RPT_IVAL: usize = ITERS / 100;
 
-    const _QUEUE_SIZE: usize = 1024;
+    // These two should be the same
     type QueueSizeTy = U1024;
+    const QUEUE_SIZE: usize = 1024;
+
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
 
     #[test]
@@ -68,7 +71,7 @@ mod tests {
                     }
 
                     'sizer: for sz in (1..(semichunk.len() + 1)).rev() {
-                        if let Ok(mut gr) = tx.grant(sz) {
+                        if let Ok(mut gr) = tx.grant_exact(sz) {
                             // how do you do this idiomatically?
                             (0..sz).for_each(|idx| {
                                 gr[idx] = semichunk.remove(0);
@@ -155,7 +158,7 @@ mod tests {
                     if last_tx.elapsed() > TIMEOUT_NODATA {
                         panic!("tx timeout, iter {}", i);
                     }
-                    match tx.grant(1) {
+                    match tx.grant_exact(1) {
                         Ok(mut gr) => {
                             gr[0] = (i & 0xFF) as u8;
                             gr.commit(1);
@@ -231,99 +234,111 @@ mod tests {
         rx_thr.join().unwrap();
     }
 
-    // #[test]
-    // fn sanity_check_grant_max() {
-    //     let bbq = BBQueue::new_boxed(QUEUE_SIZE);
-    //     let (mut tx, mut rx) = BBQueue::split_box(bbq);
+    #[test]
+    fn sanity_check_grant_max() {
+        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        let (mut tx, mut rx) = BB.try_split().unwrap();
 
-    //     #[cfg(feature = "verbose")] println!("SCGM: Generating Test Data...");
-    //     let gen_start = Instant::now();
+        #[cfg(feature = "verbose")]
+        println!("SCGM: Generating Test Data...");
+        let gen_start = Instant::now();
 
-    //     let mut data_tx = (0..ITERS).map(|i| (i & 0xFF) as u8).collect::<Vec<_>>();
-    //     let mut data_rx = data_tx.clone();
+        let mut data_tx = (0..ITERS).map(|i| (i & 0xFF) as u8).collect::<Vec<_>>();
+        let mut data_rx = data_tx.clone();
 
-    //     #[cfg(feature = "verbose")] println!("SCGM: Generated Test Data in: {:?}", gen_start.elapsed());
-    //     #[cfg(feature = "verbose")] println!("SCGM: Starting Test...");
+        #[cfg(feature = "verbose")]
+        println!("SCGM: Generated Test Data in: {:?}", gen_start.elapsed());
+        #[cfg(feature = "verbose")]
+        println!("SCGM: Starting Test...");
 
-    //     let mut last_tx = Instant::now();
-    //     let mut last_rx = last_tx.clone();
-    //     let start_time = last_tx.clone();
+        let mut last_tx = Instant::now();
+        let mut last_rx = last_tx.clone();
+        let start_time = last_tx.clone();
 
-    //     let tx_thr = spawn(move || {
-    //         let mut txd_ct = 0;
-    //         let mut txd_ivl = 0;
+        let tx_thr = spawn(move || {
+            let mut txd_ct = 0;
+            let mut txd_ivl = 0;
 
-    //         let mut trng = thread_rng();
+            let mut trng = thread_rng();
 
-    //         while !data_tx.is_empty() {
-    //             'inner: loop {
-    //                 if last_tx.elapsed() > TIMEOUT_NODATA {
-    //                     panic!("tx timeout");
-    //                 }
-    //                 match tx.grant_max(trng.gen_range(QUEUE_SIZE / 3, (2 * QUEUE_SIZE) / 3)) {
-    //                     Ok(mut gr) => {
-    //                         let sz = ::std::cmp::min(data_tx.len(), gr.len());
-    //                         for i in 0..sz {
-    //                             gr[i] = data_tx.pop().unwrap();
-    //                         }
+            while !data_tx.is_empty() {
+                'inner: loop {
+                    if last_tx.elapsed() > TIMEOUT_NODATA {
+                        panic!("tx timeout");
+                    }
+                    match tx
+                        .grant_max_remaining(trng.gen_range(QUEUE_SIZE / 3, (2 * QUEUE_SIZE) / 3))
+                    {
+                        Ok(mut gr) => {
+                            let sz = ::std::cmp::min(data_tx.len(), gr.len());
+                            for i in 0..sz {
+                                gr[i] = data_tx.pop().unwrap();
+                            }
 
-    //                         // Update tracking
-    //                         last_tx = Instant::now();
-    //                         txd_ct += sz;
-    //                         if (txd_ct / RPT_IVAL) > txd_ivl {
-    //                             txd_ivl = txd_ct / RPT_IVAL;
-    //                             #[cfg(feature = "verbose")] println!("{:?} - scgmtx: {}", start_time.elapsed(), txd_ct);
-    //                         }
+                            // Update tracking
+                            last_tx = Instant::now();
+                            txd_ct += sz;
+                            if (txd_ct / RPT_IVAL) > txd_ivl {
+                                txd_ivl = txd_ct / RPT_IVAL;
+                                #[cfg(feature = "verbose")]
+                                println!("{:?} - scgmtx: {}", start_time.elapsed(), txd_ct);
+                            }
 
-    //                         tx.commit(gr.len(), gr);
-    //                         break 'inner;
-    //                     }
-    //                     Err(_) => {}
-    //                 }
-    //             }
-    //         }
-    //     });
+                            let len = gr.len();
+                            gr.commit(len);
+                            break 'inner;
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+        });
 
-    //     let rx_thr = spawn(move || {
-    //         let mut rxd_ct = 0;
-    //         let mut rxd_ivl = 0;
+        let rx_thr = spawn(move || {
+            let mut rxd_ct = 0;
+            let mut rxd_ivl = 0;
 
-    //         while !data_rx.is_empty() {
-    //             'inner: loop {
-    //                 if last_rx.elapsed() > TIMEOUT_NODATA {
-    //                     panic!("rx timeout");
-    //                 }
-    //                 let gr = match rx.read() {
-    //                     Ok(gr) => gr,
-    //                     Err(Error::InsufficientSize) => continue 'inner,
-    //                     Err(_) => panic!(),
-    //                 };
+            while !data_rx.is_empty() {
+                'inner: loop {
+                    if last_rx.elapsed() > TIMEOUT_NODATA {
+                        panic!("rx timeout");
+                    }
+                    let gr = match rx.read() {
+                        Ok(gr) => gr,
+                        Err(Error::InsufficientSize) => continue 'inner,
+                        Err(_) => panic!(),
+                    };
 
-    //                 let act = gr[0];
-    //                 let exp = data_rx.pop().unwrap();
-    //                 if act != exp {
-    //                     #[cfg(feature = "verbose")] println!("offendr: {:p}", &gr[0]);
-    //                     #[cfg(feature = "verbose")] println!("act: {:?}, exp: {:?}", act, exp);
-    //                     #[cfg(feature = "verbose")] println!("len: {:?}", gr.len());
-    //                     #[cfg(feature = "verbose")] println!("{:?}", gr);
-    //                     panic!("RX Iter: {}");
-    //                 }
-    //                 rx.release(1, gr);
+                    let act = gr[0];
+                    let exp = data_rx.pop().unwrap();
+                    if act != exp {
+                        #[cfg(feature = "verbose")]
+                        println!("offendr: {:p}", &gr[0]);
+                        #[cfg(feature = "verbose")]
+                        println!("act: {:?}, exp: {:?}", act, exp);
+                        #[cfg(feature = "verbose")]
+                        println!("len: {:?}", gr.len());
+                        #[cfg(feature = "verbose")]
+                        println!("{:?}", gr);
+                        panic!("RX Iter: {}");
+                    }
+                    gr.release(1);
 
-    //                 // Update tracking
-    //                 last_rx = Instant::now();
-    //                 rxd_ct += 1;
-    //                 if (rxd_ct / RPT_IVAL) > rxd_ivl {
-    //                     rxd_ivl = rxd_ct / RPT_IVAL;
-    //                     #[cfg(feature = "verbose")] println!("{:?} - scgmrx: {}", start_time.elapsed(), rxd_ct);
-    //                 }
+                    // Update tracking
+                    last_rx = Instant::now();
+                    rxd_ct += 1;
+                    if (rxd_ct / RPT_IVAL) > rxd_ivl {
+                        rxd_ivl = rxd_ct / RPT_IVAL;
+                        #[cfg(feature = "verbose")]
+                        println!("{:?} - scgmrx: {}", start_time.elapsed(), rxd_ct);
+                    }
 
-    //                 break 'inner;
-    //             }
-    //         }
-    //     });
+                    break 'inner;
+                }
+            }
+        });
 
-    //     tx_thr.join().unwrap();
-    //     rx_thr.join().unwrap();
-    // }
+        tx_thr.join().unwrap();
+        rx_thr.join().unwrap();
+    }
 }

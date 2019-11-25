@@ -2,7 +2,7 @@
 //! the other no-std crate.
 
 mod multi_thread;
-// mod single_thread;
+mod single_thread;
 
 #[cfg(test)]
 mod tests {
@@ -13,7 +13,7 @@ mod tests {
         let bb: BBBuffer<U6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
-        let mut wgr = prod.grant(1).unwrap();
+        let mut wgr = prod.grant_exact(1).unwrap();
 
         // deref_mut
         wgr[0] = 123;
@@ -39,7 +39,7 @@ mod tests {
         let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
 
         // ... and they aren't the same
-        let mut wgr1 = prod1.grant(3).unwrap();
+        let mut wgr1 = prod1.grant_exact(3).unwrap();
         wgr1.copy_from_slice(&[1, 2, 3]);
         wgr1.commit(3);
 
@@ -51,35 +51,6 @@ mod tests {
         assert_eq!(&*rgr1, &[1, 2, 3]);
     }
 
-    // #[test]
-    // #[should_panic]
-    // fn bad_release() {
-    //     // Check we can make multiple static items...
-    //     static BBQ1: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
-    //     static BBQ2: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
-    //     let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
-    //     let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
-
-    //     // ... and they aren't the same
-    //     let mut wgr1 = prod1.grant(3).unwrap();
-    //     wgr1.copy_from_slice(&[1, 2, 3]);
-    //     prod1.commit(3, wgr1);
-
-    //     // Read from the first
-    //     let rgr1 = cons1.read().unwrap();
-    //     assert_eq!(&*rgr1, &[1, 2, 3]);
-
-    //     // Release from 2
-    //     cons2.release(1, rgr1);
-    // }
-
-    // // #[test]
-    // // fn create_boxed_queue() {
-    // //     // Create queue using leaky "boxed" style
-    // //     let bbq = BBQueue::new_boxed(1024);
-    // //     let (_prod, _cons) = BBQueue::split_box(bbq);
-    // // }
-
     #[test]
     fn direct_usage_sanity() {
         // Initialize
@@ -88,7 +59,7 @@ mod tests {
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
         // Initial grant, shouldn't roll over
-        let mut x = prod.grant(4).unwrap();
+        let mut x = prod.grant_exact(4).unwrap();
 
         // Still no data available yet
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
@@ -115,7 +86,7 @@ mod tests {
         r.release(0);
 
         // Grant two more
-        let mut x = prod.grant(2).unwrap();
+        let mut x = prod.grant_exact(2).unwrap();
         let r = cons.read().unwrap();
         assert_eq!(&*r, &[3, 4]);
         r.release(0);
@@ -137,7 +108,7 @@ mod tests {
         assert_eq!(&*r, &[11, 12]);
         r.release(0);
 
-        let mut x = prod.grant(3).unwrap();
+        let mut x = prod.grant_exact(3).unwrap();
         let r = cons.read().unwrap();
         assert_eq!(&*r, &[11, 12]);
         r.release(0);
@@ -163,7 +134,7 @@ mod tests {
         r.release(0);
 
         // Ask for something way too big
-        assert!(prod.grant(10).is_err());
+        assert!(prod.grant_exact(10).is_err());
     }
 
     #[test]
@@ -172,10 +143,10 @@ mod tests {
         let (mut prod, mut _cons) = bb.try_split().unwrap();
 
         let size = 1000;
-        let grant = prod.grant(size).unwrap();
+        let grant = prod.grant_exact(size).unwrap();
         grant.commit(size);
 
-        let grant = prod.grant(0).unwrap();
+        let grant = prod.grant_exact(0).unwrap();
         grant.commit(0);
     }
 }
