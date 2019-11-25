@@ -2,23 +2,23 @@
 //! This is useful on thumbv6 targets (Cortex-M0, Cortex-M0+)
 //! if your platform does not support atomic compare and swaps.
 
-pub use generic_array::typenum::consts;
+use crate::{Error, Result};
 use core::{
     cell::UnsafeCell,
     marker::PhantomData,
-    mem::{size_of, MaybeUninit, forget},
+    mem::{forget, size_of, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
     slice::from_raw_parts,
     slice::from_raw_parts_mut,
 };
-use generic_array::{ArrayLength, GenericArray};
 use cortex_m::interrupt::free;
-use crate::{Error, Result};
+pub use generic_array::typenum::consts;
+use generic_array::{ArrayLength, GenericArray};
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<N: ArrayLength<u8>> (
+pub struct BBBuffer<N: ArrayLength<u8>>(
     // Underlying data storage
     #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
 );
@@ -126,10 +126,7 @@ where
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, N> Send for Producer<'a, N>
-where
-    N: ArrayLength<u8>
-{ }
+unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
 
 impl<'a, N> Producer<'a, N>
 where
@@ -142,7 +139,7 @@ where
     /// NOTE: Takes a critical section while determining the grant.
     /// The critical section is only active for the duration of
     /// this function call.
-    pub fn grant(&mut self, sz: usize) -> Result<GrantW<N>> {
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
 
@@ -192,10 +189,12 @@ where
             inner.reserve = start + sz;
 
             let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
-            let d =
-                unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
+            let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
 
-            Ok(GrantW { buf: d, bbq: self.bbq })
+            Ok(GrantW {
+                buf: d,
+                bbq: self.bbq,
+            })
         })
     }
 
@@ -273,10 +272,7 @@ where
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, N> Send for Consumer<'a, N>
-where
-    N: ArrayLength<u8>
-{ }
+unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
 
 impl<'a, N> Consumer<'a, N>
 where
@@ -290,7 +286,7 @@ where
     /// NOTE: Takes a critical section while determining the read grant.
     /// The critical section is only active for the duration of
     /// this function call.
-    pub fn read(&mut self) -> Result<GrantR<N>> {
+    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
 
@@ -333,7 +329,10 @@ where
             let c = unsafe { (*inner.buf.get()).as_ptr().cast::<u8>() };
             let d = unsafe { from_raw_parts(c.offset(read as isize), sz) };
 
-            Ok(GrantR { buf: d, bbq: self.bbq })
+            Ok(GrantR {
+                buf: d,
+                bbq: self.bbq,
+            })
         })
     }
 }
@@ -356,9 +355,7 @@ where
     N: ArrayLength<u8>,
 {
     pub fn new() -> Self {
-        Self(
-            ConstBBBuffer::new(),
-        )
+        Self(ConstBBBuffer::new())
     }
 }
 
@@ -367,10 +364,10 @@ where
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     buf: &'a mut [u8],
-    bbq: NonNull<BBBuffer<N>>
+    bbq: NonNull<BBBuffer<N>>,
 }
 
 /// A structure representing a contiguous region of memory that
@@ -379,15 +376,15 @@ where
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     buf: &'a [u8],
-    bbq: NonNull<BBBuffer<N>>
+    bbq: NonNull<BBBuffer<N>>,
 }
 
 impl<'a, N> GrantW<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
     /// This makes the data available to be read via `read()`.
@@ -437,7 +434,7 @@ where
 
 impl<'a, N> GrantR<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes

@@ -6,12 +6,7 @@ mod multi_thread;
 
 #[cfg(test)]
 mod tests {
-    use bbqueue::{
-        BBBuffer,
-        ConstBBBuffer,
-        Error as BBQError,
-        consts::*,
-    };
+    use bbqueue::{consts::*, BBBuffer, ConstBBBuffer, Error as BBQError};
 
     #[test]
     fn deref_deref_mut() {
@@ -42,7 +37,6 @@ mod tests {
         static BBQ2: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
         let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
         let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
-
 
         // ... and they aren't the same
         let mut wgr1 = prod1.grant(3).unwrap();
@@ -108,9 +102,7 @@ mod tests {
         // Commit data
         x.commit(4);
 
-        ::std::sync::atomic::fence(
-            std::sync::atomic::Ordering::SeqCst
-        );
+        ::std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
         let a = cons.read().unwrap();
         assert_eq!(&*a, &[1, 2, 3, 4]);

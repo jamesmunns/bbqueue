@@ -98,6 +98,8 @@ pub use cm_mutex::*;
 
 use core::result::Result as CoreResult;
 
+pub use generic_array::ArrayLength;
+
 /// Result type used by the `BBQueue` interfaces
 pub type Result<T> = CoreResult<T, Error>;
 

@@ -1,26 +1,26 @@
 //! A version of BBQueue built on Atomic CAS capabilities. This is recommended
 //! if your platform supports it.
 
-pub use generic_array::typenum::consts;
+use crate::{Error, Result};
 use core::{
     cell::UnsafeCell,
     marker::PhantomData,
-    mem::{size_of, MaybeUninit, forget},
+    mem::{forget, size_of, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
     slice::from_raw_parts,
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
-        Ordering::{Acquire, Relaxed, Release}
+        Ordering::{Acquire, Relaxed, Release},
     },
 };
+pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
-use crate::{Error, Result};
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<N: ArrayLength<u8>> (
+pub struct BBBuffer<N: ArrayLength<u8>>(
     // Underlying data storage
     #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
 );
@@ -125,10 +125,7 @@ where
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, N> Send for Producer<'a, N>
-where
-    N: ArrayLength<u8>
-{ }
+unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
 
 impl<'a, N> Producer<'a, N>
 where
@@ -137,7 +134,7 @@ where
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
-    pub fn grant(&mut self, sz: usize) -> Result<GrantW<N>> {
+    pub fn grant(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         // Writer component. Must never write to `read`,
@@ -186,10 +183,12 @@ where
         inner.reserve.store(start + sz, Relaxed);
 
         let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
-        let d =
-            unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
+        let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
 
-        Ok(GrantW { buf: d, bbq: self.bbq })
+        Ok(GrantW {
+            buf: d,
+            bbq: self.bbq,
+        })
     }
 
     //     /// Request a writable, contiguous section of memory of up to
@@ -266,10 +265,7 @@ where
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, N> Send for Consumer<'a, N>
-where
-    N: ArrayLength<u8>
-{ }
+unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
 
 impl<'a, N> Consumer<'a, N>
 where
@@ -279,7 +275,7 @@ where
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
     /// released
-    pub fn read(&mut self) -> Result<GrantR<N>> {
+    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         if inner.read_in_progress.load(Relaxed) {
@@ -321,7 +317,10 @@ where
         let c = unsafe { (*inner.buf.get()).as_ptr().cast::<u8>() };
         let d = unsafe { from_raw_parts(c.offset(read as isize), sz) };
 
-        Ok(GrantR { buf: d, bbq: self.bbq })
+        Ok(GrantR {
+            buf: d,
+            bbq: self.bbq,
+        })
     }
 }
 
@@ -343,9 +342,7 @@ where
     N: ArrayLength<u8>,
 {
     pub fn new() -> Self {
-        Self(
-            ConstBBBuffer::new(),
-        )
+        Self(ConstBBBuffer::new())
     }
 }
 
@@ -354,10 +351,10 @@ where
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     buf: &'a mut [u8],
-    bbq: NonNull<BBBuffer<N>>
+    bbq: NonNull<BBBuffer<N>>,
 }
 
 /// A structure representing a contiguous region of memory that
@@ -366,15 +363,15 @@ where
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     buf: &'a [u8],
-    bbq: NonNull<BBBuffer<N>>
+    bbq: NonNull<BBBuffer<N>>,
 }
 
 impl<'a, N> GrantW<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
     /// This makes the data available to be read via `read()`.
@@ -383,6 +380,10 @@ where
     pub fn commit(mut self, used: usize) {
         self.commit_inner(used);
         forget(self);
+    }
+
+    pub fn buf(&mut self) -> &mut [u8] {
+        self.buf
     }
 
     #[inline(always)]
@@ -418,7 +419,7 @@ where
 
 impl<'a, N> GrantR<'a, N>
 where
-    N: ArrayLength<u8>
+    N: ArrayLength<u8>,
 {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes
@@ -427,6 +428,22 @@ where
     pub fn release(mut self, used: usize) {
         self.release_inner(used);
         forget(self);
+    }
+
+    pub fn buf(&self) -> &[u8] {
+        self.buf
+    }
+
+    /// Sometimes, it's not possible for the lifetimes to check out. For example,
+    /// if you need to hand this buffer to a function that expects to receive a
+    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
+    /// grant itself.
+    ///
+    /// You MUST guarantee that in no cases, the reference that is returned here outlives
+    /// the grant itself. Once the grant has been released, referencing the data contained
+    /// WILL cause undefined behavior.
+    pub unsafe fn as_static_buf(&self) -> &'static [u8] {
+        transmute::<&[u8], &'static [u8]>(self.buf)
     }
 
     #[inline(always)]
