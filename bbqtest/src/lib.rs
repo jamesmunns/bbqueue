@@ -6,7 +6,7 @@ mod single_thread;
 
 #[cfg(test)]
 mod tests {
-    use bbqueue::{consts::*, BBBuffer, ConstBBBuffer, Error as BBQError};
+    use bbqueue::{consts::*, BBBuffer, ConstBBBuffer, Error as BBQError, GrantR, GrantW, consts::*, ArrayLength};
 
     #[test]
     fn deref_deref_mut() {
@@ -51,6 +51,24 @@ mod tests {
         assert_eq!(&*rgr1, &[1, 2, 3]);
     }
 
+    fn debug_grant_w<'a, N: ArrayLength<u8>>(data: &mut GrantW<'a, N>) {
+        let x = data.buf();
+        println!("\n=====--=====");
+        println!("Write:");
+        dbg!(x.as_ptr());
+        dbg!(x.len());
+        println!("=====--=====\n");
+    }
+
+    fn debug_grant_r<'a, N: ArrayLength<u8>>(data: &GrantR<'a, N>) {
+        let x = data.buf();
+        println!("\n=====--=====");
+        println!("Read:");
+        dbg!(x.as_ptr());
+        dbg!(x.len());
+        println!("=====--=====\n");
+    }
+
     #[test]
     fn direct_usage_sanity() {
         // Initialize
@@ -60,6 +78,7 @@ mod tests {
 
         // Initial grant, shouldn't roll over
         let mut x = prod.grant_exact(4).unwrap();
+        // debug_grant_w(&mut x);
 
         // Still no data available yet
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
@@ -76,18 +95,22 @@ mod tests {
         ::std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
         let a = cons.read().unwrap();
+        // debug_grant_r(&a);
         assert_eq!(&*a, &[1, 2, 3, 4]);
 
         // Release the first two bytes
         a.release(2);
 
         let r = cons.read().unwrap();
+        // debug_grant_r(&r);
         assert_eq!(&*r, &[3, 4]);
         r.release(0);
 
         // Grant two more
         let mut x = prod.grant_exact(2).unwrap();
+        // debug_grant_w(&mut x);
         let r = cons.read().unwrap();
+        // debug_grant_r(&r);
         assert_eq!(&*r, &[3, 4]);
         r.release(0);
 
