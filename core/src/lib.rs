@@ -80,6 +80,8 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
+// #![deny(missing_docs)]
+// #![deny(warnings)]
 
 // #[cfg(all(feature = "atomic", feature = "thumbv6"))]
 // core::compile_error!("You can't select 'atomic' and 'thumbv6' features at the same time")

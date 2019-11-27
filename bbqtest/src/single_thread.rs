@@ -7,7 +7,7 @@ mod tests {
         let bb: BBBuffer<U6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
-        const ITERS: usize = 100000;
+        const ITERS: usize = 1000;
 
         for i in 0..ITERS {
             let j = (i & 255) as u8;
