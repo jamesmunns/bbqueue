@@ -335,11 +335,13 @@ where
             // Safe write, only viewed by this task
             inner.reserve = start + sz;
 
-            let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
-            let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
+            // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+            // are all `#[repr(Transparent)]
+            let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+            let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
             Ok(GrantW {
-                buf: d,
+                buf: grant_slice,
                 bbq: self.bbq,
             })
         })
@@ -429,11 +431,13 @@ where
             // Safe write, only viewed by this task
             inner.reserve = start + sz;
 
-            let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
-            let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
+            // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+            // are all `#[repr(Transparent)]
+            let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+            let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
             Ok(GrantW {
-                buf: d,
+                buf: grant_slice,
                 bbq: self.bbq,
             })
         })
@@ -520,18 +524,19 @@ where
 
             inner.read_in_progress = true;
 
-            let c = unsafe { (*inner.buf.get()).as_ptr().cast::<u8>() };
-            let d = unsafe { from_raw_parts(c.offset(read as isize), sz) };
+            // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+            // are all `#[repr(Transparent)]
+            let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+            let grant_slice = unsafe { from_raw_parts(start_of_buf_ptr.offset(read as isize), sz) };
 
             Ok(GrantR {
-                buf: d,
+                buf: grant_slice,
                 bbq: self.bbq,
             })
         })
     }
 }
 
-// Private impls, used by Queue or Producer/Consumer
 impl<N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
