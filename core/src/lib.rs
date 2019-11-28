@@ -11,6 +11,79 @@
 //! While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to
 //! main code), you must push the data one piece at a time. With BBQueue, you instead are granted a
 //! block of contiguous memory, which can be filled (or emptied) by a DMA engine.
+//!
+//! ## Local usage
+//!
+//! ```rust, no_run
+//! # #[cfg(feature = "atomic")]
+//! # use bbqueue::atomic::{BBBuffer, consts::*};
+//! # #[cfg(not(feature = "atomic"))]
+//! # use bbqueue::cm_mutex::{BBBuffer, consts::*};
+//! #
+//! // Create a buffer with six elements
+//! let bb: BBBuffer<U6> = BBBuffer::new();
+//! let (mut prod, mut cons) = bb.try_split().unwrap();
+//!
+//! // Request space for one byte
+//! let mut wgr = prod.grant_exact(1).unwrap();
+//!
+//! // Set the data
+//! wgr[0] = 123;
+//!
+//! assert_eq!(wgr.len(), 1);
+//!
+//! // Make the data ready for consuming
+//! wgr.commit(1);
+//!
+//! // Read all available bytes
+//! let rgr = cons.read().unwrap();
+//!
+//! assert_eq!(rgr[0], 123);
+//!
+//! // Release the space for later writes
+//! rgr.release(1);
+//! ```
+//!
+//! ## Static usage
+//!
+//! ```rust, no_run
+//! # #[cfg(feature = "atomic")]
+//! # use bbqueue::atomic::{BBBuffer, ConstBBBuffer, consts::*};
+//! # #[cfg(not(feature = "atomic"))]
+//! # use bbqueue::cm_mutex::{BBBuffer, ConstBBBuffer, consts::*};
+//! #
+//! // Create a buffer with six elements
+//! static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+//!
+//! fn main() {
+//!     // Split the bbqueue into producer and consumer halves.
+//!     // These halves can be sent to different threads or to
+//!     // an interrupt handler for thread safe SPSC usage
+//!     let (mut prod, mut cons) = BB.try_split().unwrap();
+//!
+//!     // Request space for one byte
+//!     let mut wgr = prod.grant_exact(1).unwrap();
+//!
+//!     // Set the data
+//!     wgr[0] = 123;
+//!
+//!     assert_eq!(wgr.len(), 1);
+//!
+//!     // Make the data ready for consuming
+//!     wgr.commit(1);
+//!
+//!     // Read all available bytes
+//!     let rgr = cons.read().unwrap();
+//!
+//!     assert_eq!(rgr[0], 123);
+//!
+//!     // Release the space for later writes
+//!     rgr.release(1);
+//!
+//!     // The buffer cannot be split twice
+//!     assert!(BB.try_split().is_err());
+//! }
+//! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
