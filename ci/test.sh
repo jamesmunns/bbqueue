@@ -7,7 +7,8 @@ rustup target add thumbv7em-none-eabihf
 cargo build --target thumbv7em-none-eabihf --manifest-path core/Cargo.toml
 
 # Check doctests
-cargo test --manifest-path core/Cargo.toml
+cargo test --manifest-path core/Cargo.toml --no-default-features --features atomic
+cargo test --manifest-path core/Cargo.toml --no-default-features --features thumbv6
 
 if [ $TRAVIS_RUST_VERSION = nightly ]; then
     # Run ONLY the short test, also with a sanitizer

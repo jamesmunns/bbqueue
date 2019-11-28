@@ -1,6 +1,73 @@
 //! A version of BBQueue built on Cortex-M critical sections.
 //! This is useful on thumbv6 targets (Cortex-M0, Cortex-M0+)
 //! if your platform does not support atomic compare and swaps.
+//!
+//! ## Local usage
+//!
+//! ```rust, no_run
+//! use bbqueue::{BBBuffer, consts::*};
+//!
+//! // Create a buffer with six elements
+//! let bb: BBBuffer<U6> = BBBuffer::new();
+//! let (mut prod, mut cons) = bb.try_split().unwrap();
+//!
+//! // Request space for one byte
+//! let mut wgr = prod.grant_exact(1).unwrap();
+//!
+//! // Set the data
+//! wgr[0] = 123;
+//!
+//! assert_eq!(wgr.len(), 1);
+//!
+//! // Make the data ready for consuming
+//! wgr.commit(1);
+//!
+//! // Read all available bytes
+//! let rgr = cons.read().unwrap();
+//!
+//! assert_eq!(rgr[0], 123);
+//!
+//! // Release the space for later writes
+//! rgr.release(1);
+//! ```
+//!
+//! ## Static usage
+//!
+//! ```rust, no_run
+//! use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
+//!
+//! // Create a buffer with six elements
+//! static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+//!
+//! fn main() {
+//!     // Split the bbqueue into producer and consumer halves.
+//!     // These halves can be sent to different threads or to
+//!     // an interrupt handler for thread safe SPSC usage
+//!     let (mut prod, mut cons) = BB.try_split().unwrap();
+//!
+//!     // Request space for one byte
+//!     let mut wgr = prod.grant_exact(1).unwrap();
+//!
+//!     // Set the data
+//!     wgr[0] = 123;
+//!
+//!     assert_eq!(wgr.len(), 1);
+//!
+//!     // Make the data ready for consuming
+//!     wgr.commit(1);
+//!
+//!     // Read all available bytes
+//!     let rgr = cons.read().unwrap();
+//!
+//!     assert_eq!(rgr[0], 123);
+//!
+//!     // Release the space for later writes
+//!     rgr.release(1);
+//!
+//!     // The buffer cannot be split twice
+//!     assert!(BB.try_split().is_err());
+//! }
+//! ```
 
 use crate::{Error, Result};
 use core::{
@@ -31,7 +98,25 @@ impl<'a, N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
+    /// Attempt to split the `BBBuffer` into `Producer` halves to gain access to the
+    /// buffer. If buffer has already been split, an error will be returned.
+    ///
+    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
+    /// to zero. This may take a measurable amount of time, depending on the size
+    /// of the buffer. This is necessary to prevent undefined behavior.
+    ///
     /// NOTE: Takes a critical section while splitting
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (prod, cons) = buffer.try_split().unwrap();
+    ///
+    /// // Not possible to split twice
+    /// assert!(buffer.try_split().is_err());
+    /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         free(|_cs| {
             if self.0.already_split {
@@ -64,6 +149,11 @@ where
 }
 
 /// `const-fn` version BBBuffer
+///
+/// NOTE: This is only necessary to use when creating a `BBBuffer` at static
+/// scope, and is generally never used directly. This process is necessary to
+/// work around current limitations in `const fn`, and will be replaced in
+/// the future.
 pub struct ConstBBBuffer<A> {
     buf: UnsafeCell<MaybeUninit<A>>,
 
@@ -94,6 +184,22 @@ pub struct ConstBBBuffer<A> {
 }
 
 impl<A> ConstBBBuffer<A> {
+    /// Create a new constant inner portion of a `BBBuffer`.
+    ///
+    /// NOTE: This is only necessary to use when creating a `BBBuffer` at static
+    /// scope, and is generally never used directly. This process is necessary to
+    /// work around current limitations in `const fn`, and will be replaced in
+    /// the future.
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
+    ///
+    /// static BUF: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+    ///
+    /// fn main() {
+    ///    let (prod, cons) = BUF.try_split().unwrap();
+    /// }
+    /// ```
     pub const fn new() -> Self {
         Self {
             // This will not be initialized until we split the buffer
@@ -125,7 +231,7 @@ impl<A> ConstBBBuffer<A> {
 /// range of data, different strategies are sometimes useful when making the decision
 /// between maximizing usage of the buffer, and ensuring a given grant is successful.
 ///
-/// As a short summary of possible grants:
+/// As a short summary of currently possible grants:
 ///
 /// * `grant_exact(N)`
 ///   * User will receive a grant `sz == N` (or receive an error)
@@ -141,46 +247,8 @@ impl<A> ConstBBBuffer<A> {
 ///       zero bytes are available at the end of the ring.
 ///   * Maximum possible waste due to skipping: 0 bytes
 ///
-/// These grants might be added in the future:
-///
-/// * `grant_remaining()`
-///   * User will receive a grant `0 < sz <= total_buffer_sz` (or receive an error)
-///   * This will only cause a wrap to the beginning of the ring if exactly
-///       zero bytes are available at the end of the ring.
-///   * Maximum possible waste due to skipping: 0 bytes
-/// * `grant_largest()`
-///   * User will receive a grant `0 < sz <= total_buffer_sz` (or receive an error)
-///   * This function will find the largest contiguous region available
-///       (at the end or beginning of the ring).
-///   * If the region at the beginning was chosen, some bytes at the end of the ring
-///       will be skipped
-///   * Maximum possible waste due to skipping: `(total_buffer_sz / 2) - 1` bytes
-/// * `grant_largest_max(N)`
-///   * User will receive a grant `0 < sz <= N` (or receive an error)
-///   * This function will attempt to find a contiguous region up to sz bytes large.
-///       If no such region exists, the largest region available (at the end or
-///       beginning of the ring) will be granted to the user.
-///   * If the region at the beginning was chosen, some bytes at the end of the ring
-///       will be skipped
-///   * Maximum possible waste due to skipping: `(total_buffer_sz / 2) - 1` bytes
-///
-/// The following might introduce the concept of "split grants", which provide two
-/// separate contiguous buffers in order to eliminate waste due to splitting, but require
-/// the user to make writes to each buffer.
-///
-/// * `split_grant_remaining(N)`
-///   * User will receive a grant containing two segments with a total size of
-///       `0 < (sz_A + sz_B) <= total_buffer_sz` (or receive an error)
-/// * `split_grant_max_remaining(N)`
-///   * User will receive a grant containing two segments with a total size of
-///       `0 < (sz_A + sz_B) <= N` (or receive an error)
-///   * If the grant requested fits without wraparound, then the sizes of the grants
-///       will be: `sz_A == N, sz_B == 0`.
-/// * `split_grant_exact(N)`
-///   * User will receive a grant containing two segments with a total size of
-///       `(sz_A + sz_B) == N` (or receive an error)
-///   * If the grant requested fits without wraparound, then the sizes of the grants
-///       will be: `sz_A == N, sz_B == 0`.
+/// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
+/// discussion of grant methods that could be added in the future.
 pub struct Producer<'a, N>
 where
     N: ArrayLength<u8>,
@@ -202,7 +270,23 @@ where
     /// NOTE: Takes a critical section while determining the grant.
     /// The critical section is only active for the duration of
     /// this function call.
-    pub fn grant(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_exact(4).unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// grant.commit(4);
+    ///
+    /// // Try to obtain a grant of three bytes
+    /// assert!(prod.grant_exact(3).is_err());
+    /// ```
+    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
 
@@ -266,6 +350,31 @@ where
     /// some space (0 < available < sz) is available, then a grant
     /// will be given for the remaining size. If no space is available
     /// for writing, an error will be returned
+    ///
+    /// NOTE: Takes a critical section while determining the grant.
+    /// The critical section is only active for the duration of
+    /// this function call.
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// grant.commit(4);
+    ///
+    /// // Try to obtain a grant of three bytes, get two bytes
+    /// let mut grant = prod.grant_max_remaining(3).unwrap();
+    /// assert_eq!(grant.buf().len(), 2);
+    /// grant.commit(2);
+    ///
+    /// // Try to obtain a grant of one byte, receive an error
+    /// assert!(prod.grant_max_remaining(1).is_err());
+    /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
@@ -331,6 +440,7 @@ where
     }
 }
 
+/// `Consumer` is the primary interface for reading data from a `BBBuffer`.
 pub struct Consumer<'a, N>
 where
     N: ArrayLength<u8>,
@@ -353,6 +463,23 @@ where
     /// NOTE: Takes a critical section while determining the read grant.
     /// The critical section is only active for the duration of
     /// this function call.
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// grant.commit(4);
+    ///
+    /// // Obtain a read grant
+    /// let mut grant = cons.read().unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
@@ -412,6 +539,14 @@ where
     /// Returns the size of the backing storage.
     ///
     /// This is the maximum number of bytes that can be stored in this queue.
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// assert_eq!(buffer.capacity(), 6);
+    /// ```
     pub fn capacity(&self) -> usize {
         N::to_usize()
     }
@@ -421,13 +556,26 @@ impl<N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
+    /// Create a new bbqueue
+    ///
+    /// NOTE: For creating a bbqueue in static context, see `ConstBBBuffer::new()`.
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// ```
     pub fn new() -> Self {
         Self(ConstBBBuffer::new())
     }
 }
 
 /// A structure representing a contiguous region of memory that
-/// may be written to, and potentially "committed" to the queue
+/// may be written to, and potentially "committed" to the queue.
+///
+/// NOTE: If the grant is dropped without explicitly commiting
+/// the contents, then no bytes will be comitted for writing.
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, N>
 where
@@ -440,6 +588,9 @@ where
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
 /// from the queue
+///
+/// NOTE: If the grant is dropped without explicitly releasing
+/// the contents, then no bytes will be released as read.
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, N>
 where
@@ -454,9 +605,11 @@ where
     N: ArrayLength<u8>,
 {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
-    /// This makes the data available to be read via `read()`.
+    /// This makes the data available to be read via `read()`. This consumes
+    /// the grant.
     ///
-    /// If `used` is larger than the given grant, this function will panic.
+    /// If `used` is larger than the given grant, the maximum amount will
+    /// be commited
     ///
     /// NOTE: Takes a critical section while commiting the grant.
     /// The critical section is only active for the duration of
@@ -466,6 +619,20 @@ where
         forget(self);
     }
 
+    /// Obtain access to the inner buffer for writing
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
+    /// grant.commit(4);
+    /// ```
     pub fn buf(&mut self) -> &mut [u8] {
         self.buf
     }
@@ -493,10 +660,9 @@ where
             // Writer component. Must never write to READ,
             // be careful writing to LAST
 
-            // Verify we are not committing more than the given
-            // grant
+            // Saturate the grant commit
             let len = self.buf.len();
-            assert!(len >= used);
+            let used = min(len, used);
 
             let write = inner.write;
             inner.reserve -= len - used;
@@ -504,12 +670,21 @@ where
             let max = N::to_usize();
             let last = inner.last;
 
-            // Inversion case, we have begun writing
             if (inner.reserve < write) && (write != max) {
+                // We have already wrapped, but we are skipping some bytes at the end of the ring.
+                // Mark `last` where the write pointer used to be to hold the line here
                 inner.last = write;
             } else if write > last {
+                // We've now passed the last pointer, which was previously the artificial
+                // end of the ring. Now that we've passed it, we can "unlock" the section
+                // that was previously skipped.
                 inner.last = max;
             }
+            // else: If write == last, either:
+            // * last == max, so no need to write, OR
+            // * If we write in the end chunk again, we'll update last to max next time
+            // * If we write to the start chunk in a wrap, we'll update last when we
+            //     move write backwards
 
             // Write must be updated AFTER last, otherwise read could think it was
             // time to invert early!
@@ -523,9 +698,10 @@ where
     N: ArrayLength<u8>,
 {
     /// Release a sequence of bytes from the buffer, allowing the space
-    /// to be used by later writes
+    /// to be used by later writes. This consumes the grant.
     ///
-    /// If `used` is larger than the given grant, this function will panic.
+    /// If `used` is larger than the given grant, the full grant will
+    /// be released.
     ///
     /// NOTE: Takes a critical section while releasing the read grant.
     /// The critical section is only active for the duration of
@@ -535,6 +711,26 @@ where
         forget(self);
     }
 
+    /// Obtain access to the inner buffer for writing
+    ///
+    /// ```no_run
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
+    /// grant.commit(4);
+    ///
+    /// // Obtain a read grant, and copy to a buffer
+    /// let mut grant = cons.read().unwrap();
+    /// let mut buf = [0u8; 4];
+    /// buf.copy_from_slice(grant.buf());
+    /// assert_eq!(&buf, &[1, 2, 3, 4]);
+    /// ```
     pub fn buf(&self) -> &[u8] {
         self.buf
     }
@@ -559,7 +755,8 @@ where
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
 
-            assert!(used <= self.buf.len());
+            // Saturate the grant release
+            let used = min(self.buf.len(), used);
 
             // This should be fine, purely incrementing
             inner.read += used;
