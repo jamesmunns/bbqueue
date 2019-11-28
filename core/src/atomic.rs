@@ -328,7 +328,7 @@ where
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
-        let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
+        let c = inner.buf.get().cast::<u8>();
         let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
 
         Ok(GrantW {
