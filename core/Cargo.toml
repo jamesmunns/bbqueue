@@ -1,7 +1,7 @@
 [package]
 name = "bbqueue"
-version = "0.4.0-alpha4"
-description = "A (WIP) SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
+version = "0.4.0-alpha5"
+description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"
 authors = ["James Munns <james.munns@ferrous-systems.com>"]
 edition = "2018"
