@@ -22,7 +22,7 @@
 //! let (mut prod, mut cons) = bb.try_split().unwrap();
 //!
 //! // Request space for one byte
-//! let mut wgr = prod.grant(1).unwrap();
+//! let mut wgr = prod.grant_exact(1).unwrap();
 //!
 //! // Set the data
 //! wgr[0] = 123;
@@ -56,7 +56,7 @@
 //!     let (mut prod, mut cons) = BB.try_split().unwrap();
 //!
 //!     // Request space for one byte
-//!     let mut wgr = prod.grant(1).unwrap();
+//!     let mut wgr = prod.grant_exact(1).unwrap();
 //!
 //!     // Set the data
 //!     wgr[0] = 123;
