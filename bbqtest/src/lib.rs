@@ -73,91 +73,149 @@ mod tests {
     fn direct_usage_sanity() {
         // Initialize
         let bb: BBBuffer<U6> = BBBuffer::new();
+        // bb.debug();
         let (mut prod, mut cons) = bb.try_split().unwrap();
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
         // Initial grant, shouldn't roll over
+        // bb.debug();
         let mut x = prod.grant_exact(4).unwrap();
+        // bb.debug();
         // debug_grant_w(&mut x);
 
         // Still no data available yet
+        // bb.debug();
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
+        // bb.debug();
 
         // Add full data from grant
         x.copy_from_slice(&[1, 2, 3, 4]);
 
         // Still no data available yet
+        // bb.debug();
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
+        // bb.debug();
 
         // Commit data
         x.commit(4);
-
-        ::std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+        // bb.debug();
 
         let a = cons.read().unwrap();
+        // bb.debug();
+
         // debug_grant_r(&a);
         assert_eq!(&*a, &[1, 2, 3, 4]);
 
         // Release the first two bytes
+        // bb.debug();
         a.release(2);
+        // bb.debug();
 
         let r = cons.read().unwrap();
+        // bb.debug();
+
         // debug_grant_r(&r);
         assert_eq!(&*r, &[3, 4]);
         r.release(0);
+        // bb.debug();
+
 
         // Grant two more
         let mut x = prod.grant_exact(2).unwrap();
+        // bb.debug();
+
         // debug_grant_w(&mut x);
         let r = cons.read().unwrap();
+        // bb.debug();
+
         // debug_grant_r(&r);
         assert_eq!(&*r, &[3, 4]);
         r.release(0);
 
+        // bb.debug();
+
         // Add more data
         x.copy_from_slice(&[11, 12]);
-        // let r = cons.read().unwrap();
-        // assert_eq!(&*r, &[3, 4]);
-        // r.release(0);
+        let r = cons.read().unwrap();
+        // bb.debug();
 
-    //     // Commit
-    //     x.commit(2);
+        assert_eq!(&*r, &[3, 4]);
+        r.release(0);
 
-    //     let a = cons.read().unwrap();
-    //     assert_eq!(&*a, &[3, 4, 11, 12]);
+        // bb.debug();
 
-    //     a.release(2);
-    //     let r = cons.read().unwrap();
-    //     assert_eq!(&*r, &[11, 12]);
-    //     r.release(0);
+        // Commit
+        x.commit(2);
 
-    //     let mut x = prod.grant_exact(3).unwrap();
-    //     let r = cons.read().unwrap();
-    //     assert_eq!(&*r, &[11, 12]);
-    //     r.release(0);
+        // bb.debug();
 
-    //     x.copy_from_slice(&[21, 22, 23]);
+        let a = cons.read().unwrap();
+        assert_eq!(&*a, &[3, 4, 11, 12]);
 
-    //     let r = cons.read().unwrap();
-    //     assert_eq!(&*r, &[11, 12]);
-    //     r.release(0);
-    //     x.commit(3);
+        // bb.debug();
 
-    //     let a = cons.read().unwrap();
+        a.release(2);
+        // bb.debug();
 
-    //     // NOTE: The data we just added isn't available yet,
-    //     // since it has wrapped around
-    //     assert_eq!(&*a, &[11, 12]);
+        let r = cons.read().unwrap();
+        assert_eq!(&*r, &[11, 12]);
+        r.release(0);
+        // bb.debug();
 
-    //     a.release(2);
 
-    //     // And now we can see it
-    //     let r = cons.read().unwrap();
-    //     assert_eq!(&*r, &[21, 22, 23]);
-    //     r.release(0);
+        let mut x = prod.grant_exact(3).unwrap();
+        // bb.debug();
 
-    //     // Ask for something way too big
-    //     assert!(prod.grant_exact(10).is_err());
+        // debug_grant_w(&mut x);
+
+        let r = cons.read().unwrap();
+        // bb.debug();
+
+        // debug_grant_r(&r);
+
+        assert_eq!(&*r, &[11, 12]);
+        r.release(0);
+        // bb.debug();
+
+        // debug_grant_w(&mut x);
+        x.copy_from_slice(&[21, 22, 23]);
+
+        let r = cons.read().unwrap();
+        // bb.debug();
+
+        assert_eq!(&*r, &[11, 12]);
+        r.release(0);
+        // bb.debug();
+
+        x.commit(3);
+        // bb.debug();
+
+
+        let a = cons.read().unwrap();
+        // bb.debug();
+
+
+        // NOTE: The data we just added isn't available yet,
+        // since it has wrapped around
+        assert_eq!(&*a, &[11, 12]);
+
+        a.release(2);
+        // bb.debug();
+
+
+        // And now we can see it
+        let r = cons.read().unwrap();
+        // bb.debug();
+
+        assert_eq!(&*r, &[21, 22, 23]);
+        r.release(0);
+        // bb.debug();
+
+
+        // Ask for something way too big
+        assert!(prod.grant_exact(10).is_err());
+        // bb.debug();
+
     }
 
     #[test]

@@ -13,7 +13,7 @@ use core::{
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
-        Ordering::{Acquire, Relaxed, Release},
+        Ordering::{Acquire, Relaxed, Release, SeqCst},
     },
 };
 pub use generic_array::typenum::consts;
@@ -33,6 +33,12 @@ impl<'a, N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
+    pub fn debug(&'a self) {
+        println!(
+            "READ: {}, WRITE: {}, RESERVE: {}, LAST: {}",
+            self.0.read.load(SeqCst), self.0.write.load(SeqCst), self.0.reserve.load(SeqCst), self.0.last.load(SeqCst)
+        )
+    }
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         if self.0.already_split.swap(true, Relaxed) {
             return Err(Error::AlreadySplit);
@@ -484,12 +490,21 @@ where
         let max = N::to_usize();
         let last = inner.last.load(Relaxed);
 
-        // Inversion case, we have begun writing
         if (inner.reserve.load(Relaxed) < write) && (write != max) {
+            // We have already wrapped, but we are skipping some bytes at the end of the ring.
+            // Mark `last` where the write pointer used to be to hold the line here
             inner.last.store(write, Release);
         } else if write > last {
+            // We've now passed the last pointer, which was previously the artificial
+            // end of the ring. Now that we've passed it, we can "unlock" the section
+            // that was previously skipped.
             inner.last.store(max, Release);
         }
+        // else: If write == last, either:
+        // * last == max, so no need to write, OR
+        // * If we write in the end chunk again, we'll update last to max next time
+        // * If we write to the start chunk in a wrap, we'll update last when we
+        //     move write backwards
 
         // Write must be updated AFTER last, otherwise read could think it was
         // time to invert early!
