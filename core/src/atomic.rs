@@ -13,7 +13,7 @@ use core::{
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
-        Ordering::{Acquire, Relaxed, Release},
+        Ordering::{Acquire, Release, AcqRel},
     },
 };
 pub use generic_array::typenum::consts;
@@ -34,7 +34,7 @@ where
     N: ArrayLength<u8>,
 {
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
-        if self.0.already_split.swap(true, Relaxed) {
+        if self.0.already_split.swap(true, AcqRel) {
             return Err(Error::AlreadySplit);
         } else {
             unsafe {
@@ -202,9 +202,9 @@ where
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
-        let write = inner.write.load(Relaxed);
+        let write = inner.write.load(Acquire);
 
-        if inner.reserve.load(Relaxed) != write {
+        if inner.reserve.load(Acquire) != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
@@ -243,7 +243,7 @@ where
         };
 
         // Safe write, only viewed by this task
-        inner.reserve.store(start + sz, Relaxed);
+        inner.reserve.store(start + sz, Release);
 
         let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
         let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
@@ -264,9 +264,9 @@ where
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
-        let write = inner.write.load(Relaxed);
+        let write = inner.write.load(Acquire);
 
-        if inner.reserve.load(Relaxed) != write {
+        if inner.reserve.load(Acquire) != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
@@ -310,7 +310,7 @@ where
         };
 
         // Safe write, only viewed by this task
-        inner.reserve.store(start + sz, Relaxed);
+        inner.reserve.store(start + sz, Release);
 
         let c = unsafe { (*inner.buf.get()).as_mut_ptr().cast::<u8>() };
         let d = unsafe { from_raw_parts_mut(c.offset(start as isize), sz) };
@@ -343,13 +343,13 @@ where
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        if inner.read_in_progress.load(Relaxed) {
+        if inner.read_in_progress.load(Acquire) {
             return Err(Error::GrantInProgress);
         }
 
         let write = inner.write.load(Acquire);
         let last = inner.last.load(Acquire);
-        let mut read = inner.read.load(Relaxed);
+        let mut read = inner.read.load(Acquire);
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -377,7 +377,7 @@ where
             return Err(Error::InsufficientSize);
         }
 
-        inner.read_in_progress.store(true, Relaxed);
+        inner.read_in_progress.store(true, Release);
 
         let c = unsafe { (*inner.buf.get()).as_ptr().cast::<u8>() };
         let d = unsafe { from_raw_parts(c.offset(read as isize), sz) };
@@ -478,14 +478,14 @@ where
         let len = self.buf.len();
         assert!(len >= used);
 
-        let write = inner.write.load(Relaxed);
-        inner.reserve.fetch_sub(len - used, Relaxed);
+        let write = inner.write.load(Acquire);
+        inner.reserve.fetch_sub(len - used, AcqRel);
 
         let max = N::to_usize();
-        let last = inner.last.load(Relaxed);
+        let last = inner.last.load(Acquire);
 
         // Inversion case, we have begun writing
-        if (inner.reserve.load(Relaxed) < write) && (write != max) {
+        if (inner.reserve.load(Acquire) < write) && (write != max) {
             inner.last.store(write, Release);
         } else if write > last {
             inner.last.store(max, Release);
@@ -493,7 +493,7 @@ where
 
         // Write must be updated AFTER last, otherwise read could think it was
         // time to invert early!
-        inner.write.store(inner.reserve.load(Relaxed), Release);
+        inner.write.store(inner.reserve.load(Acquire), Release);
     }
 }
 
@@ -538,7 +538,7 @@ where
         // This should be fine, purely incrementing
         let _ = inner.read.fetch_add(used, Release);
 
-        inner.read_in_progress.store(false, Relaxed);
+        inner.read_in_progress.store(false, Release);
     }
 }
 
