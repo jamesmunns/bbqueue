@@ -1,13 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use bbqueue::{bbq, BBQueue, Error};
     use rand::prelude::*;
     use std::thread::spawn;
     use std::time::{Duration, Instant};
-    use bbqueue::{
-        BBQueue,
-        Error,
-        bbq,
-    };
 
     #[cfg(feature = "travisci")]
     const ITERS: usize = 10_000;
@@ -22,9 +18,11 @@ mod tests {
     #[test]
     fn randomize_tx() {
         #[cfg(feature = "travisci")]
-        #[cfg(feature = "verbose")] println!("Hello Travis!");
+        #[cfg(feature = "verbose")]
+        println!("Hello Travis!");
 
-        #[cfg(feature = "verbose")] println!("RTX: Generating Test Data...");
+        #[cfg(feature = "verbose")]
+        println!("RTX: Generating Test Data...");
         let gen_start = Instant::now();
         let mut data = Vec::with_capacity(ITERS);
         (0..ITERS).for_each(|_| data.push(rand::random::<u8>()));
@@ -43,8 +41,10 @@ mod tests {
             chunks.push(data.split_off(data.len() - chunk_sz));
         }
 
-        #[cfg(feature = "verbose")] println!("RTX: Generation complete: {:?}", gen_start.elapsed());
-        #[cfg(feature = "verbose")] println!("RTX: Running test...");
+        #[cfg(feature = "verbose")]
+        println!("RTX: Generation complete: {:?}", gen_start.elapsed());
+        #[cfg(feature = "verbose")]
+        println!("RTX: Running test...");
 
         let bbq = BBQueue::new_boxed(QUEUE_SIZE);
         let (mut tx, mut rx) = BBQueue::split_box(bbq);
@@ -79,7 +79,8 @@ mod tests {
                             txd_ct += sz;
                             if (txd_ct / RPT_IVAL) > txd_ivl {
                                 txd_ivl = txd_ct / RPT_IVAL;
-                                #[cfg(feature = "verbose")] println!("{:?} - rtxtx: {}", start_time.elapsed(), txd_ct);
+                                #[cfg(feature = "verbose")]
+                                println!("{:?} - rtxtx: {}", start_time.elapsed(), txd_ct);
                             }
 
                             break 'sizer;
@@ -107,9 +108,12 @@ mod tests {
                     let act = gr[0] as u8;
                     let exp = i;
                     if act != exp {
-                        #[cfg(feature = "verbose")] println!("act: {:?}, exp: {:?}", act, exp);
-                        #[cfg(feature = "verbose")] println!("len: {:?}", gr.len());
-                        #[cfg(feature = "verbose")] println!("{:?}", gr);
+                        #[cfg(feature = "verbose")]
+                        println!("act: {:?}, exp: {:?}", act, exp);
+                        #[cfg(feature = "verbose")]
+                        println!("len: {:?}", gr.len());
+                        #[cfg(feature = "verbose")]
+                        println!("{:?}", gr);
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
                     rx.release(1, gr);
@@ -119,7 +123,8 @@ mod tests {
                     rxd_ct += 1;
                     if (rxd_ct / RPT_IVAL) > rxd_ivl {
                         rxd_ivl = rxd_ct / RPT_IVAL;
-                        #[cfg(feature = "verbose")] println!("{:?} - rtxrx: {}", start_time.elapsed(), rxd_ct);
+                        #[cfg(feature = "verbose")]
+                        println!("{:?} - rtxrx: {}", start_time.elapsed(), rxd_ct);
                     }
 
                     break 'inner;
@@ -158,7 +163,8 @@ mod tests {
                             txd_ct += 1;
                             if (txd_ct / RPT_IVAL) > txd_ivl {
                                 txd_ivl = txd_ct / RPT_IVAL;
-                                #[cfg(feature = "verbose")] println!("{:?} - sctx: {}", start_time.elapsed(), txd_ct);
+                                #[cfg(feature = "verbose")]
+                                println!("{:?} - sctx: {}", start_time.elapsed(), txd_ct);
                             }
 
                             break 'inner;
@@ -174,7 +180,6 @@ mod tests {
             let mut rxd_ivl = 0;
 
             let mut i = 0;
-
 
             while i < ITERS {
                 if last_rx.elapsed() > TIMEOUT_NODATA {
@@ -192,10 +197,14 @@ mod tests {
                     let exp = (i & 0xFF) as u8;
                     if act != exp {
                         // #[cfg(feature = "verbose")] println!("baseptr: {}", panny);
-                        #[cfg(feature = "verbose")] println!("offendr: {:p}", &gr[0]);
-                        #[cfg(feature = "verbose")] println!("act: {:?}, exp: {:?}", act, exp);
-                        #[cfg(feature = "verbose")] println!("len: {:?}", gr.len());
-                        #[cfg(feature = "verbose")] println!("{:?}", &gr);
+                        #[cfg(feature = "verbose")]
+                        println!("offendr: {:p}", &gr[0]);
+                        #[cfg(feature = "verbose")]
+                        println!("act: {:?}, exp: {:?}", act, exp);
+                        #[cfg(feature = "verbose")]
+                        println!("len: {:?}", gr.len());
+                        #[cfg(feature = "verbose")]
+                        println!("{:?}", &gr);
                         panic!("RX Iter: {}, mod: {}", i, i % 6);
                     }
 
@@ -209,7 +218,8 @@ mod tests {
                 last_rx = Instant::now();
                 if (rxd_ct / RPT_IVAL) > rxd_ivl {
                     rxd_ivl = rxd_ct / RPT_IVAL;
-                    #[cfg(feature = "verbose")] println!("{:?} - scrx: {}", start_time.elapsed(), rxd_ct);
+                    #[cfg(feature = "verbose")]
+                    println!("{:?} - scrx: {}", start_time.elapsed(), rxd_ct);
                 }
             }
         });
@@ -218,20 +228,22 @@ mod tests {
         rx_thr.join().unwrap();
     }
 
-
     #[test]
     fn sanity_check_grant_max() {
         let bbq = BBQueue::new_boxed(QUEUE_SIZE);
         let (mut tx, mut rx) = BBQueue::split_box(bbq);
 
-        #[cfg(feature = "verbose")] println!("SCGM: Generating Test Data...");
+        #[cfg(feature = "verbose")]
+        println!("SCGM: Generating Test Data...");
         let gen_start = Instant::now();
 
         let mut data_tx = (0..ITERS).map(|i| (i & 0xFF) as u8).collect::<Vec<_>>();
         let mut data_rx = data_tx.clone();
 
-        #[cfg(feature = "verbose")] println!("SCGM: Generated Test Data in: {:?}", gen_start.elapsed());
-        #[cfg(feature = "verbose")] println!("SCGM: Starting Test...");
+        #[cfg(feature = "verbose")]
+        println!("SCGM: Generated Test Data in: {:?}", gen_start.elapsed());
+        #[cfg(feature = "verbose")]
+        println!("SCGM: Starting Test...");
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();
@@ -260,7 +272,8 @@ mod tests {
                             txd_ct += sz;
                             if (txd_ct / RPT_IVAL) > txd_ivl {
                                 txd_ivl = txd_ct / RPT_IVAL;
-                                #[cfg(feature = "verbose")] println!("{:?} - scgmtx: {}", start_time.elapsed(), txd_ct);
+                                #[cfg(feature = "verbose")]
+                                println!("{:?} - scgmtx: {}", start_time.elapsed(), txd_ct);
                             }
 
                             tx.commit(gr.len(), gr);
@@ -290,10 +303,14 @@ mod tests {
                     let act = gr[0];
                     let exp = data_rx.pop().unwrap();
                     if act != exp {
-                        #[cfg(feature = "verbose")] println!("offendr: {:p}", &gr[0]);
-                        #[cfg(feature = "verbose")] println!("act: {:?}, exp: {:?}", act, exp);
-                        #[cfg(feature = "verbose")] println!("len: {:?}", gr.len());
-                        #[cfg(feature = "verbose")] println!("{:?}", gr);
+                        #[cfg(feature = "verbose")]
+                        println!("offendr: {:p}", &gr[0]);
+                        #[cfg(feature = "verbose")]
+                        println!("act: {:?}, exp: {:?}", act, exp);
+                        #[cfg(feature = "verbose")]
+                        println!("len: {:?}", gr.len());
+                        #[cfg(feature = "verbose")]
+                        println!("{:?}", gr);
                         panic!("RX Iter: {}");
                     }
                     rx.release(1, gr);
@@ -303,7 +320,8 @@ mod tests {
                     rxd_ct += 1;
                     if (rxd_ct / RPT_IVAL) > rxd_ivl {
                         rxd_ivl = rxd_ct / RPT_IVAL;
-                        #[cfg(feature = "verbose")] println!("{:?} - scgmrx: {}", start_time.elapsed(), rxd_ct);
+                        #[cfg(feature = "verbose")]
+                        println!("{:?} - scgmrx: {}", start_time.elapsed(), rxd_ct);
                     }
 
                     break 'inner;
@@ -314,5 +332,4 @@ mod tests {
         tx_thr.join().unwrap();
         rx_thr.join().unwrap();
     }
-
 }

@@ -103,13 +103,8 @@ use core::result::Result as CoreResult;
 use core::slice::from_raw_parts;
 use core::slice::from_raw_parts_mut;
 use core::sync::atomic::{
-    AtomicBool,
-    AtomicUsize,
-    Ordering::{
-        Acquire,
-        Relaxed,
-        Release,
-    },
+    AtomicBool, AtomicUsize,
+    Ordering::{Acquire, Relaxed, Release},
 };
 
 /// Result type used by the `BBQueue` interfaces
@@ -309,7 +304,6 @@ impl BBQueue {
         let c = unsafe { self.buf.as_mut().as_mut_ptr() };
         let d = unsafe { from_raw_parts_mut(c, max) };
 
-
         Ok(GrantW {
             buf: &mut d[start..self.reserve.load(Relaxed)],
         })
@@ -397,7 +391,7 @@ impl BBQueue {
         let d = unsafe { from_raw_parts(c, max) };
 
         Ok(GrantR {
-            buf: &d[read..read+sz],
+            buf: &d[read..read + sz],
         })
     }
 
@@ -434,8 +428,6 @@ impl BBQueue {
 
         (start <= buf_start) && (buf_end_plus_one <= end_plus_one)
     }
-
-
 }
 
 impl BBQueue {
@@ -448,14 +440,7 @@ impl BBQueue {
         let nn1 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
         let nn2 = unsafe { NonNull::new_unchecked(self as *const _ as *mut _) };
 
-        (
-            Producer {
-                bbq: nn1,
-            },
-            Consumer {
-                bbq: nn2,
-            },
-        )
+        (Producer { bbq: nn1 }, Consumer { bbq: nn2 })
     }
 }
 
@@ -628,52 +613,46 @@ impl Consumer {
 /// consider using the cortex_m_bbq!() macro instead.
 #[macro_export]
 macro_rules! bbq {
-    ($expr:expr) => {
-        {
-            use core::sync::atomic::{AtomicBool, Ordering};
+    ($expr:expr) => {{
+        use core::sync::atomic::{AtomicBool, Ordering};
 
-            static TAKEN: AtomicBool = AtomicBool::new(false);
+        static TAKEN: AtomicBool = AtomicBool::new(false);
 
-            if TAKEN.compare_and_swap(false, true, Ordering::AcqRel) {
-                None
-            } else {
-                unsafe { $crate::unchecked_bbq!($expr) }
-            }
+        if TAKEN.compare_and_swap(false, true, Ordering::AcqRel) {
+            None
+        } else {
+            unsafe { $crate::unchecked_bbq!($expr) }
         }
-    }
+    }};
 }
 
 /// Like the `bbq!()` macro, but wraps the initialization in a cortex-m
 /// "critical section" by disabling interrupts
-#[cfg_attr(feature="cortex-m", macro_export)]
+#[cfg_attr(feature = "cortex-m", macro_export)]
 #[allow(unused_macros)]
 macro_rules! cortex_m_bbq {
     ($expr:expr) => {
-        cortex_m::interrupt::free(|_|
-            unsafe { $crate::unchecked_bbq!($expr) }
-        )
-    }
+        cortex_m::interrupt::free(|_| unsafe { $crate::unchecked_bbq!($expr) })
+    };
 }
 
 /// This macro does try to provide similar guarantees as `bbq!()`,
 /// but is not thread safe.
 #[macro_export]
 macro_rules! unchecked_bbq {
-    ($expr:expr) => {
-        {
-            static mut BUFFER: [u8; $expr] = [0u8; $expr];
+    ($expr:expr) => {{
+        static mut BUFFER: [u8; $expr] = [0u8; $expr];
 
-            // Really, this shouldn't be an option. But for now, there is
-            // no stable way to get an uninitialized static, so we pay the
-            // option cost for compatibility
-            static mut BBQ: Option<BBQueue> = None;
+        // Really, this shouldn't be an option. But for now, there is
+        // no stable way to get an uninitialized static, so we pay the
+        // option cost for compatibility
+        static mut BBQ: Option<BBQueue> = None;
 
-            if BBQ.is_some() {
-                None
-            } else {
-                BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
-                BBQ.as_mut()
-            }
+        if BBQ.is_some() {
+            None
+        } else {
+            BBQ = Some(BBQueue::unpinned_new(&mut BUFFER));
+            BBQ.as_mut()
         }
-    }
+    }};
 }
