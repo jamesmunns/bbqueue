@@ -10,43 +10,43 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let mut data = vec![0; DATA_SZ].into_boxed_slice();
 
-    // c.bench_function("bbq 128", |bench| {
-    //     bench.iter(|| {
-    //         chunky(
-    //             &data,
-    //             128
-    //         )
-    //     })
-    // });
+    c.bench_function("bbq 128/4096", |bench| {
+        bench.iter(|| {
+            chunky(
+                &data,
+                128
+            )
+        })
+    });
 
-    // c.bench_function("bbq 256", |bench| {
-    //     bench.iter(|| {
-    //         chunky(
-    //             &data,
-    //             256
-    //         )
-    //     })
-    // });
+    c.bench_function("bbq 256/4096", |bench| {
+        bench.iter(|| {
+            chunky(
+                &data,
+                256
+            )
+        })
+    });
 
-    // c.bench_function("bbq 512", |bench| {
-    //     bench.iter(|| {
-    //         chunky(
-    //             &data,
-    //             512
-    //         )
-    //     })
-    // });
+    c.bench_function("bbq 512/4096", |bench| {
+        bench.iter(|| {
+            chunky(
+                &data,
+                512
+            )
+        })
+    });
 
-    // c.bench_function("bbq 1024", |bench| {
-    //     bench.iter(|| {
-    //         chunky(
-    //             &data,
-    //             1024
-    //         )
-    //     })
-    // });
+    c.bench_function("bbq 1024/4096", |bench| {
+        bench.iter(|| {
+            chunky(
+                &data,
+                1024
+            )
+        })
+    });
 
-    c.bench_function("bbq 2048", |bench| {
+    c.bench_function("bbq 2048/4096", |bench| {
         bench.iter(|| {
             chunky(
                 &data,
@@ -155,6 +155,81 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                     });
                 });
             }).unwrap();
+        })
+    });
+
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "nightly")] {
+            c.bench_function("bounded queue 8192/65536", |bench| {
+
+                bench.iter(|| {
+                    use bounded_spsc_queue::make;
+                    let (mut prod, mut cons) = make::<[u8; 8192]>(65536 / 8192);
+                    let rdata = &data;
+
+                    thread::scope(|sc| {
+                        sc.spawn(move |_| {
+                            rdata.chunks(8192).for_each(|ch| {
+                                let mut x: MaybeUninit<[u8; 8192]> = MaybeUninit::uninit();
+                                unsafe {
+                                    x.as_mut_ptr().copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
+                                };
+                                prod.push(unsafe { x.assume_init() });
+                            });
+                        });
+
+                        sc.spawn(move |_| {
+                            rdata.chunks(8192).for_each(|ch| {
+                                let x = cons.pop();
+                                assert_eq!(&x[..], &ch[..]);
+                            });
+                        });
+                    }).unwrap();
+                })
+            });
+        }
+    }
+
+    use heapless::{spsc::Queue};
+
+    let mut queue: Queue<[u8; 8192], U8> = Queue::new();
+    let (mut prod, mut cons) = queue.split();
+
+    c.bench_function("heapless spsc::Queue 8192/65536", |bench| {
+
+        let chunksz = 8192;
+
+        bench.iter(|| { black_box(
+            thread::scope(|sc| {
+                sc.spawn(|_| {
+                    data.chunks(chunksz).for_each(|ch| {
+                        let mut x: MaybeUninit<[u8; 8192]> = MaybeUninit::uninit();
+                        unsafe {
+                            x.as_mut_ptr().copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
+                        };
+                        let mut x = unsafe { x.assume_init() };
+
+                        loop {
+                            match prod.enqueue(x) {
+                                Ok(_) => break,
+                                Err(y) => x = y,
+                            };
+                        }
+
+                    });
+                });
+
+                sc.spawn(|_| {
+                    data.chunks(8192).for_each(|ch| {
+                        loop {
+                            if let Some(x) = cons.dequeue() {
+                                assert_eq!(&x[..], &ch[..]);
+                                break;
+                            }
+                        }
+                    });
+                });
+            })).unwrap();
         })
     });
 }
