@@ -59,7 +59,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let (mut prod, mut cons) = buffy.try_split().unwrap();
 
 
-    c.bench_function("bbq 2048-2", |bench| {
+    c.bench_function("bbq 8192/65536", |bench| {
 
         let chunksz = 8192;
 
@@ -102,7 +102,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     use std::mem::MaybeUninit;
 
 
-    c.bench_function("std channels", |bench| {
+    c.bench_function("std channels 8192 unbounded", |bench| {
 
         bench.iter(|| {
             use std::sync::mpsc::{Sender, Receiver};
@@ -130,7 +130,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("xbeam channels", |bench| {
+    c.bench_function("xbeam channels 8192/65536", |bench| {
 
         bench.iter(|| {
             use crossbeam::{bounded, Sender, Receiver};
