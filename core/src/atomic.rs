@@ -86,6 +86,7 @@ use core::{
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
 
+
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
 pub struct BBBuffer<N: ArrayLength<u8>>(
@@ -93,7 +94,6 @@ pub struct BBBuffer<N: ArrayLength<u8>>(
     #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
 );
 
-// unsafe impl<N> Send for BBBuffer<N: ArrayLength<u8>> {}
 unsafe impl<A> Sync for ConstBBBuffer<A> {}
 
 impl<'a, N> BBBuffer<N>
