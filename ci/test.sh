@@ -16,10 +16,9 @@ if [ $TRAVIS_RUST_VERSION = nightly ]; then
     export RUSTFLAGS="-Z sanitizer=thread"
     export RUST_TEST_THREADS=1
     export TSAN_OPTIONS="suppressions=$(pwd)/tsan-blacklist.txt"
-    export SHORT_TEST="--features=travisci"
 
-    cargo test --features="travisci" --manifest-path bbqtest/Cargo.toml -- --nocapture
-    cargo test --features="travisci" --release --manifest-path bbqtest/Cargo.toml -- --nocapture
+    cargo test --features="travisci,nightly" --manifest-path bbqtest/Cargo.toml -- --nocapture
+    cargo test --features="travisci,nightly" --release --manifest-path bbqtest/Cargo.toml -- --nocapture
 else
     # Test using a full std crate, short test with multiple threads (it's slow)
     cargo test --features="travisci" --manifest-path bbqtest/Cargo.toml -- --nocapture
