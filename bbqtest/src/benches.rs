@@ -1,78 +1,38 @@
+use bbqueue::{consts::*, ArrayLength, BBBuffer, Consumer, Producer};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use bbqueue::{BBBuffer, consts::*, Producer, Consumer, ArrayLength};
-use std::thread::spawn;
 use std::cmp::min;
 use std::sync::Arc;
+use std::thread::spawn;
 
 const DATA_SZ: usize = 128 * 1024 * 1024;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-
     let mut data = vec![0; DATA_SZ].into_boxed_slice();
 
-    c.bench_function("bbq 128/4096", |bench| {
-        bench.iter(|| {
-            chunky(
-                &data,
-                128
-            )
-        })
-    });
+    c.bench_function("bbq 128/4096", |bench| bench.iter(|| chunky(&data, 128)));
 
-    c.bench_function("bbq 256/4096", |bench| {
-        bench.iter(|| {
-            chunky(
-                &data,
-                256
-            )
-        })
-    });
+    c.bench_function("bbq 256/4096", |bench| bench.iter(|| chunky(&data, 256)));
 
-    c.bench_function("bbq 512/4096", |bench| {
-        bench.iter(|| {
-            chunky(
-                &data,
-                512
-            )
-        })
-    });
+    c.bench_function("bbq 512/4096", |bench| bench.iter(|| chunky(&data, 512)));
 
-    c.bench_function("bbq 1024/4096", |bench| {
-        bench.iter(|| {
-            chunky(
-                &data,
-                1024
-            )
-        })
-    });
+    c.bench_function("bbq 1024/4096", |bench| bench.iter(|| chunky(&data, 1024)));
 
-    c.bench_function("bbq 2048/4096", |bench| {
-        bench.iter(|| {
-            chunky(
-                &data,
-                2048
-            )
-        })
-    });
+    c.bench_function("bbq 2048/4096", |bench| bench.iter(|| chunky(&data, 2048)));
 
     let buffy: BBBuffer<U65536> = BBBuffer::new();
     let (mut prod, mut cons) = buffy.try_split().unwrap();
 
-
     c.bench_function("bbq 8192/65536", |bench| {
-
         let chunksz = 8192;
 
-        bench.iter(|| { black_box(
-            thread::scope(|sc| {
+        bench.iter(|| {
+            black_box(thread::scope(|sc| {
                 sc.spawn(|_| {
-                    data.chunks(chunksz).for_each(|ch| {
-                        loop {
-                            if let Ok(mut wgr) = prod.grant_exact(chunksz) {
-                                wgr.copy_from_slice(black_box(ch));
-                                wgr.commit(chunksz);
-                                break;
-                            }
+                    data.chunks(chunksz).for_each(|ch| loop {
+                        if let Ok(mut wgr) = prod.grant_exact(chunksz) {
+                            wgr.copy_from_slice(black_box(ch));
+                            wgr.commit(chunksz);
+                            break;
                         }
                     });
                 });
@@ -83,7 +43,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                         loop {
                             if let Ok(rgr) = cons.read() {
                                 let len = min(chunksz - st, rgr.len());
-                                assert_eq!(ch[st..st+len], rgr[..len]);
+                                assert_eq!(ch[st..st + len], rgr[..len]);
                                 rgr.release(len);
 
                                 st += len;
@@ -95,18 +55,18 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                         }
                     });
                 });
-            })).unwrap();
+            }))
+            .unwrap();
         })
     });
 
     use std::mem::MaybeUninit;
 
-
     c.bench_function("std channels 8192 unbounded", |bench| {
-
         bench.iter(|| {
-            use std::sync::mpsc::{Sender, Receiver};
-            let (mut prod, mut cons): (Sender<[u8; 8192]>, Receiver<[u8; 8192]>) = std::sync::mpsc::channel();
+            use std::sync::mpsc::{Receiver, Sender};
+            let (mut prod, mut cons): (Sender<[u8; 8192]>, Receiver<[u8; 8192]>) =
+                std::sync::mpsc::channel();
             let rdata = &data;
 
             thread::scope(|sc| {
@@ -114,7 +74,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                     rdata.chunks(8192).for_each(|ch| {
                         let mut x: MaybeUninit<[u8; 8192]> = MaybeUninit::uninit();
                         unsafe {
-                            x.as_mut_ptr().copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
+                            x.as_mut_ptr()
+                                .copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
                         };
                         prod.send(unsafe { x.assume_init() }).unwrap();
                     });
@@ -126,15 +87,16 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                         assert_eq!(&x[..], &ch[..]);
                     });
                 });
-            }).unwrap();
+            })
+            .unwrap();
         })
     });
 
     c.bench_function("xbeam channels 8192/65536", |bench| {
-
         bench.iter(|| {
-            use crossbeam::{bounded, Sender, Receiver};
-            let (mut prod, mut cons): (Sender<[u8; 8192]>, Receiver<[u8; 8192]>) = bounded(65536 / 8192);
+            use crossbeam::{bounded, Receiver, Sender};
+            let (mut prod, mut cons): (Sender<[u8; 8192]>, Receiver<[u8; 8192]>) =
+                bounded(65536 / 8192);
             let rdata = &data;
 
             thread::scope(|sc| {
@@ -142,7 +104,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                     rdata.chunks(8192).for_each(|ch| {
                         let mut x: MaybeUninit<[u8; 8192]> = MaybeUninit::uninit();
                         unsafe {
-                            x.as_mut_ptr().copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
+                            x.as_mut_ptr()
+                                .copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
                         };
                         prod.send(unsafe { x.assume_init() }).unwrap();
                     });
@@ -154,7 +117,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                         assert_eq!(&x[..], &ch[..]);
                     });
                 });
-            }).unwrap();
+            })
+            .unwrap();
         })
     });
 
@@ -190,22 +154,22 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         }
     }
 
-    use heapless::{spsc::Queue};
+    use heapless::spsc::Queue;
 
     let mut queue: Queue<[u8; 8192], U8> = Queue::new();
     let (mut prod, mut cons) = queue.split();
 
     c.bench_function("heapless spsc::Queue 8192/65536", |bench| {
-
         let chunksz = 8192;
 
-        bench.iter(|| { black_box(
-            thread::scope(|sc| {
+        bench.iter(|| {
+            black_box(thread::scope(|sc| {
                 sc.spawn(|_| {
                     data.chunks(chunksz).for_each(|ch| {
                         let mut x: MaybeUninit<[u8; 8192]> = MaybeUninit::uninit();
                         unsafe {
-                            x.as_mut_ptr().copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
+                            x.as_mut_ptr()
+                                .copy_from_nonoverlapping(ch.as_ptr().cast::<[u8; 8192]>(), 1)
                         };
                         let mut x = unsafe { x.assume_init() };
 
@@ -215,21 +179,19 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                                 Err(y) => x = y,
                             };
                         }
-
                     });
                 });
 
                 sc.spawn(|_| {
-                    data.chunks(8192).for_each(|ch| {
-                        loop {
-                            if let Some(x) = cons.dequeue() {
-                                assert_eq!(&x[..], &ch[..]);
-                                break;
-                            }
+                    data.chunks(8192).for_each(|ch| loop {
+                        if let Some(x) = cons.dequeue() {
+                            assert_eq!(&x[..], &ch[..]);
+                            break;
                         }
                     });
                 });
-            })).unwrap();
+            }))
+            .unwrap();
         })
     });
 }
@@ -241,13 +203,11 @@ fn chunky(data: &[u8], chunksz: usize) {
 
     thread::scope(|sc| {
         let pjh = sc.spawn(|_| {
-            data.chunks(chunksz).for_each(|ch| {
-                loop {
-                    if let Ok(mut wgr) = prod.grant_exact(chunksz) {
-                        wgr.copy_from_slice(ch);
-                        wgr.commit(chunksz);
-                        break;
-                    }
+            data.chunks(chunksz).for_each(|ch| loop {
+                if let Ok(mut wgr) = prod.grant_exact(chunksz) {
+                    wgr.copy_from_slice(ch);
+                    wgr.commit(chunksz);
+                    break;
                 }
             });
         });
@@ -258,7 +218,7 @@ fn chunky(data: &[u8], chunksz: usize) {
                 loop {
                     if let Ok(rgr) = cons.read() {
                         let len = min(chunksz - st, rgr.len());
-                        assert_eq!(ch[st..st+len], rgr[..len]);
+                        assert_eq!(ch[st..st + len], rgr[..len]);
                         rgr.release(len);
 
                         st += len;
@@ -270,7 +230,8 @@ fn chunky(data: &[u8], chunksz: usize) {
                 }
             });
         });
-    }).unwrap();
+    })
+    .unwrap();
 }
 
 criterion_group!(benches, criterion_benchmark);

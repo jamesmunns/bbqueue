@@ -80,12 +80,11 @@ use core::{
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
-        Ordering::{Acquire, Release, AcqRel},
+        Ordering::{AcqRel, Acquire, Release},
     },
 };
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
-
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
@@ -335,7 +334,8 @@ where
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+        let grant_slice =
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
         Ok(GrantW {
             buf: grant_slice,
@@ -428,7 +428,8 @@ where
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+        let grant_slice =
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
         Ok(GrantW {
             buf: grant_slice,
