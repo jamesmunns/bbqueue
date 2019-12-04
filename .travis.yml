@@ -3,6 +3,5 @@ rust:
   - stable
   - beta
   - nightly
-cache: cargo
 script:
   - ./ci/test.sh
