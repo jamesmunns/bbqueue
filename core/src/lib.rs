@@ -1,11 +1,13 @@
 //! # BBQueue
 //!
-//! BBQueue, short for "BipBuffer Queue", is a (work in progress) Single Producer Single Consumer,
-//! lockless, no_std, thread safe, queue, based on [BipBuffers].
+//! BBQueue, short for "BipBuffer Queue", is a Single Producer Single Consumer,
+//! lockless, no_std, thread safe, queue, based on [BipBuffers]. For more info on
+//! the design of the lock-free algorithm used by bbqueue, see [this blog post].
 //!
 //! [BipBuffers]: https://www.codeproject.com/Articles/3479/%2FArticles%2F3479%2FThe-Bip-Buffer-The-Circular-Buffer-with-a-Twist
+//! [this blog post]: https://ferrous-systems.com/blog/lock-free-ring-buffer/
 //!
-//! It is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded
+//! BBQueue is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded
 //! systems.
 //!
 //! While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to

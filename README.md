@@ -3,93 +3,80 @@
 [![Documentation](https://docs.rs/bbqueue/badge.svg)](https://docs.rs/bbqueue)
 [![Testing](https://travis-ci.org/jamesmunns/bbqueue.svg?branch=master)](https://travis-ci.org/jamesmunns/bbqueue)
 
-BBQueue, short for "BipBuffer Queue", is a (work in progress) Single Producer Single Consumer, lockless, no_std, thread safe, queue, based on BipBuffers. It is written in the Rust Programming Language.
+BBQueue, short for "BipBuffer Queue", is a Single Producer Single Consumer,
+lockless, no_std, thread safe, queue, based on [BipBuffers]. For more info on
+the design of the lock-free algorithm used by bbqueue, see [this blog post].
 
-It is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded systems.
+[BipBuffers]: https://www.codeproject.com/Articles/3479/%2FArticles%2F3479%2FThe-Bip-Buffer-The-Circular-Buffer-with-a-Twist
+[this blog post]: https://ferrous-systems.com/blog/lock-free-ring-buffer/
 
-While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to main code), you must push the data one piece at a time. With BBQueue, you instead are granted a block of contiguous memory, which can be filled (or emptied) by a DMA engine.
+BBQueue is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded
+systems.
 
-See [The Documentation](https://docs.rs/bbqueue) for more details
+While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to
+main code), you must push the data one piece at a time. With BBQueue, you instead are granted a
+block of contiguous memory, which can be filled (or emptied) by a DMA engine.
 
-## Using in a single threaded context
+## Local usage
 
 ```rust
-use bbqueue::{BBQueue, bbq};
+// Create a buffer with six elements
+let bb: BBBuffer<U6> = BBBuffer::new();
+let (mut prod, mut cons) = bb.try_split().unwrap();
 
-fn main() {
-    // Create a statically allocated instance
-    let bbq = bbq!(1024).unwrap();
+// Request space for one byte
+let mut wgr = prod.grant_exact(1).unwrap();
 
-    // Obtain a write grant of size 128 bytes
-    let mut wgr = bbq.grant(128).unwrap();
+// Set the data
+wgr[0] = 123;
 
-    // Fill the buffer with data
-    wgr.copy_from_slice(&[0xAFu8; 128]);
+assert_eq!(wgr.len(), 1);
 
-    // Commit the write, to make the data available to be read
-    bbq.commit(wgr.len(), wgr);
+// Make the data ready for consuming
+wgr.commit(1);
 
-    // Obtain a read grant of all available and contiguous bytes
-    let rgr = bbq.read().unwrap();
+// Read all available bytes
+let rgr = cons.read().unwrap();
 
-    for i in 0..128 {
-        assert_eq!(rgr[i], 0xAFu8);
-    }
+assert_eq!(rgr[0], 123);
 
-    // Release the bytes, allowing the space
-    // to be re-used for writing
-    bbq.release(rgr.len(), rgr);
-}
+// Release the space for later writes
+rgr.release(1);
 ```
 
-## Using in a multi-threaded environment (or with interrupts, etc.)
+## Static usage
 
 ```rust
-use bbqueue::{BBQueue, bbq};
-use std::thread::spawn;
+// Create a buffer with six elements
+static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
 
 fn main() {
-    // Create a statically allocated instance
-    let bbq = bbq!(1024).unwrap();
-    let (mut tx, mut rx) = bbq.split();
+    // Split the bbqueue into producer and consumer halves.
+    // These halves can be sent to different threads or to
+    // an interrupt handler for thread safe SPSC usage
+    let (mut prod, mut cons) = BB.try_split().unwrap();
 
-    let txt = spawn(move || {
-        for tx_i in 0..128 {
-            'inner: loop {
-                match tx.grant(4) {
-                    Ok(mut gr) => {
-                        gr.copy_from_slice(&[tx_i as u8; 4]);
-                        tx.commit(4, gr);
-                        break 'inner;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    });
+    // Request space for one byte
+    let mut wgr = prod.grant_exact(1).unwrap();
 
-    let rxt = spawn(move || {
-        for rx_i in 0..128 {
-            'inner: loop {
-                match rx.read() {
-                    Ok(gr) => {
-                        if gr.len() < 4 {
-                            rx.release(0, gr);
-                            continue 'inner;
-                        }
+    // Set the data
+    wgr[0] = 123;
 
-                        assert_eq!(&gr[..4], &[rx_i as u8; 4]);
-                        rx.release(4, gr);
-                        break 'inner;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    });
+    assert_eq!(wgr.len(), 1);
 
-    txt.join().unwrap();
-    rxt.join().unwrap();
+    // Make the data ready for consuming
+    wgr.commit(1);
+
+    // Read all available bytes
+    let rgr = cons.read().unwrap();
+
+    assert_eq!(rgr[0], 123);
+
+    // Release the space for later writes
+    rgr.release(1);
+
+    // The buffer cannot be split twice
+    assert!(BB.try_split().is_err());
 }
 ```
 
@@ -99,8 +86,9 @@ The `bbqueue` crate is located in `core/`, and tests are located in `bbqtest/`.
 
 | Feature Name | On by default? | Description |
 | :--- | :--- | :--- |
-| `std` | No | Enables convenience methods for allocating on the Heap, instead of statically |
-| `cortex-m` | No | Provides a convenience macro for safely allocating in a critical section on Cortex-M devices |
+| `atomic` | Yes | Uses Atomic Compare and Swaps to implement the algorithm in a lock-free way |
+| `std` | No | Not currently used. Disables `#![no_std]` attribute |
+| `thumbv6` | No | Use Cortex-M Critical Sections to implement the algorithm on cortex-m platforms without atomic CAS (cortex-m0, cortex-m0+) |
 
 # License
 
