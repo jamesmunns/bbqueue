@@ -267,6 +267,10 @@ where
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
     ///
+    /// This method may cause the buffer to wrap around early if the
+    /// requested space is not available at the end of the buffer, but
+    /// is available at the beginning
+    ///
     /// NOTE: Takes a critical section while determining the grant.
     /// The critical section is only active for the duration of
     /// this function call.
@@ -348,10 +352,11 @@ where
     }
 
     /// Request a writable, contiguous section of memory of up to
-    /// `sz` bytes. If a buffer of size `sz` is not available, but
-    /// some space (0 < available < sz) is available, then a grant
-    /// will be given for the remaining size. If no space is available
-    /// for writing, an error will be returned
+    /// `sz` bytes. If a buffer of size `sz` is not available without
+    /// wrapping, but some space (0 < available < sz) is available without
+    /// wrapping, then a grant will be given for the remaining size at the
+    /// end of the buffer. If no space is available for writing, an error
+    /// will be returned.
     ///
     /// NOTE: Takes a critical section while determining the grant.
     /// The critical section is only active for the duration of
@@ -362,20 +367,22 @@ where
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
-    /// let (mut prod, cons) = buffer.try_split().unwrap();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
     /// // Successfully obtain and commit a grant of four bytes
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
     /// assert_eq!(grant.buf().len(), 4);
     /// grant.commit(4);
     ///
+    /// // Release the four initial commited bytes
+    /// let mut grant = cons.read().unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// grant.release(4);
+    ///
     /// // Try to obtain a grant of three bytes, get two bytes
     /// let mut grant = prod.grant_max_remaining(3).unwrap();
     /// assert_eq!(grant.buf().len(), 2);
     /// grant.commit(2);
-    ///
-    /// // Try to obtain a grant of one byte, receive an error
-    /// assert!(prod.grant_max_remaining(1).is_err());
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
         free(|_cs| {
