@@ -161,10 +161,10 @@ pub struct ConstBBBuffer<A> {
     read: AtomicUsize,
 
     /// Used in the inverted case to mark the end of the
-    /// readable streak. Otherwise will == unsafe { self.buf.as_mut().len() }.
+    /// readable streak. Otherwise will == sizeof::<self.buf>().
     /// Writer is responsible for placing this at the correct
     /// place when entering an inverted condition, and Reader
-    /// is responsible for moving it back to unsafe { self.buf.as_mut().len() }
+    /// is responsible for moving it back to sizeof::<self.buf>()
     /// when exiting the inverted condition
     last: AtomicUsize,
 
@@ -209,6 +209,16 @@ impl<A> ConstBBBuffer<A> {
             read: AtomicUsize::new(0),
 
             /// Cooperatively owned
+            ///
+            /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
+            /// this would prevent the structure from being entirely zero-initialized,
+            /// and can cause the .data section to be much larger than necessary. By
+            /// forcing the `last` pointer to be zero initially, we place the structure
+            /// in an "inverted" condition, which will be resolved on the first commited
+            /// bytes that are written to the structure.
+            ///
+            /// When read == last == write, no bytes will be allowed to be read (good), but
+            /// write grants can be given out (also good).
             last: AtomicUsize::new(0),
 
             /// Owned by the Writer, "private"
