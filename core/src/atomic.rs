@@ -73,7 +73,7 @@ use core::{
     cell::UnsafeCell,
     cmp::min,
     marker::PhantomData,
-    mem::{forget, size_of, transmute, MaybeUninit},
+    mem::{forget, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
     slice::from_raw_parts,
@@ -161,10 +161,10 @@ pub struct ConstBBBuffer<A> {
     read: AtomicUsize,
 
     /// Used in the inverted case to mark the end of the
-    /// readable streak. Otherwise will == unsafe { self.buf.as_mut().len() }.
+    /// readable streak. Otherwise will == sizeof::<self.buf>().
     /// Writer is responsible for placing this at the correct
     /// place when entering an inverted condition, and Reader
-    /// is responsible for moving it back to unsafe { self.buf.as_mut().len() }
+    /// is responsible for moving it back to sizeof::<self.buf>()
     /// when exiting the inverted condition
     last: AtomicUsize,
 
@@ -209,7 +209,17 @@ impl<A> ConstBBBuffer<A> {
             read: AtomicUsize::new(0),
 
             /// Cooperatively owned
-            last: AtomicUsize::new(size_of::<A>()),
+            ///
+            /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
+            /// this would prevent the structure from being entirely zero-initialized,
+            /// and can cause the .data section to be much larger than necessary. By
+            /// forcing the `last` pointer to be zero initially, we place the structure
+            /// in an "inverted" condition, which will be resolved on the first commited
+            /// bytes that are written to the structure.
+            ///
+            /// When read == last == write, no bytes will be allowed to be read (good), but
+            /// write grants can be given out (also good).
+            last: AtomicUsize::new(0),
 
             /// Owned by the Writer, "private"
             reserve: AtomicUsize::new(0),
@@ -657,18 +667,23 @@ where
 
         let max = N::to_usize();
         let last = inner.last.load(Acquire);
+        let new_write = inner.reserve.load(Acquire);
 
-        if (inner.reserve.load(Acquire) < write) && (write != max) {
+        if (new_write < write) && (write != max) {
             // We have already wrapped, but we are skipping some bytes at the end of the ring.
             // Mark `last` where the write pointer used to be to hold the line here
             inner.last.store(write, Release);
-        } else if write > last {
-            // We've now passed the last pointer, which was previously the artificial
+        } else if new_write > last {
+            // We're about to pass the last pointer, which was previously the artificial
             // end of the ring. Now that we've passed it, we can "unlock" the section
             // that was previously skipped.
+            //
+            // Since new_write is strictly larger than last, it is safe to move this as
+            // the other thread will still be halted by the (about to be updated) write
+            // value
             inner.last.store(max, Release);
         }
-        // else: If write == last, either:
+        // else: If new_write == last, either:
         // * last == max, so no need to write, OR
         // * If we write in the end chunk again, we'll update last to max next time
         // * If we write to the start chunk in a wrap, we'll update last when we
@@ -676,7 +691,7 @@ where
 
         // Write must be updated AFTER last, otherwise read could think it was
         // time to invert early!
-        inner.write.store(inner.reserve.load(Acquire), Release);
+        inner.write.store(new_write, Release);
     }
 }
 
