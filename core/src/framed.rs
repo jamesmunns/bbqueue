@@ -6,7 +6,7 @@
 //! just a stream of bytes. This is convenient when receiving
 //! packets of variable sizes.
 //!
-//! IMPORTANT NOTE: An header is required for each frame stored
+//! IMPORTANT NOTE: A header is required for each frame stored
 //! inside of the `BBQueue`. Currently, this is `size_of::<usize>()`
 //! bytes per-frame (4 on 32-bit systems, 8 on 64-bit systems). This
 //! means in a BBQueue of size 32 bytes, you would only be able to store
