@@ -88,8 +88,8 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(missing_docs)]
-#![deny(warnings)]
+// #![deny(missing_docs)]
+// #![deny(warnings)]
 
 #[cfg(feature = "atomic")]
 pub mod atomic;

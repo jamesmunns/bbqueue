@@ -86,6 +86,11 @@ use core::{
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
 
+// In the future, this probably shouldn't be `usize`, but rather whatever
+// the type of the tracking variables are. For example, if we could make a
+// bbqueue with tracking variables of `u8`, this header should also be a `u8`.
+const FRAME_HEADER_LEN: usize = core::mem::size_of::<usize>();
+
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
 pub struct BBBuffer<N: ArrayLength<u8>>(
@@ -142,6 +147,14 @@ where
                 ))
             }
         }
+    }
+
+    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+        let (producer, consumer) = self.try_split()?;
+        Ok((
+            FrameProducer { producer },
+            FrameConsumer { consumer },
+        ))
     }
 }
 
@@ -229,6 +242,24 @@ impl<A> ConstBBBuffer<A> {
 
             already_split: AtomicBool::new(false),
         }
+    }
+}
+
+pub struct FrameProducer<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    producer: Producer<'a, N>,
+}
+
+impl<'a, N> FrameProducer<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
+        Ok(FrameGrantW {
+            grant_w: self.producer.grant_exact(max_sz + FRAME_HEADER_LEN)?,
+        })
     }
 }
 
@@ -448,6 +479,13 @@ where
     }
 }
 
+pub struct FrameConsumer<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    consumer: Consumer<'a, N>,
+}
+
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
 pub struct Consumer<'a, N>
 where
@@ -458,6 +496,28 @@ where
 }
 
 unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
+
+impl<'a, N> FrameConsumer<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
+        let mut grant_r = self.consumer.read().ok()?;
+
+        let mut frame_bytes = [0u8; FRAME_HEADER_LEN];
+        frame_bytes.copy_from_slice(&grant_r[..FRAME_HEADER_LEN]);
+
+        let frame_len = usize::from_le_bytes(frame_bytes);
+        let total_len = frame_len + FRAME_HEADER_LEN;
+
+        debug_assert!(grant_r.len() >= total_len);
+        grant_r.shrink(total_len);
+
+        Some(FrameGrantR {
+            grant_r
+        })
+    }
+}
 
 impl<'a, N> Consumer<'a, N>
 where
@@ -574,6 +634,53 @@ where
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct FrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    grant_w: GrantW<'a, N>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    grant_r: GrantR<'a, N>,
+}
+
+impl<'a, N> Deref for FrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.grant_w.buf[FRAME_HEADER_LEN..]
+    }
+}
+
+impl<'a, N> DerefMut for FrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn deref_mut(&mut self) -> &mut [u8] {
+        &mut self.grant_w.buf[FRAME_HEADER_LEN..]
+    }
+}
+
+impl<'a, N> Deref for FrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.grant_r.buf[FRAME_HEADER_LEN..]
+    }
+}
+
 /// A structure representing a contiguous region of memory that
 /// may be written to, and potentially "committed" to the queue.
 ///
@@ -601,6 +708,17 @@ where
 {
     buf: &'a [u8],
     bbq: NonNull<BBBuffer<N>>,
+}
+
+impl<'a, N> FrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    pub fn commit(mut self, used: usize) {
+        let frame_len = min(used, self.grant_w.len() - FRAME_HEADER_LEN);
+        self.grant_w[..FRAME_HEADER_LEN].copy_from_slice(&frame_len.to_le_bytes());
+        self.grant_w.commit(frame_len + FRAME_HEADER_LEN);
+    }
 }
 
 impl<'a, N> GrantW<'a, N>
@@ -695,6 +813,16 @@ where
     }
 }
 
+impl<'a, N> FrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    pub fn release(self) {
+        let len = self.grant_r.len();
+        self.grant_r.release(len);
+    }
+}
+
 impl<'a, N> GrantR<'a, N>
 where
     N: ArrayLength<u8>,
@@ -707,6 +835,10 @@ where
     pub fn release(mut self, used: usize) {
         self.release_inner(used);
         forget(self);
+    }
+
+    fn shrink(&mut self, len: usize) {
+        self.buf = &self.buf[..min(self.buf.len(), len)]
     }
 
     /// Obtain access to the inner buffer for writing

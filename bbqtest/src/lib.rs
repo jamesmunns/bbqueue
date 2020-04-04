@@ -149,4 +149,51 @@ mod tests {
         let grant = prod.grant_exact(0).unwrap();
         grant.commit(0);
     }
+
+    #[test]
+    fn frame_sanity() {
+        let bb: BBBuffer<U1000> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+
+        // One frame in, one frame out
+        let mut wgrant = prod.grant(128).unwrap();
+        assert_eq!(wgrant.len(), 128);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(128);
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 128);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+
+        // Three frames in, three frames out
+        let mut state = 0;
+        let states = [16usize, 32, 24];
+
+        for step in &states {
+            let mut wgrant = prod.grant(*step).unwrap();
+            assert_eq!(wgrant.len(), *step);
+            for (idx, i) in wgrant.iter_mut().enumerate() {
+                *i = (idx + state) as u8;
+            }
+            wgrant.commit(*step);
+            state += *step;
+        }
+
+        state = 0;
+
+        for step in &states {
+            let rgrant = cons.read().unwrap();
+            assert_eq!(rgrant.len(), *step);
+            for (idx, i) in rgrant.iter().enumerate() {
+                assert_eq!(*i, (idx + state) as u8);
+            }
+            rgrant.release();
+            state += *step;
+        }
+    }
 }
