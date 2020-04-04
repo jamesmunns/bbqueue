@@ -70,6 +70,10 @@
 //! ```
 
 use crate::{Error, Result};
+
+#[cfg(not(feature = "atomic"))]
+use crate::framed::{FrameConsumer, FrameProducer};
+
 use core::{
     cell::UnsafeCell,
     cmp::min,
@@ -91,19 +95,20 @@ pub struct BBBuffer<N: ArrayLength<u8>>(
     #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
 );
 
-// unsafe impl<N> Send for BBBuffer<N: ArrayLength<u8>> {}
 unsafe impl<A> Sync for ConstBBBuffer<A> {}
 
 impl<'a, N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
-    /// Attempt to split the `BBBuffer` into `Producer` halves to gain access to the
+    /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
     ///
     /// NOTE: When splitting, the underlying buffer will be explicitly initialized
     /// to zero. This may take a measurable amount of time, depending on the size
-    /// of the buffer. This is necessary to prevent undefined behavior.
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
     ///
     /// NOTE: Takes a critical section while splitting
     ///
@@ -145,6 +150,24 @@ where
                 }
             }
         })
+    }
+
+    /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
+    /// to gain access to the buffer. If buffer has already been split, an error
+    /// will be returned.
+    ///
+    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
+    /// to zero. This may take a measurable amount of time, depending on the size
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
+    ///
+    /// NOTE: Takes a critical section while splitting
+    ///
+    #[cfg(not(feature = "atomic"))]
+    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+        let (producer, consumer) = self.try_split()?;
+        Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
 }
 
@@ -605,7 +628,7 @@ pub struct GrantW<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    buf: &'a mut [u8],
+    pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
 
@@ -620,7 +643,7 @@ pub struct GrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    buf: &'a [u8],
+    pub(crate) buf: &'a [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
 
@@ -736,8 +759,16 @@ where
     /// The critical section is only active for the duration of
     /// this function call.
     pub fn release(mut self, used: usize) {
+        // Saturate the grant release
+        let used = min(self.buf.len(), used);
+
         self.release_inner(used);
         forget(self);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn shrink(&mut self, len: usize) {
+        self.buf = &self.buf[..len];
     }
 
     /// Obtain access to the inner buffer for writing
@@ -780,12 +811,12 @@ where
     }
 
     #[inline(always)]
-    fn release_inner(&mut self, used: usize) {
+    pub(crate) fn release_inner(&mut self, used: usize) {
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
 
-            // Saturate the grant release
-            let used = min(self.buf.len(), used);
+            // This should always be checked by the public interfaces
+            debug_assert!(used <= self.buf.len());
 
             // This should be fine, purely incrementing
             inner.read += used;

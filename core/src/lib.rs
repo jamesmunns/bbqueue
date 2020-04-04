@@ -88,8 +88,8 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-// #![deny(missing_docs)]
-// #![deny(warnings)]
+#![deny(missing_docs)]
+#![deny(warnings)]
 
 #[cfg(feature = "atomic")]
 pub mod atomic;
@@ -102,6 +102,8 @@ pub mod cm_mutex;
 
 #[cfg(all(feature = "thumbv6", not(feature = "atomic")))]
 pub use cm_mutex::*;
+
+pub mod framed;
 
 use core::result::Result as CoreResult;
 

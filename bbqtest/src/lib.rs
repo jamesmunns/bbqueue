@@ -196,4 +196,70 @@ mod tests {
             state += *step;
         }
     }
+
+    #[test]
+    fn frame_wrap() {
+        let bb: BBBuffer<U40> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+
+        // 10 + 8 used (assuming u64 test platform)
+        let mut wgrant = prod.grant(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(10);
+        // 1 frame in queue
+
+        // 20 + 16 used (assuming u64 test platform)
+        let mut wgrant = prod.grant(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(10);
+        // 2 frames in queue
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 10);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+        // 1 frame in queue
+
+        // No more room!
+        assert!(prod.grant(10).is_err());
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 10);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+        // 0 frames in queue
+
+        // 10 + 8 used (assuming u64 test platform)
+        let mut wgrant = prod.grant(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(10);
+        // 1 frame in queue
+
+        // No more room!
+        assert!(prod.grant(10).is_err());
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 10);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+        // 0 frames in queue
+
+        // No more frames!
+        assert!(cons.read().is_none());
+    }
 }

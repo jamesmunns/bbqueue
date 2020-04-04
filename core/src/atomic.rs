@@ -68,7 +68,10 @@
 //! }
 //! ```
 
-use crate::{Error, Result};
+use crate::{
+    framed::{FrameConsumer, FrameProducer},
+    Error, Result,
+};
 use core::{
     cell::UnsafeCell,
     cmp::min,
@@ -86,11 +89,6 @@ use core::{
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
 
-// In the future, this probably shouldn't be `usize`, but rather whatever
-// the type of the tracking variables are. For example, if we could make a
-// bbqueue with tracking variables of `u8`, this header should also be a `u8`.
-const FRAME_HEADER_LEN: usize = core::mem::size_of::<usize>();
-
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
 pub struct BBBuffer<N: ArrayLength<u8>>(
@@ -104,12 +102,14 @@ impl<'a, N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
-    /// Attempt to split the `BBBuffer` into `Producer` halves to gain access to the
+    /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
     ///
     /// NOTE: When splitting, the underlying buffer will be explicitly initialized
     /// to zero. This may take a measurable amount of time, depending on the size
-    /// of the buffer. This is necessary to prevent undefined behavior.
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
     ///
     /// ```
     /// use bbqueue::{BBBuffer, consts::*};
@@ -149,6 +149,15 @@ where
         }
     }
 
+    /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
+    /// to gain access to the buffer. If buffer has already been split, an error
+    /// will be returned.
+    ///
+    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
+    /// to zero. This may take a measurable amount of time, depending on the size
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
@@ -239,24 +248,6 @@ impl<A> ConstBBBuffer<A> {
 
             already_split: AtomicBool::new(false),
         }
-    }
-}
-
-pub struct FrameProducer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    producer: Producer<'a, N>,
-}
-
-impl<'a, N> FrameProducer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
-        Ok(FrameGrantW {
-            grant_w: self.producer.grant_exact(max_sz + FRAME_HEADER_LEN)?,
-        })
     }
 }
 
@@ -476,13 +467,6 @@ where
     }
 }
 
-pub struct FrameConsumer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    consumer: Consumer<'a, N>,
-}
-
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
 pub struct Consumer<'a, N>
 where
@@ -493,36 +477,6 @@ where
 }
 
 unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
-
-impl<'a, N> FrameConsumer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
-        // Get all available bytes. We never wrap a frame around,
-        // so if a header is available, the whole frame will be.
-        let mut grant_r = self.consumer.read().ok()?;
-
-        // Additionally, we never commit less than a full frame with
-        // a header, so if we have ANY data, we'll have a full header
-        // and frame. `Consumer::read` will return an Error when
-        // there are 0 bytes available.
-        let mut frame_bytes = [0u8; FRAME_HEADER_LEN];
-        frame_bytes.copy_from_slice(&grant_r[..FRAME_HEADER_LEN]);
-
-        // The header consists of a single usize, encoded in native
-        // endianess order
-        let frame_len = usize::from_ne_bytes(frame_bytes);
-        let total_len = frame_len + FRAME_HEADER_LEN;
-
-        debug_assert!(grant_r.len() >= total_len);
-
-        // Reduce the grant down to the size of the frame with a header
-        grant_r.shrink(total_len);
-
-        Some(FrameGrantR { grant_r })
-    }
-}
 
 impl<'a, N> Consumer<'a, N>
 where
@@ -639,53 +593,6 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    grant_w: GrantW<'a, N>,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    grant_r: GrantR<'a, N>,
-}
-
-impl<'a, N> Deref for FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.grant_w.buf[FRAME_HEADER_LEN..]
-    }
-}
-
-impl<'a, N> DerefMut for FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_w.buf[FRAME_HEADER_LEN..]
-    }
-}
-
-impl<'a, N> Deref for FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.grant_r.buf[FRAME_HEADER_LEN..]
-    }
-}
-
 /// A structure representing a contiguous region of memory that
 /// may be written to, and potentially "committed" to the queue.
 ///
@@ -696,7 +603,7 @@ pub struct GrantW<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    buf: &'a mut [u8],
+    pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
 
@@ -711,26 +618,8 @@ pub struct GrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    buf: &'a [u8],
+    pub(crate) buf: &'a [u8],
     bbq: NonNull<BBBuffer<N>>,
-}
-
-impl<'a, N> FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    pub fn commit(mut self, used: usize) {
-        // Saturate the commit size to the available frame size
-        let grant_len = self.grant_w.len();
-        let frame_len = min(used, grant_len - FRAME_HEADER_LEN);
-        let total_len = frame_len + FRAME_HEADER_LEN;
-
-        // Write the actual frame length to the header
-        self.grant_w[..FRAME_HEADER_LEN].copy_from_slice(&frame_len.to_ne_bytes());
-
-        // Commit the header + frame
-        self.grant_w.commit(total_len);
-    }
 }
 
 impl<'a, N> GrantW<'a, N>
@@ -825,18 +714,6 @@ where
     }
 }
 
-impl<'a, N> FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    pub fn release(mut self) {
-        // For a read grant, we have already shrunk the grant
-        // size down to the correct size
-        let len = self.grant_r.len();
-        self.grant_r.release_inner(len);
-    }
-}
-
 impl<'a, N> GrantR<'a, N>
 where
     N: ArrayLength<u8>,
@@ -854,7 +731,7 @@ where
         forget(self);
     }
 
-    fn shrink(&mut self, len: usize) {
+    pub(crate) fn shrink(&mut self, len: usize) {
         self.buf = &self.buf[..len];
     }
 
@@ -898,7 +775,7 @@ where
     }
 
     #[inline(always)]
-    fn release_inner(&mut self, used: usize) {
+    pub(crate) fn release_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         // This should always be checked by the public interfaces
