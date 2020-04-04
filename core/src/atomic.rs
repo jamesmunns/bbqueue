@@ -151,10 +151,7 @@ where
 
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
-        Ok((
-            FrameProducer { producer },
-            FrameConsumer { consumer },
-        ))
+        Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
 }
 
@@ -502,20 +499,28 @@ where
     N: ArrayLength<u8>,
 {
     pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
+        // Get all available bytes. We never wrap a frame around,
+        // so if a header is available, the whole frame will be.
         let mut grant_r = self.consumer.read().ok()?;
 
+        // Additionally, we never commit less than a full frame with
+        // a header, so if we have ANY data, we'll have a full header
+        // and frame. `Consumer::read` will return an Error when
+        // there are 0 bytes available.
         let mut frame_bytes = [0u8; FRAME_HEADER_LEN];
         frame_bytes.copy_from_slice(&grant_r[..FRAME_HEADER_LEN]);
 
-        let frame_len = usize::from_le_bytes(frame_bytes);
+        // The header consists of a single usize, encoded in native
+        // endianess order
+        let frame_len = usize::from_ne_bytes(frame_bytes);
         let total_len = frame_len + FRAME_HEADER_LEN;
 
         debug_assert!(grant_r.len() >= total_len);
+
+        // Reduce the grant down to the size of the frame with a header
         grant_r.shrink(total_len);
 
-        Some(FrameGrantR {
-            grant_r
-        })
+        Some(FrameGrantR { grant_r })
     }
 }
 
@@ -715,9 +720,16 @@ where
     N: ArrayLength<u8>,
 {
     pub fn commit(mut self, used: usize) {
-        let frame_len = min(used, self.grant_w.len() - FRAME_HEADER_LEN);
-        self.grant_w[..FRAME_HEADER_LEN].copy_from_slice(&frame_len.to_le_bytes());
-        self.grant_w.commit(frame_len + FRAME_HEADER_LEN);
+        // Saturate the commit size to the available frame size
+        let grant_len = self.grant_w.len();
+        let frame_len = min(used, grant_len - FRAME_HEADER_LEN);
+        let total_len = frame_len + FRAME_HEADER_LEN;
+
+        // Write the actual frame length to the header
+        self.grant_w[..FRAME_HEADER_LEN].copy_from_slice(&frame_len.to_ne_bytes());
+
+        // Commit the header + frame
+        self.grant_w.commit(total_len);
     }
 }
 
@@ -817,9 +829,11 @@ impl<'a, N> FrameGrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    pub fn release(self) {
+    pub fn release(mut self) {
+        // For a read grant, we have already shrunk the grant
+        // size down to the correct size
         let len = self.grant_r.len();
-        self.grant_r.release(len);
+        self.grant_r.release_inner(len);
     }
 }
 
@@ -833,12 +847,15 @@ where
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
     pub fn release(mut self, used: usize) {
+        // Saturate the grant release
+        let used = min(self.buf.len(), used);
+
         self.release_inner(used);
         forget(self);
     }
 
     fn shrink(&mut self, len: usize) {
-        self.buf = &self.buf[..min(self.buf.len(), len)]
+        self.buf = &self.buf[..len];
     }
 
     /// Obtain access to the inner buffer for writing
@@ -884,8 +901,8 @@ where
     fn release_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        // Saturate the grant release
-        let used = min(self.buf.len(), used);
+        // This should always be checked by the public interfaces
+        debug_assert!(used <= self.buf.len());
 
         // This should be fine, purely incrementing
         let _ = inner.read.fetch_add(used, Release);
