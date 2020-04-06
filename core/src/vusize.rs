@@ -110,7 +110,7 @@ pub fn encoded_len(value: usize) -> usize {
 #[cfg(target_pointer_width = "64")]
 pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     debug_assert!(encoded_len(value) <= length);
-    debug_assert!(length >= slice.len());
+    debug_assert!(length <= slice.len());
 
     let (size, _remainder) = slice.split_at_mut(length);
 
@@ -127,7 +127,7 @@ pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
 #[cfg(not(target_pointer_width = "64"))]
 pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     debug_assert!(encoded_len(value) <= length);
-    debug_assert!(length >= slice.len());
+    debug_assert!(length <= slice.len());
 
     let (size, _remainder) = slice.split_at_mut(length);
 
