@@ -104,6 +104,7 @@ pub mod cm_mutex;
 pub use cm_mutex::*;
 
 pub mod framed;
+mod vusize;
 
 use core::result::Result as CoreResult;
 

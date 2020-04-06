@@ -6,12 +6,7 @@
 //! just a stream of bytes. This is convenient when receiving
 //! packets of variable sizes.
 //!
-//! IMPORTANT NOTE: A header is required for each frame stored
-//! inside of the `BBQueue`. Currently, this is `size_of::<usize>()`
-//! bytes per-frame (4 on 32-bit systems, 8 on 64-bit systems). This
-//! means in a BBQueue of size 32 bytes, you would only be able to store
-//! two 8-byte frames. This per-frame overhead may be reduced
-//! in future releases.
+//! ## Example
 //!
 //! ```rust
 //! use bbqueue::{BBBuffer, consts::*};
@@ -34,6 +29,38 @@
 //! }
 //! rgrant.release();
 //! ```
+//!
+//! ## Frame header
+//!
+//! An internal header is required for each frame stored
+//! inside of the `BBQueue`. This header is never exposed to end
+//! users of the bbqueue library.
+//!
+//! A variable sized integer is used for the header size, and the
+//! size of this header is based on the max size requested for the grant.
+//! This header size must be factored in when calculating an appropriate
+//! total size of your buffer.
+//!
+//! Even if a smaller portion of the grant is committed, the original
+//! requested grant size will be used for the header size calculation.
+//!
+//! For example, if you request a 128 byte grant, the header size will
+//! be two bytes. If you then only commit 32 bytes, two bytes will still
+//! be used for the header of that grant.
+//!
+//! | Grant Size (bytes)    | Header size (bytes)  |
+//! | :---                  | :---                 |
+//! | 1..(2^7)              | 1                    |
+//! | (2^17)..(2^14)        | 2                    |
+//! | (2^14)..(2^21)        | 3                    |
+//! | (2^21)..(2^28)        | 4                    |
+//! | (2^28)..(2^35)        | 5                    |
+//! | (2^35)..(2^42)        | 6                    |
+//! | (2^42)..(2^49)        | 7                    |
+//! | (2^49)..(2^54)        | 8                    |
+//! | (2^54)..(2^64)        | 9                    |
+//!
+
 
 // This #[cfg] dance is due to how `bbqueue` automatically re-exports
 // `BBBuffer` at the top level if only one feature is selected. This
@@ -48,18 +75,18 @@ use crate::{Consumer, GrantR, GrantW, Producer};
 #[cfg(all(feature = "atomic", feature = "thumbv6"))]
 use crate::atomic::{Consumer, GrantR, GrantW, Producer};
 
-use crate::Result;
+use crate::{Result, vusize::{
+    decode_usize,
+    decoded_len,
+    encoded_len,
+    encode_usize_to_slice,
+}};
 
 use core::{
     cmp::min,
     ops::{Deref, DerefMut},
 };
 use generic_array::ArrayLength;
-
-// In the future, this probably shouldn't be `usize`, but rather whatever
-// the type of the tracking variables are. For example, if we could make a
-// bbqueue with tracking variables of `u8`, this header should also be a `u8`.
-const FRAME_HEADER_LEN: usize = core::mem::size_of::<usize>();
 
 /// A producer of Framed data
 pub struct FrameProducer<'a, N>
@@ -78,8 +105,10 @@ where
     /// This size does not include the size of the frame header. The exact size
     /// of the frame can be set on `commit`.
     pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
+        let hdr_len = encoded_len(max_sz);
         Ok(FrameGrantW {
-            grant_w: self.producer.grant_exact(max_sz + FRAME_HEADER_LEN)?,
+            grant_w: self.producer.grant_exact(max_sz + hdr_len)?,
+            hdr_len,
         })
     }
 }
@@ -106,20 +135,19 @@ where
         // a header, so if we have ANY data, we'll have a full header
         // and frame. `Consumer::read` will return an Error when
         // there are 0 bytes available.
-        let mut frame_bytes = [0u8; FRAME_HEADER_LEN];
-        frame_bytes.copy_from_slice(&grant_r[..FRAME_HEADER_LEN]);
 
         // The header consists of a single usize, encoded in native
         // endianess order
-        let frame_len = usize::from_ne_bytes(frame_bytes);
-        let total_len = frame_len + FRAME_HEADER_LEN;
+        let frame_len = decode_usize(&grant_r);
+        let hdr_len = decoded_len(grant_r[0]);
+        let total_len = frame_len + hdr_len;
 
         debug_assert!(grant_r.len() >= total_len);
 
         // Reduce the grant down to the size of the frame with a header
         grant_r.shrink(total_len);
 
-        Some(FrameGrantR { grant_r })
+        Some(FrameGrantR { grant_r, hdr_len })
     }
 }
 
@@ -133,6 +161,7 @@ where
     N: ArrayLength<u8>,
 {
     grant_w: GrantW<'a, N>,
+    hdr_len: usize,
 }
 
 /// A read grant for a single frame
@@ -145,6 +174,7 @@ where
     N: ArrayLength<u8>,
 {
     grant_r: GrantR<'a, N>,
+    hdr_len: usize,
 }
 
 impl<'a, N> Deref for FrameGrantW<'a, N>
@@ -154,7 +184,7 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_w.buf[FRAME_HEADER_LEN..]
+        &self.grant_w.buf[self.hdr_len..]
     }
 }
 
@@ -163,7 +193,7 @@ where
     N: ArrayLength<u8>,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_w.buf[FRAME_HEADER_LEN..]
+        &mut self.grant_w.buf[self.hdr_len..]
     }
 }
 
@@ -174,7 +204,7 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_r.buf[FRAME_HEADER_LEN..]
+        &self.grant_r.buf[self.hdr_len..]
     }
 }
 
@@ -189,11 +219,11 @@ where
     pub fn commit(mut self, used: usize) {
         // Saturate the commit size to the available frame size
         let grant_len = self.grant_w.len();
-        let frame_len = min(used, grant_len - FRAME_HEADER_LEN);
-        let total_len = frame_len + FRAME_HEADER_LEN;
+        let frame_len = min(used, grant_len - self.hdr_len);
+        let total_len = frame_len + self.hdr_len;
 
         // Write the actual frame length to the header
-        self.grant_w[..FRAME_HEADER_LEN].copy_from_slice(&frame_len.to_ne_bytes());
+        encode_usize_to_slice(used, self.hdr_len, &mut self.grant_w[..self.hdr_len]);
 
         // Commit the header + frame
         self.grant_w.commit(total_len);

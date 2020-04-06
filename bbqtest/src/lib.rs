@@ -199,10 +199,10 @@ mod tests {
 
     #[test]
     fn frame_wrap() {
-        let bb: BBBuffer<U40> = BBBuffer::new();
+        let bb: BBBuffer<U22> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
-        // 10 + 8 used (assuming u64 test platform)
+        // 10 + 1 used
         let mut wgrant = prod.grant(10).unwrap();
         assert_eq!(wgrant.len(), 10);
         for (idx, i) in wgrant.iter_mut().enumerate() {
@@ -211,7 +211,7 @@ mod tests {
         wgrant.commit(10);
         // 1 frame in queue
 
-        // 20 + 16 used (assuming u64 test platform)
+        // 20 + 2 used (assuming u64 test platform)
         let mut wgrant = prod.grant(10).unwrap();
         assert_eq!(wgrant.len(), 10);
         for (idx, i) in wgrant.iter_mut().enumerate() {
@@ -239,7 +239,7 @@ mod tests {
         rgrant.release();
         // 0 frames in queue
 
-        // 10 + 8 used (assuming u64 test platform)
+        // 10 + 1 used (assuming u64 test platform)
         let mut wgrant = prod.grant(10).unwrap();
         assert_eq!(wgrant.len(), 10);
         for (idx, i) in wgrant.iter_mut().enumerate() {
@@ -261,5 +261,29 @@ mod tests {
 
         // No more frames!
         assert!(cons.read().is_none());
+    }
+
+    #[test]
+    fn frame_big_little() {
+        let bb: BBBuffer<U65536> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+
+        // Create a frame that should take 3 bytes for the header
+        assert!(prod.grant(65534).is_err());
+
+        let mut wgrant = prod.grant(65533).unwrap();
+        assert_eq!(wgrant.len(), 65533);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        // Only commit 127 bytes, which fit into a header of 1 byte
+        wgrant.commit(127);
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 127);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
     }
 }
