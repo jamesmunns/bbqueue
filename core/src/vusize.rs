@@ -107,7 +107,6 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
-#[cfg(target_pointer_width = "64")]
 pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     debug_assert!(encoded_len(value) <= length);
     debug_assert!(length <= slice.len());
@@ -115,24 +114,23 @@ pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     let (size, _remainder) = slice.split_at_mut(length);
 
     if length == 9 {
+        // This is possible only with 64-bit usize
+
         // length byte is zero in this case
         size[0] = 0;
         size[1..9].copy_from_slice(&value.to_le_bytes());
     } else {
-        let encoded = (value << 1 | 1) << (length - 1);
+        #[cfg(any(target_pointer_width = "64", target_pointer_width = "32"))]
+        let encoded = ((value as u64) << 1 | 1) << (length - 1);
+
+        #[cfg(target_pointer_width = "16")]
+        let encoded = ((value as u32) << 1 | 1) << (length - 1);
+
+        #[cfg(target_pointer_width = "8")]
+        let encoded = ((value as u16) << 1 | 1) << (length - 1);
+
         size.copy_from_slice(&encoded.to_le_bytes()[..length]);
     }
-}
-
-#[cfg(not(target_pointer_width = "64"))]
-pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
-    debug_assert!(encoded_len(value) <= length);
-    debug_assert!(length <= slice.len());
-
-    let (size, _remainder) = slice.split_at_mut(length);
-
-    let encoded = (value << 1 | 1) << (length - 1);
-    size.copy_from_slice(&encoded.to_le_bytes()[..length]);
 }
 
 pub fn decoded_len(byte: u8) -> usize {
