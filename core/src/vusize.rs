@@ -107,13 +107,13 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
+#[cfg(target_pointer_width = "64")]
 pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     debug_assert!(encoded_len(value) <= length);
     debug_assert!(length >= slice.len());
 
     let (size, _remainder) = slice.split_at_mut(length);
 
-    #[cfg(target_pointer_width = "64")]
     if length == 9 {
         // length byte is zero in this case
         size[0] = 0;
@@ -122,12 +122,17 @@ pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
         let encoded = (value << 1 | 1) << (length - 1);
         size.copy_from_slice(&encoded.to_le_bytes()[..length]);
     }
+}
 
-    #[cfg(not(target_pointer_width = "64"))]
-    {
-        let encoded = (value << 1 | 1) << (length - 1);
-        size.copy_from_slice(&encoded.to_le_bytes()[..length]);
-    }
+#[cfg(not(target_pointer_width = "64"))]
+pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
+    debug_assert!(encoded_len(value) <= length);
+    debug_assert!(length >= slice.len());
+
+    let (size, _remainder) = slice.split_at_mut(length);
+
+    let encoded = (value << 1 | 1) << (length - 1);
+    size.copy_from_slice(&encoded.to_le_bytes()[..length]);
 }
 
 pub fn decoded_len(byte: u8) -> usize {
@@ -137,6 +142,7 @@ pub fn decoded_len(byte: u8) -> usize {
 /// Decode an encoded usize.
 ///
 /// Accepts a reference to a slice containing the encoded usize.
+#[cfg(target_pointer_width = "64")]
 pub fn decode_usize(input: &[u8]) -> usize {
     let length = decoded_len(input[0]);
 
@@ -148,7 +154,6 @@ pub fn decode_usize(input: &[u8]) -> usize {
 
     // If the target platform is 64 bit, then it is possible
     // to have a total of 9 bytes including the length.
-    #[cfg(target_pointer_width = "64")]
     if length == 9 {
         // 9-byte special case
         encoded.copy_from_slice(&sz_bytes[1..9]);
@@ -157,11 +162,22 @@ pub fn decode_usize(input: &[u8]) -> usize {
         encoded[..length].copy_from_slice(sz_bytes);
         usize::from_le_bytes(encoded) >> length
     }
+}
 
-    #[cfg(not(target_pointer_width = "64"))]
-    {
-        debug_assert!(length <= encoded.len());
-        encoded[..length].copy_from_slice(sz_bytes);
-        usize::from_le_bytes(encoded) >> length
-    }
+/// Decode an encoded usize.
+///
+/// Accepts a reference to a slice containing the encoded usize.
+#[cfg(not(target_pointer_width = "64"))]
+pub fn decode_usize(input: &[u8]) -> usize {
+    let length = decoded_len(input[0]);
+
+    debug_assert!(input.len() >= length);
+
+    let (sz_bytes, _remainder) = input.split_at(length);
+
+    let mut encoded = [0u8; core::mem::size_of::<usize>()];
+
+    debug_assert!(length <= encoded.len());
+    encoded[..length].copy_from_slice(sz_bytes);
+    usize::from_le_bytes(encoded) >> length
 }
