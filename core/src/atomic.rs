@@ -68,7 +68,10 @@
 //! }
 //! ```
 
-use crate::{Error, Result};
+use crate::{
+    framed::{FrameConsumer, FrameProducer},
+    Error, Result,
+};
 use core::{
     cell::UnsafeCell,
     cmp::min,
@@ -99,12 +102,14 @@ impl<'a, N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
-    /// Attempt to split the `BBBuffer` into `Producer` halves to gain access to the
+    /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
     ///
     /// NOTE: When splitting, the underlying buffer will be explicitly initialized
     /// to zero. This may take a measurable amount of time, depending on the size
-    /// of the buffer. This is necessary to prevent undefined behavior.
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
     ///
     /// ```
     /// use bbqueue::{BBBuffer, consts::*};
@@ -142,6 +147,20 @@ where
                 ))
             }
         }
+    }
+
+    /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
+    /// to gain access to the buffer. If buffer has already been split, an error
+    /// will be returned.
+    ///
+    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
+    /// to zero. This may take a measurable amount of time, depending on the size
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
+    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+        let (producer, consumer) = self.try_split()?;
+        Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
 }
 
@@ -584,7 +603,7 @@ pub struct GrantW<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    buf: &'a mut [u8],
+    pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
 
@@ -599,7 +618,7 @@ pub struct GrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    buf: &'a [u8],
+    pub(crate) buf: &'a [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
 
@@ -705,8 +724,15 @@ where
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
     pub fn release(mut self, used: usize) {
+        // Saturate the grant release
+        let used = min(self.buf.len(), used);
+
         self.release_inner(used);
         forget(self);
+    }
+
+    pub(crate) fn shrink(&mut self, len: usize) {
+        self.buf = &self.buf[..len];
     }
 
     /// Obtain access to the inner buffer for writing
@@ -749,11 +775,11 @@ where
     }
 
     #[inline(always)]
-    fn release_inner(&mut self, used: usize) {
+    pub(crate) fn release_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        // Saturate the grant release
-        let used = min(self.buf.len(), used);
+        // This should always be checked by the public interfaces
+        debug_assert!(used <= self.buf.len());
 
         // This should be fine, purely incrementing
         let _ = inner.read.fetch_add(used, Release);

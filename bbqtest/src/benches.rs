@@ -1,13 +1,11 @@
-use bbqueue::{consts::*, ArrayLength, BBBuffer, Consumer, Producer};
+use bbqueue::{consts::*, BBBuffer};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::cmp::min;
-use std::sync::Arc;
-use std::thread::spawn;
 
 const DATA_SZ: usize = 128 * 1024 * 1024;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let mut data = vec![0; DATA_SZ].into_boxed_slice();
+    let data = vec![0; DATA_SZ].into_boxed_slice();
 
     c.bench_function("bbq 128/4096", |bench| bench.iter(|| chunky(&data, 128)));
 

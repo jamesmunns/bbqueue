@@ -103,6 +103,9 @@ pub mod cm_mutex;
 #[cfg(all(feature = "thumbv6", not(feature = "atomic")))]
 pub use cm_mutex::*;
 
+pub mod framed;
+mod vusize;
+
 use core::result::Result as CoreResult;
 
 pub use generic_array::ArrayLength;

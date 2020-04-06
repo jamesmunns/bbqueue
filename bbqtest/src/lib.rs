@@ -149,4 +149,141 @@ mod tests {
         let grant = prod.grant_exact(0).unwrap();
         grant.commit(0);
     }
+
+    #[test]
+    fn frame_sanity() {
+        let bb: BBBuffer<U1000> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+
+        // One frame in, one frame out
+        let mut wgrant = prod.grant(128).unwrap();
+        assert_eq!(wgrant.len(), 128);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(128);
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 128);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+
+        // Three frames in, three frames out
+        let mut state = 0;
+        let states = [16usize, 32, 24];
+
+        for step in &states {
+            let mut wgrant = prod.grant(*step).unwrap();
+            assert_eq!(wgrant.len(), *step);
+            for (idx, i) in wgrant.iter_mut().enumerate() {
+                *i = (idx + state) as u8;
+            }
+            wgrant.commit(*step);
+            state += *step;
+        }
+
+        state = 0;
+
+        for step in &states {
+            let rgrant = cons.read().unwrap();
+            assert_eq!(rgrant.len(), *step);
+            for (idx, i) in rgrant.iter().enumerate() {
+                assert_eq!(*i, (idx + state) as u8);
+            }
+            rgrant.release();
+            state += *step;
+        }
+    }
+
+    #[test]
+    fn frame_wrap() {
+        let bb: BBBuffer<U22> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+
+        // 10 + 1 used
+        let mut wgrant = prod.grant(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(10);
+        // 1 frame in queue
+
+        // 20 + 2 used (assuming u64 test platform)
+        let mut wgrant = prod.grant(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(10);
+        // 2 frames in queue
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 10);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+        // 1 frame in queue
+
+        // No more room!
+        assert!(prod.grant(10).is_err());
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 10);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+        // 0 frames in queue
+
+        // 10 + 1 used (assuming u64 test platform)
+        let mut wgrant = prod.grant(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        wgrant.commit(10);
+        // 1 frame in queue
+
+        // No more room!
+        assert!(prod.grant(10).is_err());
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 10);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+        // 0 frames in queue
+
+        // No more frames!
+        assert!(cons.read().is_none());
+    }
+
+    #[test]
+    fn frame_big_little() {
+        let bb: BBBuffer<U65536> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+
+        // Create a frame that should take 3 bytes for the header
+        assert!(prod.grant(65534).is_err());
+
+        let mut wgrant = prod.grant(65533).unwrap();
+        assert_eq!(wgrant.len(), 65533);
+        for (idx, i) in wgrant.iter_mut().enumerate() {
+            *i = idx as u8;
+        }
+        // Only commit 127 bytes, which fit into a header of 1 byte
+        wgrant.commit(127);
+
+        let rgrant = cons.read().unwrap();
+        assert_eq!(rgrant.len(), 127);
+        for (idx, i) in rgrant.iter().enumerate() {
+            assert_eq!(*i, idx as u8);
+        }
+        rgrant.release();
+    }
 }
