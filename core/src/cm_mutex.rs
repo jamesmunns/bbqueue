@@ -83,6 +83,10 @@ use core::{
     ptr::NonNull,
     slice::from_raw_parts,
     slice::from_raw_parts_mut,
+    sync::atomic::{
+        AtomicBool, AtomicUsize,
+        Ordering::{Acquire, Release},
+    },
 };
 use cortex_m::interrupt::free;
 pub use generic_array::typenum::consts;
@@ -124,9 +128,10 @@ where
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         free(|_cs| {
-            if self.0.already_split {
+            if self.0.already_split.load(Acquire) {
                 return Err(Error::AlreadySplit);
             } else {
+                self.0.already_split.store(true, Release);
                 unsafe {
                     // Explicitly zero the data to avoid undefined behavior.
                     // This is required, because we hand out references to the buffers,
@@ -181,10 +186,10 @@ pub struct ConstBBBuffer<A> {
     buf: UnsafeCell<MaybeUninit<A>>,
 
     /// Where the next byte will be written
-    write: usize,
+    write: AtomicUsize,
 
     /// Where the next byte will be read from
-    read: usize,
+    read: AtomicUsize,
 
     /// Used in the inverted case to mark the end of the
     /// readable streak. Otherwise will == sizeof::<self.buf>().
@@ -192,18 +197,18 @@ pub struct ConstBBBuffer<A> {
     /// place when entering an inverted condition, and Reader
     /// is responsible for moving it back to sizeof::<self.buf>()
     /// when exiting the inverted condition
-    last: usize,
+    last: AtomicUsize,
 
     /// Used by the Writer to remember what bytes are currently
     /// allowed to be written to, but are not yet ready to be
     /// read from
-    reserve: usize,
+    reserve: AtomicUsize,
 
     /// Is there an active read grant?
-    read_in_progress: bool,
+    read_in_progress: AtomicBool,
 
     /// Have we already split?
-    already_split: bool,
+    already_split: AtomicBool,
 }
 
 impl<A> ConstBBBuffer<A> {
@@ -229,10 +234,10 @@ impl<A> ConstBBBuffer<A> {
             buf: UnsafeCell::new(MaybeUninit::uninit()),
 
             /// Owned by the writer
-            write: 0,
+            write: AtomicUsize::new(0),
 
             /// Owned by the reader
-            read: 0,
+            read: AtomicUsize::new(0),
 
             /// Cooperatively owned
             ///
@@ -245,15 +250,15 @@ impl<A> ConstBBBuffer<A> {
             ///
             /// When read == last == write, no bytes will be allowed to be read (good), but
             /// write grants can be given out (also good).
-            last: 0,
+            last: AtomicUsize::new(0),
 
             /// Owned by the Writer, "private"
-            reserve: 0,
+            reserve: AtomicUsize::new(0),
 
             /// Owned by the Reader, "private"
-            read_in_progress: false,
+            read_in_progress: AtomicBool::new(false),
 
-            already_split: false,
+            already_split: AtomicBool::new(false),
         }
     }
 }
@@ -329,15 +334,15 @@ where
 
             // Writer component. Must never write to `read`,
             // be careful writing to `load`
-            let write = inner.write;
+            let write = inner.write.load(Acquire);
 
-            if inner.reserve != write {
+            if inner.reserve.load(Acquire) != write {
                 // GRANT IN PROCESS, do not allow further grants
                 // until the current one has been completed
                 return Err(Error::GrantInProgress);
             }
 
-            let read = inner.read;
+            let read = inner.read.load(Acquire);
             let max = N::to_usize();
             let already_inverted = write < read;
 
@@ -370,7 +375,7 @@ where
             };
 
             // Safe write, only viewed by this task
-            inner.reserve = start + sz;
+            inner.reserve.store(start + sz, Release);
 
             // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
             // are all `#[repr(Transparent)]
@@ -424,15 +429,15 @@ where
 
             // Writer component. Must never write to `read`,
             // be careful writing to `load`
-            let write = inner.write;
+            let write = inner.write.load(Acquire);
 
-            if inner.reserve != write {
+            if inner.reserve.load(Acquire) != write {
                 // GRANT IN PROCESS, do not allow further grants
                 // until the current one has been completed
                 return Err(Error::GrantInProgress);
             }
 
-            let read = inner.read;
+            let read = inner.read.load(Acquire);
             let max = N::to_usize();
 
             let already_inverted = write < read;
@@ -470,7 +475,7 @@ where
             };
 
             // Safe write, only viewed by this task
-            inner.reserve = start + sz;
+            inner.reserve.store(start + sz, Release);
 
             // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
             // are all `#[repr(Transparent)]
@@ -530,13 +535,13 @@ where
         free(|_cs| {
             let inner = unsafe { &mut self.bbq.as_mut().0 };
 
-            if inner.read_in_progress {
+            if inner.read_in_progress.load(Acquire) {
                 return Err(Error::GrantInProgress);
             }
 
-            let write = inner.write;
-            let last = inner.last;
-            let mut read = inner.read;
+            let write = inner.write.load(Acquire);
+            let last = inner.last.load(Acquire);
+            let mut read = inner.read.load(Acquire);
 
             // Resolve the inverted case or end of read
             if (read == last) && (write < read) {
@@ -549,7 +554,7 @@ where
                 //   Commit does not check read, but if Grant has started an inversion,
                 //   grant could move Last to the prior write position
                 // MOVING READ BACKWARDS!
-                inner.read = 0;
+                inner.read.store(0, Release);
             }
 
             let sz = if write < read {
@@ -564,7 +569,7 @@ where
                 return Err(Error::InsufficientSize);
             }
 
-            inner.read_in_progress = true;
+            inner.read_in_progress.store(true, Release);
 
             // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
             // are all `#[repr(Transparent)]
@@ -711,17 +716,18 @@ where
             let len = self.buf.len();
             let used = min(len, used);
 
-            let write = inner.write;
-            inner.reserve -= len - used;
+            let write = inner.write.load(Acquire);
+            let reserve = inner.reserve.load(Acquire);
+	    inner.reserve.store(reserve - (len - used), Release);
 
             let max = N::to_usize();
-            let last = inner.last;
-            let new_write = inner.reserve;
+            let last = inner.last.load(Acquire);
+            let new_write = inner.reserve.load(Acquire);
 
             if (new_write < write) && (write != max) {
                 // We have already wrapped, but we are skipping some bytes at the end of the ring.
                 // Mark `last` where the write pointer used to be to hold the line here
-                inner.last = write;
+                inner.last.store(write, Release);
             } else if new_write > last {
                 // We're about to pass the last pointer, which was previously the artificial
                 // end of the ring. Now that we've passed it, we can "unlock" the section
@@ -730,7 +736,7 @@ where
                 // Since new_write is strictly larger than last, it is safe to move this as
                 // the other thread will still be halted by the (about to be updated) write
                 // value
-                inner.last = max;
+                inner.last.store(max, Release);
             }
             // else: If new_write == last, either:
             // * last == max, so no need to write, OR
@@ -740,7 +746,7 @@ where
 
             // Write must be updated AFTER last, otherwise read could think it was
             // time to invert early!
-            inner.write = new_write;
+            inner.write.store(new_write, Release);
         })
     }
 }
@@ -819,9 +825,10 @@ where
             debug_assert!(used <= self.buf.len());
 
             // This should be fine, purely incrementing
-            inner.read += used;
+	    let read = inner.read.load(Acquire);
+            inner.read.store(read + used, Release);
 
-            inner.read_in_progress = false;
+            inner.read_in_progress.store(false, Release);
         })
     }
 }
