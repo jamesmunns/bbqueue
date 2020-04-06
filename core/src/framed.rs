@@ -61,7 +61,6 @@
 //! | (2^56)..(2^64)        | 9                    |
 //!
 
-
 // This #[cfg] dance is due to how `bbqueue` automatically re-exports
 // `BBBuffer` at the top level if only one feature is selected. This
 // should hopefully go away in the next breaking release. For now, if
@@ -75,12 +74,10 @@ use crate::{Consumer, GrantR, GrantW, Producer};
 #[cfg(all(feature = "atomic", feature = "thumbv6"))]
 use crate::atomic::{Consumer, GrantR, GrantW, Producer};
 
-use crate::{Result, vusize::{
-    decode_usize,
-    decoded_len,
-    encoded_len,
-    encode_usize_to_slice,
-}};
+use crate::{
+    vusize::{decode_usize, decoded_len, encode_usize_to_slice, encoded_len},
+    Result,
+};
 
 use core::{
     cmp::min,
