@@ -1,8 +1,23 @@
-///! Varints
-///!
-///! This implementation borrows heavily from the `vint64` crate.
+//! Varints
+//!
+//! This implementation borrows heavily from the `vint64` crate.
+//!
+//! Below is an example of how prefix bits signal the length of the integer value
+//! which follows:
+//!
+//! | Prefix     | Precision | Total Bytes |
+//! |------------|-----------|-------------|
+//! | `xxxxxxx1` | 7 bits    | 1 byte      |
+//! | `xxxxxx10` | 14 bits   | 2 bytes     |
+//! | `xxxxx100` | 21 bits   | 3 bytes     |
+//! | `xxxx1000` | 28 bits   | 4 bytes     |
+//! | `xxx10000` | 35 bits   | 5 bytes     |
+//! | `xx100000` | 42 bits   | 6 bytes     |
+//! | `x1000000` | 49 bits   | 7 bytes     |
+//! | `10000000` | 56 bits   | 8 bytes     |
+//! | `00000000` | 64 bits   | 9 bytes     |
 
-/// Get the length of an encoded `vint64` for the given value in bytes.
+/// Get the length of an encoded `usize` for the given value in bytes.
 #[cfg(target_pointer_width = "64")]
 pub fn encoded_len(value: usize) -> usize {
     match value.leading_zeros() {
