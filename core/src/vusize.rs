@@ -20,7 +20,7 @@ pub fn encoded_len(value: usize) -> usize {
             //
             // The `leading_zeros` intrinsic returns the number of bits that
             // contain a zero bit. The result will always be in the range of
-            // 0..=64 for a `u64`, so the above pattern is exhaustive, however
+            // 0..=64 for a 64 bit `usize`, so the above pattern is exhaustive, however
             // it is not exhaustive over the return type of `u32`. Because of
             // this, we mark the "uncovered" part of the match as unreachable
             // for performance reasons.
@@ -45,7 +45,7 @@ pub fn encoded_len(value: usize) -> usize {
             //
             // The `leading_zeros` intrinsic returns the number of bits that
             // contain a zero bit. The result will always be in the range of
-            // 0..=u32 for a `uu32`, so the above pattern is exhaustive, however
+            // 0..=32 for a 32 bit `usize`, so the above pattern is exhaustive, however
             // it is not exhaustive over the return type of `u32`. Because of
             // this, we mark the "uncovered" part of the match as unreachable
             // for performance reasons.
@@ -68,7 +68,7 @@ pub fn encoded_len(value: usize) -> usize {
             //
             // The `leading_zeros` intrinsic returns the number of bits that
             // contain a zero bit. The result will always be in the range of
-            // 0..=u16 for a `u16`, so the above pattern is exhaustive, however
+            // 0..=16 for a 16 bit `usize`, so the above pattern is exhaustive, however
             // it is not exhaustive over the return type of `u32`. Because of
             // this, we mark the "uncovered" part of the match as unreachable
             // for performance reasons.
@@ -82,6 +82,9 @@ pub fn encoded_len(value: usize) -> usize {
 
 #[cfg(target_pointer_width = "8")]
 pub fn encoded_len(value: usize) -> usize {
+    // I don't think you can have targets with 8 bit pointers in rust,
+    // but just in case, 0..=127 would fit in one byte, and 128..=255
+    // would fit in two.
     if (value & 0x80) == 0x80 {
         2
     } else {
