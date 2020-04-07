@@ -107,9 +107,9 @@ where
     /// This size does not include the size of the frame header. The exact size
     /// of the frame can be set on `commit`.
     pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
-        let hdr_len = encoded_len(max_sz);
+        let hdr_len = encoded_len(max_sz) as u8;
         Ok(FrameGrantW {
-            grant_w: self.producer.grant_exact(max_sz + hdr_len)?,
+            grant_w: self.producer.grant_exact(max_sz + hdr_len as usize)?,
             hdr_len,
         })
     }
@@ -143,6 +143,7 @@ where
         let frame_len = decode_usize(&grant_r);
         let hdr_len = decoded_len(grant_r[0]);
         let total_len = frame_len + hdr_len;
+        let hdr_len = hdr_len as u8;
 
         debug_assert!(grant_r.len() >= total_len);
 
@@ -163,7 +164,7 @@ where
     N: ArrayLength<u8>,
 {
     grant_w: GrantW<'a, N>,
-    hdr_len: usize,
+    hdr_len: u8,
 }
 
 /// A read grant for a single frame
@@ -176,7 +177,7 @@ where
     N: ArrayLength<u8>,
 {
     grant_r: GrantR<'a, N>,
-    hdr_len: usize,
+    hdr_len: u8,
 }
 
 impl<'a, N> Deref for FrameGrantW<'a, N>
@@ -186,7 +187,7 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_w.buf[self.hdr_len..]
+        &self.grant_w.buf[self.hdr_len as usize..]
     }
 }
 
@@ -195,7 +196,7 @@ where
     N: ArrayLength<u8>,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_w.buf[self.hdr_len..]
+        &mut self.grant_w.buf[self.hdr_len as usize..]
     }
 }
 
@@ -206,7 +207,7 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_r.buf[self.hdr_len..]
+        &self.grant_r.buf[self.hdr_len as usize..]
     }
 }
 
@@ -221,11 +222,15 @@ where
     pub fn commit(mut self, used: usize) {
         // Saturate the commit size to the available frame size
         let grant_len = self.grant_w.len();
-        let frame_len = min(used, grant_len - self.hdr_len);
-        let total_len = frame_len + self.hdr_len;
+        let frame_len = min(used, grant_len - self.hdr_len as usize);
+        let total_len = frame_len + self.hdr_len as usize;
 
         // Write the actual frame length to the header
-        encode_usize_to_slice(used, self.hdr_len, &mut self.grant_w[..self.hdr_len]);
+        encode_usize_to_slice(
+            used,
+            self.hdr_len as usize,
+            &mut self.grant_w[..self.hdr_len as usize],
+        );
 
         // Commit the header + frame
         self.grant_w.commit(total_len);
