@@ -16,6 +16,26 @@
 //! | `x1000000` | 49 bits   | 7 bytes     |
 //! | `10000000` | 56 bits   | 8 bytes     |
 //! | `00000000` | 64 bits   | 9 bytes     |
+//!
+//! ## Note
+//!
+//! Although this scheme supports up to 64 bits, it will only ever allow encoding
+//! and decoding of up to `usize::max()` of the current platform. In practice,
+//! this is not an issue, as you cannot send data larger than the address space
+//! of your platform anyway.
+//!
+//! ## Important warning
+//!
+//! This implementation is NOT suitable for data that is passed between multiple
+//! platforms, particularly those of different pointer sizes. If you are interested
+//! in portably serializing/deserializing data, consider using the `vint64` crate.
+//! This implementation makes assumptions that data larger than the platform's
+//! `usize::max()` will never be encoded/decoded, which is not true when sending
+//! between 32-bit and 64-bit platforms.
+//!
+//! For bbqueue, the sender doing the encoding and the receiver doing the decoding
+//! will always reside on the same platform, meaning we CAN make these non-portable
+//! assumptions for the sake of performance/simplicity.
 
 const USIZE_SIZE: usize = core::mem::size_of::<usize>();
 const USIZE_SIZE_PLUS_ONE: usize = USIZE_SIZE + 1;
@@ -58,6 +78,7 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
+/// Get the length of an encoded `usize` for the given value in bytes.
 #[cfg(target_pointer_width = "32")]
 pub fn encoded_len(value: usize) -> usize {
     match value.leading_zeros() {
@@ -83,6 +104,7 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
+/// Get the length of an encoded `usize` for the given value in bytes.
 #[cfg(target_pointer_width = "16")]
 pub fn encoded_len(value: usize) -> usize {
     match value.leading_zeros() {
@@ -106,6 +128,7 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
+/// Get the length of an encoded `usize` for the given value in bytes.
 #[cfg(target_pointer_width = "8")]
 pub fn encoded_len(value: usize) -> usize {
     // I don't think you can have targets with 8 bit pointers in rust,
@@ -118,14 +141,28 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
+/// Encode the given usize to the `slice`, using `length` bytes for encoding.
+/// `slice.len()` must be >= `length`.
 pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
-    debug_assert!(encoded_len(value) <= length);
-    debug_assert!(length <= slice.len());
-    debug_assert!(length <= USIZE_SIZE_PLUS_ONE);
+    debug_assert!(
+        encoded_len(value) <= length,
+        "Tried to encode to smaller than necessary length!",
+    );
+    debug_assert!(
+        length <= slice.len(),
+        "Not enough space to encode!",
+    );
+    debug_assert!(
+        length <= USIZE_SIZE_PLUS_ONE,
+        "Tried to encode larger than platform supports!",
+    );
 
     let (size, _remainder) = slice.split_at_mut(length);
 
     if length >= USIZE_SIZE_PLUS_ONE {
+        // In the case where the number of bytes is larger than `usize`,
+        // don't try to encode bits in the header byte, just create the header
+        // and place all of the length bytes in subsequent bytes
         size[0] = max_size_header();
         size[1..USIZE_SIZE_PLUS_ONE].copy_from_slice(&value.to_le_bytes());
     } else {
@@ -134,25 +171,33 @@ pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     }
 }
 
+/// Determine the size of the encoded value (in bytes) based on the
+/// encoded header
 pub fn decoded_len(byte: u8) -> usize {
     byte.trailing_zeros() as usize + 1
 }
 
 /// Decode an encoded usize.
 ///
-/// Accepts a reference to a slice containing the encoded usize.
+/// Accepts a slice containing the encoded usize.
 pub fn decode_usize(input: &[u8]) -> usize {
     let length = decoded_len(input[0]);
 
-    debug_assert!(input.len() >= length);
-    debug_assert!(length <= USIZE_SIZE_PLUS_ONE);
+    debug_assert!(
+        input.len() >= length,
+        "Not enough data to decode!",
+    );
+    debug_assert!(
+        length <= USIZE_SIZE_PLUS_ONE,
+        "Tried to decode data too large for this platform!",
+    );
 
     let (sz_bytes, _remainder) = input.split_at(length);
 
     let mut encoded = [0u8; USIZE_SIZE];
 
-    if length == USIZE_SIZE_PLUS_ONE {
-        // usize + 1 special case
+    if length >= USIZE_SIZE_PLUS_ONE {
+        // usize + 1 special case, see `encode_usize_to_slice()` for details
         encoded.copy_from_slice(&sz_bytes[1..]);
         usize::from_le_bytes(encoded)
     } else {
