@@ -1,10 +1,9 @@
-//! A version of BBQueue built on Cortex-M critical sections.
-//! This is useful on thumbv6 targets (Cortex-M0, Cortex-M0+)
-//! if your platform does not support atomic compare and swaps.
+//! A version of BBQueue built on Atomic CAS capabilities. This is recommended
+//! if your platform supports it.
 //!
 //! ## Local usage
 //!
-//! ```rust, no_run
+//! ```rust
 //! use bbqueue::{BBBuffer, consts::*};
 //!
 //! // Create a buffer with six elements
@@ -33,7 +32,7 @@
 //!
 //! ## Static usage
 //!
-//! ```rust, no_run
+//! ```rust
 //! use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
 //!
 //! // Create a buffer with six elements
@@ -69,11 +68,10 @@
 //! }
 //! ```
 
-use crate::{Error, Result};
-
-#[cfg(not(feature = "atomic"))]
-use crate::framed::{FrameConsumer, FrameProducer};
-
+use crate::{
+    framed::{FrameConsumer, FrameProducer},
+    Error, Result,
+};
 use core::{
     cell::UnsafeCell,
     cmp::min,
@@ -85,10 +83,9 @@ use core::{
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
-        Ordering::{Acquire, Release},
+        Ordering::{AcqRel, Acquire, Release},
     },
 };
-use cortex_m::interrupt::free;
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
 
@@ -114,9 +111,7 @@ where
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
     ///
-    /// NOTE: Takes a critical section while splitting
-    ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer
@@ -127,34 +122,31 @@ where
     /// assert!(buffer.try_split().is_err());
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
-        free(|_cs| {
-            if self.0.already_split.load(Acquire) {
-                return Err(Error::AlreadySplit);
-            } else {
-                self.0.already_split.store(true, Release);
-                unsafe {
-                    // Explicitly zero the data to avoid undefined behavior.
-                    // This is required, because we hand out references to the buffers,
-                    // which mean that creating them as references is technically UB for now
-                    let mu_ptr = self.0.buf.get();
-                    (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
+        if atomic::swap(&self.0.already_split, true, AcqRel) {
+            return Err(Error::AlreadySplit);
+        } else {
+            unsafe {
+                // Explicitly zero the data to avoid undefined behavior.
+                // This is required, because we hand out references to the buffers,
+                // which mean that creating them as references is technically UB for now
+                let mu_ptr = self.0.buf.get();
+                (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
-                    let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
-                    let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
+                let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
+                let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
 
-                    Ok((
-                        Producer {
-                            bbq: nn1,
-                            pd: PhantomData,
-                        },
-                        Consumer {
-                            bbq: nn2,
-                            pd: PhantomData,
-                        },
-                    ))
-                }
+                Ok((
+                    Producer {
+                        bbq: nn1,
+                        pd: PhantomData,
+                    },
+                    Consumer {
+                        bbq: nn2,
+                        pd: PhantomData,
+                    },
+                ))
             }
-        })
+        }
     }
 
     /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
@@ -166,10 +158,6 @@ where
     /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
-    ///
-    /// NOTE: Takes a critical section while splitting
-    ///
-    #[cfg(not(feature = "atomic"))]
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
@@ -219,7 +207,7 @@ impl<A> ConstBBBuffer<A> {
     /// work around current limitations in `const fn`, and will be replaced in
     /// the future.
     ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
     ///
     /// static BUF: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
@@ -309,11 +297,7 @@ where
     /// requested space is not available at the end of the buffer, but
     /// is available at the beginning
     ///
-    /// NOTE: Takes a critical section while determining the grant.
-    /// The critical section is only active for the duration of
-    /// this function call.
-    ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -329,64 +313,62 @@ where
     /// assert!(prod.grant_exact(3).is_err());
     /// ```
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
-        free(|_cs| {
-            let inner = unsafe { &mut self.bbq.as_mut().0 };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
-            // Writer component. Must never write to `read`,
-            // be careful writing to `load`
-            let write = inner.write.load(Acquire);
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+        let write = inner.write.load(Acquire);
 
-            if inner.reserve.load(Acquire) != write {
-                // GRANT IN PROCESS, do not allow further grants
-                // until the current one has been completed
-                return Err(Error::GrantInProgress);
+        if inner.reserve.load(Acquire) != write {
+            // GRANT IN PROCESS, do not allow further grants
+            // until the current one has been completed
+            return Err(Error::GrantInProgress);
+        }
+
+        let read = inner.read.load(Acquire);
+        let max = N::to_usize();
+        let already_inverted = write < read;
+
+        let start = if already_inverted {
+            if (write + sz) < read {
+                // Inverted, room is still available
+                write
+            } else {
+                // Inverted, no room is available
+                return Err(Error::InsufficientSize);
             }
+        } else {
+            if write + sz <= max {
+                // Non inverted condition
+                write
+            } else {
+                // Not inverted, but need to go inverted
 
-            let read = inner.read.load(Acquire);
-            let max = N::to_usize();
-            let already_inverted = write < read;
-
-            let start = if already_inverted {
-                if (write + sz) < read {
-                    // Inverted, room is still available
-                    write
+                // NOTE: We check sz < read, NOT <=, because
+                // write must never == read in an inverted condition, since
+                // we will then not be able to tell if we are inverted or not
+                if sz < read {
+                    // Invertible situation
+                    0
                 } else {
-                    // Inverted, no room is available
+                    // Not invertible, no space
                     return Err(Error::InsufficientSize);
                 }
-            } else {
-                if write + sz <= max {
-                    // Non inverted condition
-                    write
-                } else {
-                    // Not inverted, but need to go inverted
+            }
+        };
 
-                    // NOTE: We check sz < read, NOT <=, because
-                    // write must never == read in an inverted condition, since
-                    // we will then not be able to tell if we are inverted or not
-                    if sz < read {
-                        // Invertible situation
-                        0
-                    } else {
-                        // Not invertible, no space
-                        return Err(Error::InsufficientSize);
-                    }
-                }
-            };
+        // Safe write, only viewed by this task
+        inner.reserve.store(start + sz, Release);
 
-            // Safe write, only viewed by this task
-            inner.reserve.store(start + sz, Release);
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let grant_slice =
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
-            // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-            // are all `#[repr(Transparent)]
-            let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-            let grant_slice =
-                unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
-
-            Ok(GrantW {
-                buf: grant_slice,
-                bbq: self.bbq,
-            })
+        Ok(GrantW {
+            buf: grant_slice,
+            bbq: self.bbq,
         })
     }
 
@@ -397,11 +379,7 @@ where
     /// end of the buffer. If no space is available for writing, an error
     /// will be returned.
     ///
-    /// NOTE: Takes a critical section while determining the grant.
-    /// The critical section is only active for the duration of
-    /// this function call.
-    ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -424,69 +402,67 @@ where
     /// grant.commit(2);
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
-        free(|_cs| {
-            let inner = unsafe { &mut self.bbq.as_mut().0 };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
-            // Writer component. Must never write to `read`,
-            // be careful writing to `load`
-            let write = inner.write.load(Acquire);
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+        let write = inner.write.load(Acquire);
 
-            if inner.reserve.load(Acquire) != write {
-                // GRANT IN PROCESS, do not allow further grants
-                // until the current one has been completed
-                return Err(Error::GrantInProgress);
+        if inner.reserve.load(Acquire) != write {
+            // GRANT IN PROCESS, do not allow further grants
+            // until the current one has been completed
+            return Err(Error::GrantInProgress);
+        }
+
+        let read = inner.read.load(Acquire);
+        let max = N::to_usize();
+
+        let already_inverted = write < read;
+
+        let start = if already_inverted {
+            // In inverted case, read is always > write
+            let remain = read - write - 1;
+
+            if remain != 0 {
+                sz = min(remain, sz);
+                write
+            } else {
+                // Inverted, no room is available
+                return Err(Error::InsufficientSize);
             }
+        } else {
+            if write != max {
+                // Some (or all) room remaining in un-inverted case
+                sz = min(max - write, sz);
+                write
+            } else {
+                // Not inverted, but need to go inverted
 
-            let read = inner.read.load(Acquire);
-            let max = N::to_usize();
-
-            let already_inverted = write < read;
-
-            let start = if already_inverted {
-                // In inverted case, read is always > write
-                let remain = read - write - 1;
-
-                if remain != 0 {
-                    sz = min(remain, sz);
-                    write
+                // NOTE: We check read > 1, NOT read >= 1, because
+                // write must never == read in an inverted condition, since
+                // we will then not be able to tell if we are inverted or not
+                if read > 1 {
+                    sz = min(read - 1, sz);
+                    0
                 } else {
-                    // Inverted, no room is available
+                    // Not invertible, no space
                     return Err(Error::InsufficientSize);
                 }
-            } else {
-                if write != max {
-                    // Some (or all) room remaining in un-inverted case
-                    sz = min(max - write, sz);
-                    write
-                } else {
-                    // Not inverted, but need to go inverted
+            }
+        };
 
-                    // NOTE: We check read > 1, NOT read >= 1, because
-                    // write must never == read in an inverted condition, since
-                    // we will then not be able to tell if we are inverted or not
-                    if read > 1 {
-                        sz = min(read - 1, sz);
-                        0
-                    } else {
-                        // Not invertible, no space
-                        return Err(Error::InsufficientSize);
-                    }
-                }
-            };
+        // Safe write, only viewed by this task
+        inner.reserve.store(start + sz, Release);
 
-            // Safe write, only viewed by this task
-            inner.reserve.store(start + sz, Release);
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let grant_slice =
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
-            // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-            // are all `#[repr(Transparent)]
-            let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-            let grant_slice =
-                unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
-
-            Ok(GrantW {
-                buf: grant_slice,
-                bbq: self.bbq,
-            })
+        Ok(GrantW {
+            buf: grant_slice,
+            bbq: self.bbq,
         })
     }
 }
@@ -511,11 +487,7 @@ where
     /// remaining bytes will be available after all readable bytes are
     /// released
     ///
-    /// NOTE: Takes a critical section while determining the read grant.
-    /// The critical section is only active for the duration of
-    /// this function call.
-    ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -532,54 +504,52 @@ where
     /// assert_eq!(grant.buf().len(), 4);
     /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
-        free(|_cs| {
-            let inner = unsafe { &mut self.bbq.as_mut().0 };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
-            if inner.read_in_progress.load(Acquire) {
-                return Err(Error::GrantInProgress);
-            }
+        if inner.read_in_progress.load(Acquire) {
+            return Err(Error::GrantInProgress);
+        }
 
-            let write = inner.write.load(Acquire);
-            let last = inner.last.load(Acquire);
-            let mut read = inner.read.load(Acquire);
+        let write = inner.write.load(Acquire);
+        let last = inner.last.load(Acquire);
+        let mut read = inner.read.load(Acquire);
 
-            // Resolve the inverted case or end of read
-            if (read == last) && (write < read) {
-                read = 0;
-                // This has some room for error, the other thread reads this
-                // Impact to Grant:
-                //   Grant checks if read < write to see if inverted. If not inverted, but
-                //     no space left, Grant will initiate an inversion, but will not trigger it
-                // Impact to Commit:
-                //   Commit does not check read, but if Grant has started an inversion,
-                //   grant could move Last to the prior write position
-                // MOVING READ BACKWARDS!
-                inner.read.store(0, Release);
-            }
+        // Resolve the inverted case or end of read
+        if (read == last) && (write < read) {
+            read = 0;
+            // This has some room for error, the other thread reads this
+            // Impact to Grant:
+            //   Grant checks if read < write to see if inverted. If not inverted, but
+            //     no space left, Grant will initiate an inversion, but will not trigger it
+            // Impact to Commit:
+            //   Commit does not check read, but if Grant has started an inversion,
+            //   grant could move Last to the prior write position
+            // MOVING READ BACKWARDS!
+            inner.read.store(0, Release);
+        }
 
-            let sz = if write < read {
-                // Inverted, only believe last
-                last
-            } else {
-                // Not inverted, only believe write
-                write
-            } - read;
+        let sz = if write < read {
+            // Inverted, only believe last
+            last
+        } else {
+            // Not inverted, only believe write
+            write
+        } - read;
 
-            if sz == 0 {
-                return Err(Error::InsufficientSize);
-            }
+        if sz == 0 {
+            return Err(Error::InsufficientSize);
+        }
 
-            inner.read_in_progress.store(true, Release);
+        inner.read_in_progress.store(true, Release);
 
-            // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-            // are all `#[repr(Transparent)]
-            let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-            let grant_slice = unsafe { from_raw_parts(start_of_buf_ptr.offset(read as isize), sz) };
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let grant_slice = unsafe { from_raw_parts(start_of_buf_ptr.offset(read as isize), sz) };
 
-            Ok(GrantR {
-                buf: grant_slice,
-                bbq: self.bbq,
-            })
+        Ok(GrantR {
+            buf: grant_slice,
+            bbq: self.bbq,
         })
     }
 }
@@ -592,7 +562,7 @@ where
     ///
     /// This is the maximum number of bytes that can be stored in this queue.
     ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
@@ -612,7 +582,7 @@ where
     ///
     /// NOTE: For creating a bbqueue in static context, see `ConstBBBuffer::new()`.
     ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
@@ -662,10 +632,6 @@ where
     ///
     /// If `used` is larger than the given grant, the maximum amount will
     /// be commited
-    ///
-    /// NOTE: Takes a critical section while commiting the grant.
-    /// The critical section is only active for the duration of
-    /// this function call.
     pub fn commit(mut self, used: usize) {
         self.commit_inner(used);
         forget(self);
@@ -673,7 +639,7 @@ where
 
     /// Obtain access to the inner buffer for writing
     ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -706,48 +672,45 @@ where
 
     #[inline(always)]
     fn commit_inner(&mut self, used: usize) {
-        free(|_cs| {
-            let inner = unsafe { &mut self.bbq.as_mut().0 };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
-            // Writer component. Must never write to READ,
-            // be careful writing to LAST
+        // Writer component. Must never write to READ,
+        // be careful writing to LAST
 
-            // Saturate the grant commit
-            let len = self.buf.len();
-            let used = min(len, used);
+        // Saturate the grant commit
+        let len = self.buf.len();
+        let used = min(len, used);
 
-            let write = inner.write.load(Acquire);
-            let reserve = inner.reserve.load(Acquire);
-            inner.reserve.store(reserve - (len - used), Release);
+        let write = inner.write.load(Acquire);
+        atomic::fetch_sub(&inner.reserve, len - used, AcqRel);
 
-            let max = N::to_usize();
-            let last = inner.last.load(Acquire);
-            let new_write = inner.reserve.load(Acquire);
+        let max = N::to_usize();
+        let last = inner.last.load(Acquire);
+        let new_write = inner.reserve.load(Acquire);
 
-            if (new_write < write) && (write != max) {
-                // We have already wrapped, but we are skipping some bytes at the end of the ring.
-                // Mark `last` where the write pointer used to be to hold the line here
-                inner.last.store(write, Release);
-            } else if new_write > last {
-                // We're about to pass the last pointer, which was previously the artificial
-                // end of the ring. Now that we've passed it, we can "unlock" the section
-                // that was previously skipped.
-                //
-                // Since new_write is strictly larger than last, it is safe to move this as
-                // the other thread will still be halted by the (about to be updated) write
-                // value
-                inner.last.store(max, Release);
-            }
-            // else: If new_write == last, either:
-            // * last == max, so no need to write, OR
-            // * If we write in the end chunk again, we'll update last to max next time
-            // * If we write to the start chunk in a wrap, we'll update last when we
-            //     move write backwards
+        if (new_write < write) && (write != max) {
+            // We have already wrapped, but we are skipping some bytes at the end of the ring.
+            // Mark `last` where the write pointer used to be to hold the line here
+            inner.last.store(write, Release);
+        } else if new_write > last {
+            // We're about to pass the last pointer, which was previously the artificial
+            // end of the ring. Now that we've passed it, we can "unlock" the section
+            // that was previously skipped.
+            //
+            // Since new_write is strictly larger than last, it is safe to move this as
+            // the other thread will still be halted by the (about to be updated) write
+            // value
+            inner.last.store(max, Release);
+        }
+        // else: If new_write == last, either:
+        // * last == max, so no need to write, OR
+        // * If we write in the end chunk again, we'll update last to max next time
+        // * If we write to the start chunk in a wrap, we'll update last when we
+        //     move write backwards
 
-            // Write must be updated AFTER last, otherwise read could think it was
-            // time to invert early!
-            inner.write.store(new_write, Release);
-        })
+        // Write must be updated AFTER last, otherwise read could think it was
+        // time to invert early!
+        inner.write.store(new_write, Release);
     }
 }
 
@@ -760,10 +723,6 @@ where
     ///
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
-    ///
-    /// NOTE: Takes a critical section while releasing the read grant.
-    /// The critical section is only active for the duration of
-    /// this function call.
     pub fn release(mut self, used: usize) {
         // Saturate the grant release
         let used = min(self.buf.len(), used);
@@ -772,14 +731,13 @@ where
         forget(self);
     }
 
-    #[allow(dead_code)]
     pub(crate) fn shrink(&mut self, len: usize) {
         self.buf = &self.buf[..len];
     }
 
     /// Obtain access to the inner buffer for writing
     ///
-    /// ```no_run
+    /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -818,18 +776,15 @@ where
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        free(|_cs| {
-            let inner = unsafe { &mut self.bbq.as_mut().0 };
+        let inner = unsafe { &self.bbq.as_ref().0 };
 
-            // This should always be checked by the public interfaces
-            debug_assert!(used <= self.buf.len());
+        // This should always be checked by the public interfaces
+        debug_assert!(used <= self.buf.len());
 
-            // This should be fine, purely incrementing
-            let read = inner.read.load(Acquire);
-            inner.read.store(read + used, Release);
+        // This should be fine, purely incrementing
+        let _ = atomic::fetch_add(&inner.read, used, Release);
 
-            inner.read_in_progress.store(false, Release);
-        })
+        inner.read_in_progress.store(false, Release);
     }
 }
 
@@ -879,5 +834,55 @@ where
 
     fn deref(&self) -> &Self::Target {
         self.buf
+    }
+}
+
+#[cfg(feature = "thumbv6")]
+mod atomic {
+    use core::sync::atomic::{
+        AtomicBool, AtomicUsize,
+        Ordering::{self, Acquire, Release},
+    };
+    use cortex_m::interrupt::free;
+
+    pub fn fetch_add(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
+        free(|_| {
+            let prev = atomic.load(Acquire);
+            atomic.store(prev.wrapping_add(val), Release);
+            prev
+        })
+    }
+
+    pub fn fetch_sub(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
+        free(|_| {
+            let prev = atomic.load(Acquire);
+            atomic.store(prev.wrapping_sub(val), Release);
+            prev
+        })
+    }
+
+    pub fn swap(atomic: &AtomicBool, val: bool, _order: Ordering) -> bool {
+        free(|_| {
+            let prev = atomic.load(Acquire);
+            atomic.store(val, Release);
+            prev
+        })
+    }
+}
+
+#[cfg(not(feature = "thumbv6"))]
+mod atomic {
+    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    pub fn fetch_add(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
+        atomic.fetch_add(val, order)
+    }
+
+    pub fn fetch_sub(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
+        atomic.fetch_sub(val, order)
+    }
+
+    pub fn swap(atomic: &AtomicBool, val: bool, order: Ordering) -> bool {
+        atomic.swap(val, order)
     }
 }

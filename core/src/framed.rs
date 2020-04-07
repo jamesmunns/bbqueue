@@ -66,18 +66,7 @@
 //! | (2^56)..(2^64)        | 9                    |
 //!
 
-// This #[cfg] dance is due to how `bbqueue` automatically re-exports
-// `BBBuffer` at the top level if only one feature is selected. This
-// should hopefully go away in the next breaking release. For now, if
-// both features are selected, we only support the `atomic` variant.
-//
-// If you would like to use Framed mode with a `thumbv6` device, you
-// should first select `default-features = false` in your Cargo.toml.
-#[cfg(not(all(feature = "atomic", feature = "thumbv6")))]
 use crate::{Consumer, GrantR, GrantW, Producer};
-
-#[cfg(all(feature = "atomic", feature = "thumbv6"))]
-use crate::atomic::{Consumer, GrantR, GrantW, Producer};
 
 use crate::{
     vusize::{decode_usize, decoded_len, encode_usize_to_slice, encoded_len},

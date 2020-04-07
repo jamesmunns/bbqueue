@@ -91,17 +91,8 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-#[cfg(feature = "atomic")]
-pub mod atomic;
-
-#[cfg(all(feature = "atomic", not(feature = "thumbv6")))]
-pub use atomic::*;
-
-#[cfg(feature = "thumbv6")]
-pub mod cm_mutex;
-
-#[cfg(all(feature = "thumbv6", not(feature = "atomic")))]
-pub use cm_mutex::*;
+mod bbbuffer;
+pub use bbbuffer::*;
 
 pub mod framed;
 mod vusize;
