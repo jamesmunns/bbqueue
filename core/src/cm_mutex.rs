@@ -718,7 +718,7 @@ where
 
             let write = inner.write.load(Acquire);
             let reserve = inner.reserve.load(Acquire);
-	    inner.reserve.store(reserve - (len - used), Release);
+            inner.reserve.store(reserve - (len - used), Release);
 
             let max = N::to_usize();
             let last = inner.last.load(Acquire);
@@ -825,7 +825,7 @@ where
             debug_assert!(used <= self.buf.len());
 
             // This should be fine, purely incrementing
-	    let read = inner.read.load(Acquire);
+            let read = inner.read.load(Acquire);
             inner.read.store(read + used, Release);
 
             inner.read_in_progress.store(false, Release);
