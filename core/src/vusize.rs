@@ -154,17 +154,17 @@ pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
         "Tried to encode larger than platform supports!",
     );
 
-    let (size, _remainder) = slice.split_at_mut(length);
+    let header_bytes = &mut slice[..length];
 
     if length >= USIZE_SIZE_PLUS_ONE {
         // In the case where the number of bytes is larger than `usize`,
         // don't try to encode bits in the header byte, just create the header
         // and place all of the length bytes in subsequent bytes
-        size[0] = max_size_header();
-        size[1..USIZE_SIZE_PLUS_ONE].copy_from_slice(&value.to_le_bytes());
+        header_bytes[0] = max_size_header();
+        header_bytes[1..USIZE_SIZE_PLUS_ONE].copy_from_slice(&value.to_le_bytes());
     } else {
         let encoded = (value << 1 | 1) << (length - 1);
-        size.copy_from_slice(&encoded.to_le_bytes()[..length]);
+        header_bytes.copy_from_slice(&encoded.to_le_bytes()[..length]);
     }
 }
 
@@ -186,16 +186,16 @@ pub fn decode_usize(input: &[u8]) -> usize {
         "Tried to decode data too large for this platform!",
     );
 
-    let (sz_bytes, _remainder) = input.split_at(length);
+    let header_bytes = &input[..length];
 
     let mut encoded = [0u8; USIZE_SIZE];
 
     if length >= USIZE_SIZE_PLUS_ONE {
         // usize + 1 special case, see `encode_usize_to_slice()` for details
-        encoded.copy_from_slice(&sz_bytes[1..]);
+        encoded.copy_from_slice(&header_bytes[1..]);
         usize::from_le_bytes(encoded)
     } else {
-        encoded[..length].copy_from_slice(sz_bytes);
+        encoded[..length].copy_from_slice(header_bytes);
         usize::from_le_bytes(encoded) >> length
     }
 }
