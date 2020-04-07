@@ -108,8 +108,9 @@ where
     /// of the frame can be set on `commit`.
     pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
         let hdr_len = encoded_len(max_sz) as u8;
+        let hdr_len_usize: usize = hdr_len.into();
         Ok(FrameGrantW {
-            grant_w: self.producer.grant_exact(max_sz + hdr_len as usize)?,
+            grant_w: self.producer.grant_exact(max_sz + hdr_len_usize)?,
             hdr_len,
         })
     }
@@ -187,7 +188,7 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_w.buf[self.hdr_len as usize..]
+        &self.grant_w.buf[self.hdr_len.into()..]
     }
 }
 
@@ -196,7 +197,7 @@ where
     N: ArrayLength<u8>,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_w.buf[self.hdr_len as usize..]
+        &mut self.grant_w.buf[self.hdr_len.into()..]
     }
 }
 
@@ -207,7 +208,7 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_r.buf[self.hdr_len as usize..]
+        &self.grant_r.buf[self.hdr_len.into()..]
     }
 }
 
@@ -222,14 +223,15 @@ where
     pub fn commit(mut self, used: usize) {
         // Saturate the commit size to the available frame size
         let grant_len = self.grant_w.len();
-        let frame_len = min(used, grant_len - self.hdr_len as usize);
-        let total_len = frame_len + self.hdr_len as usize;
+        let hdr_len: usize = self.hdr_len.into();
+        let frame_len = min(used, grant_len - hdr_len);
+        let total_len = frame_len + hdr_len;
 
         // Write the actual frame length to the header
         encode_usize_to_slice(
             used,
-            self.hdr_len as usize,
-            &mut self.grant_w[..self.hdr_len as usize],
+            self.hdr_len.into(),
+            &mut self.grant_w[..self.hdr_len.into()],
         );
 
         // Commit the header + frame
