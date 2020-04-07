@@ -148,10 +148,7 @@ pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
         encoded_len(value) <= length,
         "Tried to encode to smaller than necessary length!",
     );
-    debug_assert!(
-        length <= slice.len(),
-        "Not enough space to encode!",
-    );
+    debug_assert!(length <= slice.len(), "Not enough space to encode!",);
     debug_assert!(
         length <= USIZE_SIZE_PLUS_ONE,
         "Tried to encode larger than platform supports!",
@@ -183,10 +180,7 @@ pub fn decoded_len(byte: u8) -> usize {
 pub fn decode_usize(input: &[u8]) -> usize {
     let length = decoded_len(input[0]);
 
-    debug_assert!(
-        input.len() >= length,
-        "Not enough data to decode!",
-    );
+    debug_assert!(input.len() >= length, "Not enough data to decode!",);
     debug_assert!(
         length <= USIZE_SIZE_PLUS_ONE,
         "Tried to decode data too large for this platform!",
