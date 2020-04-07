@@ -107,11 +107,10 @@ where
     /// This size does not include the size of the frame header. The exact size
     /// of the frame can be set on `commit`.
     pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
-        let hdr_len = encoded_len(max_sz) as u8;
-        let hdr_len_usize: usize = hdr_len.into();
+        let hdr_len = encoded_len(max_sz) ;
         Ok(FrameGrantW {
-            grant_w: self.producer.grant_exact(max_sz + hdr_len_usize)?,
-            hdr_len,
+            grant_w: self.producer.grant_exact(max_sz + hdr_len)?,
+            hdr_len: hdr_len as u8,
         })
     }
 }
@@ -230,8 +229,8 @@ where
         // Write the actual frame length to the header
         encode_usize_to_slice(
             used,
-            self.hdr_len.into(),
-            &mut self.grant_w[..self.hdr_len.into()],
+            hdr_len,
+            &mut self.grant_w[..hdr_len],
         );
 
         // Commit the header + frame
