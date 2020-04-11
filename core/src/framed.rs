@@ -9,8 +9,8 @@
 //! ## Example
 //!
 //! ```rust
-//! #[cfg(not(feature = "thumbv6"))]
-//! # fn main() {
+//! # // bbqueue test shim!
+//! # fn bbqtest() {
 //! use bbqueue::{BBBuffer, consts::*};
 //!
 //! let bb: BBBuffer<U1000> = BBBuffer::new();
@@ -30,9 +30,13 @@
 //!     assert_eq!(*i, idx as u8);
 //! }
 //! rgrant.release();
+//! # // bbqueue test shim!
 //! # }
-//! # #[cfg(feature = "thumbv6")]
-//! # fn main() {}
+//! #
+//! # fn main() {
+//! # #[cfg(not(feature = "thumbv6"))]
+//! # bbqtest();
+//! # }
 //! ```
 //!
 //! ## Frame header

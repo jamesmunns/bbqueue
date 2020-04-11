@@ -44,7 +44,9 @@ where
     /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical section
     /// while splitting.
     ///
-    /// ```
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer
@@ -53,6 +55,13 @@ where
     ///
     /// // Not possible to split twice
     /// assert!(buffer.try_split().is_err());
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         if atomic::swap(&self.0.already_split, true, AcqRel) {
@@ -143,7 +152,7 @@ impl<A> ConstBBBuffer<A> {
     /// work around current limitations in `const fn`, and will be replaced in
     /// the future.
     ///
-    /// ```
+    /// ```rust,no_run
     /// use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
     ///
     /// static BUF: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
@@ -233,7 +242,9 @@ where
     /// requested space is not available at the end of the buffer, but
     /// is available at the beginning
     ///
-    /// ```
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -247,6 +258,13 @@ where
     ///
     /// // Try to obtain a grant of three bytes
     /// assert!(prod.grant_exact(3).is_err());
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
@@ -316,6 +334,8 @@ where
     /// will be returned.
     ///
     /// ```
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -336,6 +356,13 @@ where
     /// let mut grant = prod.grant_max_remaining(3).unwrap();
     /// assert_eq!(grant.buf().len(), 2);
     /// grant.commit(2);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
@@ -423,7 +450,9 @@ where
     /// remaining bytes will be available after all readable bytes are
     /// released
     ///
-    /// ```
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -438,6 +467,13 @@ where
     /// // Obtain a read grant
     /// let mut grant = cons.read().unwrap();
     /// assert_eq!(grant.buf().len(), 4);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
@@ -498,12 +534,21 @@ where
     ///
     /// This is the maximum number of bytes that can be stored in this queue.
     ///
-    /// ```
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
     /// assert_eq!(buffer.capacity(), 6);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn capacity(&self) -> usize {
         N::to_usize()
@@ -518,11 +563,20 @@ where
     ///
     /// NOTE: For creating a bbqueue in static context, see `ConstBBBuffer::new()`.
     ///
-    /// ```
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn new() -> Self {
         Self(ConstBBBuffer::new())
@@ -582,7 +636,9 @@ where
 
     /// Obtain access to the inner buffer for writing
     ///
-    /// ```
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -593,6 +649,13 @@ where
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
     /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
     /// grant.commit(4);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn buf(&mut self) -> &mut [u8] {
         self.buf
@@ -684,6 +747,8 @@ where
     /// Obtain access to the inner buffer for writing
     ///
     /// ```
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
@@ -700,6 +765,13 @@ where
     /// let mut buf = [0u8; 4];
     /// buf.copy_from_slice(grant.buf());
     /// assert_eq!(&buf, &[1, 2, 3, 4]);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
     /// ```
     pub fn buf(&self) -> &[u8] {
         self.buf
