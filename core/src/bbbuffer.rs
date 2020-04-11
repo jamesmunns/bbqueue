@@ -845,6 +845,7 @@ mod atomic {
     };
     use cortex_m::interrupt::free;
 
+    #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
         free(|_| {
             let prev = atomic.load(Acquire);
@@ -853,6 +854,7 @@ mod atomic {
         })
     }
 
+    #[inline(always)]
     pub fn fetch_sub(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
         free(|_| {
             let prev = atomic.load(Acquire);
@@ -861,6 +863,7 @@ mod atomic {
         })
     }
 
+    #[inline(always)]
     pub fn swap(atomic: &AtomicBool, val: bool, _order: Ordering) -> bool {
         free(|_| {
             let prev = atomic.load(Acquire);
@@ -874,14 +877,17 @@ mod atomic {
 mod atomic {
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+    #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
         atomic.fetch_add(val, order)
     }
 
+    #[inline(always)]
     pub fn fetch_sub(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
         atomic.fetch_sub(val, order)
     }
 
+    #[inline(always)]
     pub fn swap(atomic: &AtomicBool, val: bool, order: Ordering) -> bool {
         atomic.swap(val, order)
     }
