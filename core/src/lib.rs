@@ -86,6 +86,17 @@
 //!     assert!(BB.try_split().is_err());
 //! }
 //! ```
+//!
+//! ## Features
+//!
+//! By default BBQueue uses atomic operations which are available on most platforms. However on some
+//! (mostly embedded) platforms atomic support is limited and with the default features you will get
+//! a compiler error about missing atomic methods.
+//!
+//! This crate contains special support for Cortex-M0(+) targets with the `thumbv6` feature. By
+//! enabling the feature, unsupported atomic operations will be replaced with critical sections
+//! implemented by disabling interrupts. The critical sections are very short, a few instructions at
+//! most, so they should make no difference to most applications.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
