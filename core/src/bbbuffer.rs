@@ -111,6 +111,9 @@ where
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
     ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical section
+    /// while splitting.
+    ///
     /// ```
     /// use bbqueue::{BBBuffer, consts::*};
     ///
@@ -158,6 +161,9 @@ where
     /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
+    ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// section while splitting.
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
@@ -598,6 +604,8 @@ where
 ///
 /// NOTE: If the grant is dropped without explicitly commiting
 /// the contents, then no bytes will be comitted for writing.
+/// If the `thumbv6` feature is selected, dropping the grant
+/// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, N>
 where
@@ -613,6 +621,8 @@ where
 ///
 /// NOTE: If the grant is dropped without explicitly releasing
 /// the contents, then no bytes will be released as read.
+/// If the `thumbv6` feature is selected, dropping the grant
+/// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, N>
 where
@@ -632,6 +642,9 @@ where
     ///
     /// If `used` is larger than the given grant, the maximum amount will
     /// be commited
+    ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// section while committing.
     pub fn commit(mut self, used: usize) {
         self.commit_inner(used);
         forget(self);
@@ -723,6 +736,9 @@ where
     ///
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
+    ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// section while releasing.
     pub fn release(mut self, used: usize) {
         // Saturate the grant release
         let used = min(self.buf.len(), used);
