@@ -142,7 +142,12 @@ pub fn encoded_len(value: usize) -> usize {
 }
 
 /// Encode the given usize to the `slice`, using `length` bytes for encoding.
-/// `slice.len()` must be >= `length`.
+///
+/// ## Safety
+///
+/// * `slice.len()` must be >= `length` or this function will panic
+/// * `length` must be `>= encoded_len(value)` or the value will be truncated
+/// * `length` must be `<= size_of::<usize>() + 1` or the value will be truncated
 pub fn encode_usize_to_slice(value: usize, length: usize, slice: &mut [u8]) {
     debug_assert!(
         encoded_len(value) <= length,
