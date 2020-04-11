@@ -84,11 +84,14 @@ The `bbqueue` crate is located in `core/`, and tests are located in `bbqtest/`.
 
 ## Features
 
-| Feature Name | On by default? | Description |
-| :--- | :--- | :--- |
-| `atomic` | Yes | Uses Atomic Compare and Swaps to implement the algorithm in a lock-free way |
-| `std` | No | Not currently used. Disables `#![no_std]` attribute |
-| `thumbv6` | No | Use Cortex-M Critical Sections to implement the algorithm on cortex-m platforms without atomic CAS (cortex-m0, cortex-m0+) |
+By default BBQueue uses atomic operations which are available on most platforms. However on some
+(mostly embedded) platforms atomic support is limited and with the default features you will get
+a compiler error about missing atomic methods.
+
+This crate contains special support for Cortex-M0(+) targets with the `thumbv6` feature. By
+enabling the feature, unsupported atomic operations will be replaced with critical sections
+implemented by disabling interrupts. The critical sections are very short, a few instructions at
+most, so they should make no difference to most applications.
 
 # License
 
