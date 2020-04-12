@@ -744,7 +744,7 @@ where
         self.buf = &self.buf[..len];
     }
 
-    /// Obtain access to the inner buffer for writing
+    /// Obtain access to the inner buffer for reading
     ///
     /// ```
     /// # // bbqueue test shim!
