@@ -291,6 +291,7 @@ where
                 write
             } else {
                 // Inverted, no room is available
+                inner.write_in_progress.store(false, Release);
                 return Err(Error::InsufficientSize);
             }
         } else {
@@ -308,6 +309,7 @@ where
                     0
                 } else {
                     // Not invertible, no space
+                    inner.write_in_progress.store(false, Release);
                     return Err(Error::InsufficientSize);
                 }
             }
@@ -390,6 +392,7 @@ where
                 write
             } else {
                 // Inverted, no room is available
+                inner.write_in_progress.store(false, Release);
                 return Err(Error::InsufficientSize);
             }
         } else {
@@ -408,6 +411,7 @@ where
                     0
                 } else {
                     // Not invertible, no space
+                    inner.write_in_progress.store(false, Release);
                     return Err(Error::InsufficientSize);
                 }
             }
@@ -508,6 +512,7 @@ where
         } - read;
 
         if sz == 0 {
+            inner.read_in_progress.store(false, Release);
             return Err(Error::InsufficientSize);
         }
 
@@ -596,6 +601,8 @@ where
     bbq: NonNull<BBBuffer<N>>,
 }
 
+unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
+
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
 /// from the queue
@@ -612,6 +619,8 @@ where
     pub(crate) buf: &'a [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
+
+unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
 
 impl<'a, N> GrantW<'a, N>
 where
