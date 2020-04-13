@@ -66,28 +66,28 @@ where
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         if atomic::swap(&self.0.already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
-        } else {
-            unsafe {
-                // Explicitly zero the data to avoid undefined behavior.
-                // This is required, because we hand out references to the buffers,
-                // which mean that creating them as references is technically UB for now
-                let mu_ptr = self.0.buf.get();
-                (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
+        }
 
-                let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
-                let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
+        unsafe {
+            // Explicitly zero the data to avoid undefined behavior.
+            // This is required, because we hand out references to the buffers,
+            // which mean that creating them as references is technically UB for now
+            let mu_ptr = self.0.buf.get();
+            (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
-                Ok((
-                    Producer {
-                        bbq: nn1,
-                        pd: PhantomData,
-                    },
-                    Consumer {
-                        bbq: nn2,
-                        pd: PhantomData,
-                    },
-                ))
-            }
+            let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
+            let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
+
+            Ok((
+                Producer {
+                    bbq: nn1,
+                    pd: PhantomData,
+                },
+                Consumer {
+                    bbq: nn2,
+                    pd: PhantomData,
+                },
+            ))
         }
     }
 
@@ -140,6 +140,8 @@ pub struct ConstBBBuffer<A> {
     /// Is there an active read grant?
     read_in_progress: AtomicBool,
 
+    write_in_progress: AtomicBool,
+
     /// Have we already split?
     already_split: AtomicBool,
 }
@@ -190,6 +192,9 @@ impl<A> ConstBBBuffer<A> {
 
             /// Owned by the Reader, "private"
             read_in_progress: AtomicBool::new(false),
+
+            /// Owned by the Writer, "private"
+            write_in_progress: AtomicBool::new(false),
 
             already_split: AtomicBool::new(false),
         }
@@ -269,16 +274,13 @@ where
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        // Writer component. Must never write to `read`,
-        // be careful writing to `load`
-        let write = inner.write.load(Acquire);
-
-        if inner.reserve.load(Acquire) != write {
-            // GRANT IN PROCESS, do not allow further grants
-            // until the current one has been completed
+        if atomic::swap(&inner.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+        let write = inner.write.load(Acquire);
         let read = inner.read.load(Acquire);
         let max = N::to_usize();
         let already_inverted = write < read;
@@ -367,16 +369,13 @@ where
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        // Writer component. Must never write to `read`,
-        // be careful writing to `load`
-        let write = inner.write.load(Acquire);
-
-        if inner.reserve.load(Acquire) != write {
-            // GRANT IN PROCESS, do not allow further grants
-            // until the current one has been completed
+        if atomic::swap(&inner.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
+        // Writer component. Must never write to `read`,
+        // be careful writing to `load`
+        let write = inner.write.load(Acquire);
         let read = inner.read.load(Acquire);
         let max = N::to_usize();
 
@@ -478,7 +477,7 @@ where
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        if inner.read_in_progress.load(Acquire) {
+        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
@@ -511,8 +510,6 @@ where
         if sz == 0 {
             return Err(Error::InsufficientSize);
         }
-
-        inner.read_in_progress.store(true, Release);
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
@@ -717,6 +714,9 @@ where
         // Write must be updated AFTER last, otherwise read could think it was
         // time to invert early!
         inner.write.store(new_write, Release);
+
+        // Allow subsequent grants
+        inner.write_in_progress.store(false, Release);
     }
 }
 
