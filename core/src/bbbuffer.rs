@@ -271,15 +271,15 @@ where
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
-        let write = inner.write.load(Acquire);
+        let write = atomic::load(&inner.write, Acquire);
 
-        if inner.reserve.load(Acquire) != write {
+        if atomic::load(&inner.reserve, Acquire) != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
         }
 
-        let read = inner.read.load(Acquire);
+        let read = atomic::load(&inner.read, Acquire);
         let max = N::to_usize();
         let already_inverted = write < read;
 
@@ -312,7 +312,7 @@ where
         };
 
         // Safe write, only viewed by this task
-        inner.reserve.store(start + sz, Release);
+        atomic::store(&inner.reserve, start + sz, Release);
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
@@ -369,15 +369,15 @@ where
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
-        let write = inner.write.load(Acquire);
+        let write = atomic::load(&inner.write, Acquire);
 
-        if inner.reserve.load(Acquire) != write {
+        if atomic::load(&inner.reserve, Acquire) != write {
             // GRANT IN PROCESS, do not allow further grants
             // until the current one has been completed
             return Err(Error::GrantInProgress);
         }
 
-        let read = inner.read.load(Acquire);
+        let read = atomic::load(&inner.read, Acquire);
         let max = N::to_usize();
 
         let already_inverted = write < read;
@@ -415,7 +415,7 @@ where
         };
 
         // Safe write, only viewed by this task
-        inner.reserve.store(start + sz, Release);
+        atomic::store(&inner.reserve, start + sz, Release);
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
@@ -478,13 +478,13 @@ where
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
-        if inner.read_in_progress.load(Acquire) {
+        if atomic::load_bool(&inner.read_in_progress, Acquire) {
             return Err(Error::GrantInProgress);
         }
 
-        let write = inner.write.load(Acquire);
-        let last = inner.last.load(Acquire);
-        let mut read = inner.read.load(Acquire);
+        let write = atomic::load(&inner.write, Acquire);
+        let last = atomic::load(&inner.last, Acquire);
+        let mut read = atomic::load(&inner.read, Acquire);
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -497,7 +497,7 @@ where
             //   Commit does not check read, but if Grant has started an inversion,
             //   grant could move Last to the prior write position
             // MOVING READ BACKWARDS!
-            inner.read.store(0, Release);
+            atomic::store(&inner.read, 0, Release);
         }
 
         let sz = if write < read {
@@ -512,7 +512,7 @@ where
             return Err(Error::InsufficientSize);
         }
 
-        inner.read_in_progress.store(true, Release);
+        atomic::store_bool(&inner.read_in_progress, true, Release);
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
@@ -687,17 +687,17 @@ where
         let len = self.buf.len();
         let used = min(len, used);
 
-        let write = inner.write.load(Acquire);
+        let write = atomic::load(&inner.write, Acquire);
         atomic::fetch_sub(&inner.reserve, len - used, AcqRel);
 
         let max = N::to_usize();
-        let last = inner.last.load(Acquire);
-        let new_write = inner.reserve.load(Acquire);
+        let last = atomic::load(&inner.last, Acquire);
+        let new_write = atomic::load(&inner.reserve, Acquire);
 
         if (new_write < write) && (write != max) {
             // We have already wrapped, but we are skipping some bytes at the end of the ring.
             // Mark `last` where the write pointer used to be to hold the line here
-            inner.last.store(write, Release);
+            atomic::store(&inner.last, write, Release);
         } else if new_write > last {
             // We're about to pass the last pointer, which was previously the artificial
             // end of the ring. Now that we've passed it, we can "unlock" the section
@@ -706,7 +706,7 @@ where
             // Since new_write is strictly larger than last, it is safe to move this as
             // the other thread will still be halted by the (about to be updated) write
             // value
-            inner.last.store(max, Release);
+            atomic::store(&inner.last, max, Release);
         }
         // else: If new_write == last, either:
         // * last == max, so no need to write, OR
@@ -716,7 +716,7 @@ where
 
         // Write must be updated AFTER last, otherwise read could think it was
         // time to invert early!
-        inner.write.store(new_write, Release);
+        atomic::store(&inner.write, new_write, Release);
     }
 }
 
@@ -802,7 +802,7 @@ where
         // This should be fine, purely incrementing
         let _ = atomic::fetch_add(&inner.read, used, Release);
 
-        inner.read_in_progress.store(false, Release);
+        atomic::store_bool(&inner.read_in_progress, false, Release);
     }
 }
 
@@ -864,10 +864,30 @@ mod atomic {
     use cortex_m::interrupt::free;
 
     #[inline(always)]
+    pub fn load(atomic: &AtomicUsize, order: Ordering) -> usize {
+        atomic.load(order)
+    }
+
+    #[inline(always)]
+    pub fn store(atomic: &AtomicUsize, val: usize, order: Ordering) {
+        atomic.store(val, order);
+    }
+
+    #[inline(always)]
+    pub fn load_bool(atomic: &AtomicBool, order: Ordering) -> bool {
+        atomic.load(order)
+    }
+
+    #[inline(always)]
+    pub fn store_bool(atomic: &AtomicBool, val: bool, order: Ordering) {
+        atomic.store(val, order);
+    }
+
+    #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
         free(|_| {
-            let prev = atomic.load(Acquire);
-            atomic.store(prev.wrapping_add(val), Release);
+            let prev = atomic::load(&atomic, Acquire);
+            store(atomic, prev.wrapping_add(val), Release);
             prev
         })
     }
@@ -875,8 +895,8 @@ mod atomic {
     #[inline(always)]
     pub fn fetch_sub(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
         free(|_| {
-            let prev = atomic.load(Acquire);
-            atomic.store(prev.wrapping_sub(val), Release);
+            let prev = atomic::load(&atomic, Acquire);
+            store(atomic, prev.wrapping_sub(val), Release);
             prev
         })
     }
@@ -884,8 +904,8 @@ mod atomic {
     #[inline(always)]
     pub fn swap(atomic: &AtomicBool, val: bool, _order: Ordering) -> bool {
         free(|_| {
-            let prev = atomic.load(Acquire);
-            atomic.store(val, Release);
+            let prev = atomic::load(&atomic, Acquire);
+            atomic::store(&atomic, val, Release);
             prev
         })
     }
@@ -894,6 +914,26 @@ mod atomic {
 #[cfg(not(feature = "thumbv6"))]
 mod atomic {
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[inline(always)]
+    pub fn load(atomic: &AtomicUsize, order: Ordering) -> usize {
+        atomic.load(order)
+    }
+
+    #[inline(always)]
+    pub fn store(atomic: &AtomicUsize, val: usize, order: Ordering) {
+        atomic.store(val, order);
+    }
+
+    #[inline(always)]
+    pub fn load_bool(atomic: &AtomicBool, order: Ordering) -> bool {
+        atomic.load(order)
+    }
+
+    #[inline(always)]
+    pub fn store_bool(atomic: &AtomicBool, val: bool, order: Ordering) {
+        atomic.store(val, order);
+    }
 
     #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
