@@ -125,6 +125,7 @@ pub mod cm_mutex {
 
 pub mod framed;
 mod vusize;
+mod atomic_shim;
 
 use core::result::Result as CoreResult;
 

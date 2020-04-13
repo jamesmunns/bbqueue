@@ -14,17 +14,22 @@ categories = [
 ]
 license = "MIT OR Apache-2.0"
 
+
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 generic-array = "0.13"
 cortex-m = { version = "0.6.0", optional = true }
+cfg-if = "0.1.10"
 
 [features]
 thumbv6 = ["cortex-m"]
 
+# NOTE: This is only intended for test purposes and stress
+# testing atomic ordering. You really don't want this feature.
+chaos = ["std"]
+
 # TODO: These don't really do anything anymore
 atomic = []
 std = []
-
-
-[package.metadata.docs.rs]
-all-features = true
