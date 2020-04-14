@@ -2,8 +2,8 @@
 //! the other no-std crate.
 
 mod multi_thread;
-mod single_thread;
 mod ring_around_the_senders;
+mod single_thread;
 
 #[cfg(test)]
 mod tests {
