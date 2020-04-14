@@ -4,6 +4,9 @@
 mod multi_thread;
 mod single_thread;
 
+#[cfg(not(feature = "travisci"))]
+mod ring_around_the_senders;
+
 #[cfg(test)]
 mod tests {
     use bbqueue::{consts::*, BBBuffer, ConstBBBuffer, Error as BBQError};
