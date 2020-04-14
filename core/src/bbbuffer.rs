@@ -140,6 +140,7 @@ pub struct ConstBBBuffer<A> {
     /// Is there an active read grant?
     read_in_progress: AtomicBool,
 
+    /// Is there an active write grant?
     write_in_progress: AtomicBool,
 
     /// Have we already split?
@@ -196,6 +197,7 @@ impl<A> ConstBBBuffer<A> {
             /// Owned by the Writer, "private"
             write_in_progress: AtomicBool::new(false),
 
+            /// We haven't split at the start
             already_split: AtomicBool::new(false),
         }
     }
