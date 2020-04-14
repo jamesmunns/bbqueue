@@ -17,7 +17,12 @@ mod tests {
         Done,
     }
 
+    #[cfg(not(feature = "travisci"))]
     const TOTAL_RINGS: usize = 1_000_000;
+
+    #[cfg(feature = "travisci")]
+    const TOTAL_RINGS: usize = 10_000;
+
     const TX_GRANTS_PER_RING: u8 = 3;
     const RX_GRANTS_PER_RING: u8 = 3;
     const BYTES_PER_GRANT: usize = 129;
