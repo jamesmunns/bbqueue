@@ -3,11 +3,13 @@ set -euxo pipefail
 # Install embedded target for no_std test
 rustup target add thumbv7em-none-eabihf
 
-# Make sure rustfmt is installed
-rustup component add rustfmt
-
-# Ensure source code formatting
-cargo fmt -- --check
+# Try to ensure source code formatting. If rustfmt isn't
+# available, oh well.
+if rustup component add rustfmt ; then
+    cargo fmt -- --check
+else
+    echo "No cargo fmt for us today :("
+fi
 
 # Check with no_std target to make sure it really works for embedded/no_std
 cargo build --target thumbv7em-none-eabihf --manifest-path core/Cargo.toml
