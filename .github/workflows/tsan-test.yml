@@ -1,0 +1,35 @@
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+name: TSAN Integration Test
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rust: nightly
+            build: ""
+          - rust: nightly
+            build: "--release"
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          toolchain: nightly
+          args: ${{ matrix.build }} --manifest-path bbqtest/Cargo.toml --target x86_64-unknown-linux-gnu
+        env:
+          RUSTFLAGS: "-Z sanitizer=thread"
+          RUST_TEST_THREADS: 1
+          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tsan-blacklist.txt"
