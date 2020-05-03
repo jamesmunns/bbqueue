@@ -33,7 +33,7 @@ else
     cargo test --features="travisci" --release --manifest-path bbqtest/Cargo.toml -- --nocapture
 
     # Test using a full std crate, long test with a single thread (it's faster)
-    cargo test --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
-    cargo test --release --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
+    cargo test --features="verbose" --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
+    cargo test --features="verbose" --release --manifest-path bbqtest/Cargo.toml -- --nocapture --test-threads=1
 fi
 
