@@ -8,7 +8,7 @@ the design of the lock-free algorithm used by bbqueue, see [this blog post].
 
 For a 90 minute guided tour of BBQueue, you can also view this [guide on YouTube].
 
-[guide on YouTube](https://www.youtube.com/watch?v=ngTCf2cnGkY).
+[guide on YouTube]: https://www.youtube.com/watch?v=ngTCf2cnGkY
 [BipBuffers]: https://www.codeproject.com/Articles/3479/%2FArticles%2F3479%2FThe-Bip-Buffer-The-Circular-Buffer-with-a-Twist
 [this blog post]: https://ferrous-systems.com/blog/lock-free-ring-buffer/
 
