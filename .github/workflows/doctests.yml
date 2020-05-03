@@ -1,4 +1,8 @@
-on: [push, pull_request]
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
 name: Documentation Tests
 
@@ -9,8 +13,14 @@ jobs:
       matrix:
         include:
           - rust: stable
-          - rust: beta
-          - rust: nightly
+            features: atomic
+            nodefault: "--no-default-features"
+          - rust: stable
+            features: thumbv6
+            nodefault: "--no-default-features"
+          - rust: stable
+            features: ""
+            nodefault: ""
 
     steps:
       - uses: actions/checkout@v2
@@ -21,4 +31,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path core/Cargo.toml
+          args: ${{ matrix.nodefault }} --features=${{ matrix.features }} --manifest-path core/Cargo.toml
