@@ -27,4 +27,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: ${{ matrix.build }} --manifest-path bbqtest/Cargo.toml
+          args: ${{ matrix.build }} --features=short-potato --manifest-path bbqtest/Cargo.toml -- --nocapture
