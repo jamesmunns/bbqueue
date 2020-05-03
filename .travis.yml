@@ -1,7 +1,0 @@
-language: rust
-rust:
-  - stable
-  - beta
-  - nightly
-script:
-  - ./ci/test.sh

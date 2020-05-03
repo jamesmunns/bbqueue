@@ -1,0 +1,34 @@
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+name: Documentation Tests
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rust: stable
+            features: atomic
+            nodefault: "--no-default-features"
+          - rust: stable
+            features: thumbv6
+            nodefault: "--no-default-features"
+          - rust: stable
+            features: ""
+            nodefault: ""
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: ${{ matrix.nodefault }} --features=${{ matrix.features }} --manifest-path core/Cargo.toml
