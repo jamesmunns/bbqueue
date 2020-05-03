@@ -123,9 +123,12 @@ mod tests {
                     if let Ok(new) = rx_4_1.recv() {
                         if let Potato::Tx(tx) = new {
                             count -= 1;
-                            if count % (TOTAL_RINGS / 100) == 0 {
+
+                            if (count % 100) == 0 {
+                                #[cfg(feature = "travisci")]
                                 println!("count left: {}", count);
                             }
+
                             if count == 0 {
                                 me = Potato::Done;
                             } else {
