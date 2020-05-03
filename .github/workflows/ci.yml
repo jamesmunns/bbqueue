@@ -1,0 +1,29 @@
+on: [push, pull_request]
+
+name: Continuous integration
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - feature: atomic
+            target: thumbv7m-none-eabihf
+            rust: stable
+          - feature: thumbv6
+            target: thumbv6m-none-eabi
+            rust: stable
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+      - run: rustup target add thumbv7em-none-eabihf thumbv6m-none-eabi
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --manifest-path core/Cargo.toml --no-default-features --features=${{ matrix.feature }} --target=${{ matrix.target }}
