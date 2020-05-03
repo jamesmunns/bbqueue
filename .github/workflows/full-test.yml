@@ -1,6 +1,6 @@
 on: [push, pull_request]
 
-name: Continuous integration
+name: Integration Tests
 
 jobs:
   build:
@@ -8,12 +8,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - feature: atomic
-            target: thumbv7em-none-eabihf
-            rust: stable
-          - feature: thumbv6
-            target: thumbv6m-none-eabi
-            rust: stable
+          - rust: stable
+            build: ""
+          - rust: stable
+            build: "--release"
 
     steps:
       - uses: actions/checkout@v2
@@ -25,5 +23,5 @@ jobs:
 
       - uses: actions-rs/cargo@v1
         with:
-          command: build
-          args: --manifest-path core/Cargo.toml --no-default-features --features=${{ matrix.feature }} --target=${{ matrix.target }}
+          command: test
+          args: ${{ matrix.build}} --manifest-path bbqtest/Cargo.toml
