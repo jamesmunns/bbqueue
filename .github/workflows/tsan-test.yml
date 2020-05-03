@@ -32,4 +32,4 @@ jobs:
         env:
           RUSTFLAGS: "-Z sanitizer=thread"
           RUST_TEST_THREADS: 1
-          TSAN_OPTIONS: "suppressions=$(pwd)/tsan-blacklist.txt"
+          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tsan-blacklist.txt"
