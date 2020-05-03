@@ -21,7 +21,7 @@ mod tests {
     const TOTAL_RINGS: usize = 1_000_000;
 
     #[cfg(feature = "short-potato")]
-    const TOTAL_RINGS: usize = 10_000;
+    const TOTAL_RINGS: usize = 1_000;
 
     const TX_GRANTS_PER_RING: u8 = 3;
     const RX_GRANTS_PER_RING: u8 = 3;
@@ -124,7 +124,9 @@ mod tests {
                         if let Potato::Tx(tx) = new {
                             count -= 1;
 
-                            println!("count left: {}", count);
+                            if (count % 100) == 0 {
+                                println!("count left: {}", count);
+                            }
 
                             if count == 0 {
                                 me = Potato::Done;
