@@ -26,7 +26,8 @@ jobs:
 
       - uses: actions-rs/cargo@v1
         with:
-          command: "+nightly test"
+          command: test
+          toolchain: nightly
           args: ${{ matrix.build }} --manifest-path bbqtest/Cargo.toml --target x86_64-unknown-linux-gnu
         env:
           RUSTFLAGS: "-Z sanitizer=thread"
