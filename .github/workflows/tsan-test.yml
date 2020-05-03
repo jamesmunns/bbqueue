@@ -28,7 +28,7 @@ jobs:
         with:
           command: test
           toolchain: nightly
-          args: ${{ matrix.build }} --features=short-potato --manifest-path bbqtest/Cargo.toml --target x86_64-unknown-linux-gnu
+          args: ${{ matrix.build }} --features=short-potato --manifest-path bbqtest/Cargo.toml --target x86_64-unknown-linux-gnu -- --nocapture
         env:
           RUSTFLAGS: "-Z sanitizer=thread"
           RUST_TEST_THREADS: 1

@@ -124,10 +124,7 @@ mod tests {
                         if let Potato::Tx(tx) = new {
                             count -= 1;
 
-                            if (count % 100) == 0 {
-                                #[cfg(feature = "travisci")]
-                                println!("count left: {}", count);
-                            }
+                            println!("count left: {}", count);
 
                             if count == 0 {
                                 me = Potato::Done;
