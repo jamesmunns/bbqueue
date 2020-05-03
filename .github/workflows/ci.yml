@@ -9,7 +9,7 @@ jobs:
       matrix:
         include:
           - feature: atomic
-            target: thumbv7m-none-eabihf
+            target: thumbv7em-none-eabihf
             rust: stable
           - feature: thumbv6
             target: thumbv6m-none-eabi
