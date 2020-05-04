@@ -33,9 +33,35 @@
 //! `usize::max()` will never be encoded/decoded, which is not true when sending
 //! between 32-bit and 64-bit platforms.
 //!
-//! For bbqueue, the sender doing the encoding and the receiver doing the decoding
-//! will always reside on the same platform, meaning we CAN make these non-portable
+//! For bbqueue, the sender doing the encoding (the `Producer`) and the receiver
+//! doing the decoding (the `Consumer`) will always reside within the same application
+//! running on the same machine, meaning we CAN make these non-portable
 //! assumptions for the sake of performance/simplicity.
+//!
+//! Because `vusize` is an internal implementation detail of `BBQueue`, this does **NOT**
+//! affect portability when sending data from one machine to another. Here's a diagram
+//! explaining that:
+//!
+//! ```text
+//!               interrupt sending bytes out
+//!                   over the serial port
+//!                           |
+//!  application creating     |
+//!      data to send         |
+//!         |                 |
+//!         v                 v
+//! [         embedded system          ]    [      PC system      ]
+//! [ [bbq producer] => [bbq consumer] ] => [                     ]
+//! [                                  ]    [                     ]
+//!                  ^                   ^
+//!                  |                   |
+//!          `vusize` lives here         |
+//!                                      |
+//!                             bytes sent over a serial
+//!                               port, in order. Frame
+//!                             information is not sent over
+//!                                the wire.
+//! ```
 
 const USIZE_SIZE: usize = core::mem::size_of::<usize>();
 const USIZE_SIZE_PLUS_ONE: usize = USIZE_SIZE + 1;
