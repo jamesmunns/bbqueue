@@ -13,7 +13,7 @@ use core::{
     slice::from_raw_parts,
     slice::from_raw_parts_mut,
     sync::atomic::{
-        AtomicBool, AtomicU8, AtomicUsize,
+        AtomicBool, AtomicUsize,
         Ordering::{AcqRel, Acquire, Release},
     },
 };
@@ -28,10 +28,6 @@ pub struct BBBuffer<N: ArrayLength<u8>>(
 );
 
 unsafe impl<A> Sync for ConstBBBuffer<A> {}
-
-const UNSPLIT: u8 = 0;
-const SPLIT: u8 = 1;
-const UNSPLITTING: u8 = 2;
 
 impl<'a, N> BBBuffer<N>
 where
@@ -69,7 +65,7 @@ where
     /// # }
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
-        if UNSPLIT != atomic::compare_and_swap(&self.0.already_split, UNSPLIT, SPLIT, AcqRel) {
+        if atomic::swap(&self.0.already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
 
@@ -118,9 +114,6 @@ where
     /// This re-initializes the buffer so it may be split in a different mode at a later
     /// time. There must be no read or write grants active, or an error will be returned.
     ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical section
-    /// while releasing.
-    ///
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
@@ -134,7 +127,7 @@ where
     /// assert!(buffer.try_split().is_err());
     ///
     /// // Release the producer and consumer
-    /// buffer.try_release(prod, cons).unwrap();
+    /// assert!(buffer.try_release(prod, cons).is_ok());
     ///
     /// // Split the buffer in framed mode
     /// let (fprod, fcons) = buffer.try_split_framed().unwrap();
@@ -151,8 +144,16 @@ where
         prod: Producer<'a, N>,
         cons: Consumer<'a, N>,
     ) -> CoreResult<(), (Producer<'a, N>, Consumer<'a, N>)> {
-        // This prevents re-entrancy of this function
-        if SPLIT != atomic::compare_and_swap(&self.0.already_split, SPLIT, UNSPLITTING, AcqRel) {
+        // Note: Re-entrancy is not possible because we require ownership
+        // of the producer and consumer, which are not cloneable. We also
+        // can assume the buffer has been split, because
+
+        // Are these our producers and consumers?
+        let our_prod = prod.bbq.as_ptr() as *const Self == self;
+        let our_cons = prod.bbq.as_ptr() as *const Self == self;
+
+        if !(our_prod && our_cons) {
+            // Can't release, not our producer and consumer
             return Err((prod, cons));
         }
 
@@ -160,8 +161,7 @@ where
         let rd_in_progress = self.0.read_in_progress.load(Acquire);
 
         if wr_in_progress || rd_in_progress {
-            // Can't release, active grant in progress
-            self.0.already_split.store(SPLIT, Release);
+            // Can't release, active grant(s) in progress
             return Err((prod, cons));
         }
 
@@ -176,7 +176,7 @@ where
         self.0.last.store(0, Release);
 
         // Mark the buffer as ready to be split
-        self.0.already_split.store(UNSPLIT, Release);
+        self.0.already_split.store(false, Release);
 
         Ok(())
     }
@@ -185,9 +185,6 @@ where
     ///
     /// This re-initializes the buffer so it may be split in a different mode at a later
     /// time. There must be no read or write grants active, or an error will be returned.
-    ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical section
-    /// while releasing.
     pub fn try_release_framed(
         &'a self,
         prod: FrameProducer<'a, N>,
@@ -236,7 +233,7 @@ pub struct ConstBBBuffer<A> {
     write_in_progress: AtomicBool,
 
     /// Have we already split?
-    already_split: AtomicU8,
+    already_split: AtomicBool,
 }
 
 impl<A> ConstBBBuffer<A> {
@@ -290,7 +287,7 @@ impl<A> ConstBBBuffer<A> {
             write_in_progress: AtomicBool::new(false),
 
             /// We haven't split at the start
-            already_split: AtomicU8::new(UNSPLIT),
+            already_split: AtomicBool::new(false),
         }
     }
 }
@@ -961,7 +958,7 @@ where
 #[cfg(feature = "thumbv6")]
 mod atomic {
     use core::sync::atomic::{
-        AtomicBool, AtomicU8, AtomicUsize,
+        AtomicBool, AtomicUsize,
         Ordering::{self, Acquire, Release},
     };
     use cortex_m::interrupt::free;
@@ -992,23 +989,11 @@ mod atomic {
             prev
         })
     }
-
-    #[inline(always)]
-    pub fn compare_and_swap(atomic: &AtomicU8, current: u8, new: u8, _order: Ordering) -> u8 {
-        free(|_| {
-            let prev = atomic.load(Acquire);
-            if current == prev {
-                // Success, "swap" the variables
-                atomic.store(new, Release);
-            }
-            prev
-        })
-    }
 }
 
 #[cfg(not(feature = "thumbv6"))]
 mod atomic {
-    use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
@@ -1023,10 +1008,5 @@ mod atomic {
     #[inline(always)]
     pub fn swap(atomic: &AtomicBool, val: bool, order: Ordering) -> bool {
         atomic.swap(val, order)
-    }
-
-    #[inline(always)]
-    pub fn compare_and_swap(atomic: &AtomicU8, current: u8, new: u8, order: Ordering) -> u8 {
-        atomic.compare_and_swap(current, new, order)
     }
 }

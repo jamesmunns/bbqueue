@@ -53,6 +53,37 @@ mod tests {
     }
 
     #[test]
+    fn release() {
+        // Check we can make multiple static items...
+        static BBQ1: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ2: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
+        let (prod1, cons1) = BBQ1.try_split().unwrap();
+        let (prod2, cons2) = BBQ2.try_split().unwrap();
+
+        // We cannot release with the wrong prod/cons
+        let (prod2, cons2) = BBQ1.try_release(prod2, cons2).unwrap_err();
+        let (mut prod1, cons1) = BBQ2.try_release(prod1, cons1).unwrap_err();
+
+        // We cannot release with a write grant in progress
+        let wgr1 = prod1.grant_exact(3).unwrap();
+        let (prod1, mut cons1) = BBQ1.try_release(prod1, cons1).unwrap_err();
+
+        // We cannot release with a read grant in progress
+        wgr1.commit(3);
+        let rgr1 = cons1.read().unwrap();
+        let (prod1, cons1) = BBQ1.try_release(prod1, cons1).unwrap_err();
+
+        // But we can when everything is resolved
+        rgr1.release(3);
+        assert!(BBQ1.try_release(prod1, cons1).is_ok());
+        assert!(BBQ2.try_release(prod2, cons2).is_ok());
+
+        // And we can re-split on-demand
+        let _ = BBQ1.try_split().unwrap();
+        let _ = BBQ2.try_split().unwrap();
+    }
+
+    #[test]
     fn direct_usage_sanity() {
         // Initialize
         let bb: BBBuffer<U6> = BBBuffer::new();
