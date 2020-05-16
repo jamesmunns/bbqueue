@@ -62,9 +62,16 @@ mod tests {
 
         // We cannot release with the wrong prod/cons
         let (prod2, cons2) = BBQ1.try_release(prod2, cons2).unwrap_err();
-        let (mut prod1, cons1) = BBQ2.try_release(prod1, cons1).unwrap_err();
+        let (prod1, cons1) = BBQ2.try_release(prod1, cons1).unwrap_err();
+
+        // We cannot release with the wrong consumer...
+        let (prod1, cons2) = BBQ1.try_release(prod1, cons2).unwrap_err();
+
+        // ...or the wrong producer
+        let (prod2, cons1) = BBQ1.try_release(prod2, cons1).unwrap_err();
 
         // We cannot release with a write grant in progress
+        let mut prod1 = prod1;
         let wgr1 = prod1.grant_exact(3).unwrap();
         let (prod1, mut cons1) = BBQ1.try_release(prod1, cons1).unwrap_err();
 

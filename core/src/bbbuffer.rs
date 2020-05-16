@@ -153,7 +153,7 @@ where
 
         // Are these our producers and consumers?
         let our_prod = prod.bbq.as_ptr() as *const Self == self;
-        let our_cons = prod.bbq.as_ptr() as *const Self == self;
+        let our_cons = cons.bbq.as_ptr() as *const Self == self;
 
         if !(our_prod && our_cons) {
             // Can't release, not our producer and consumer
