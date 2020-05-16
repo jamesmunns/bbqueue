@@ -114,6 +114,9 @@ where
     /// This re-initializes the buffer so it may be split in a different mode at a later
     /// time. There must be no read or write grants active, or an error will be returned.
     ///
+    /// The `Producer` and `Consumer` must be from THIS `BBBuffer`, or an error will
+    /// be returned.
+    ///
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
@@ -185,6 +188,9 @@ where
     ///
     /// This re-initializes the buffer so it may be split in a different mode at a later
     /// time. There must be no read or write grants active, or an error will be returned.
+    ///
+    /// The `FrameProducer` and `FrameConsumer` must be from THIS `BBBuffer`, or an error
+    /// will be returned.
     pub fn try_release_framed(
         &'a self,
         prod: FrameProducer<'a, N>,
