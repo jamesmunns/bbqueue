@@ -9,6 +9,7 @@ use core::{
     mem::{forget, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
+    result::Result as CoreResult,
     slice::from_raw_parts,
     slice::from_raw_parts_mut,
     sync::atomic::{
@@ -106,6 +107,100 @@ where
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
+    }
+
+    /// Attempt to release the Producer and Consumer
+    ///
+    /// This re-initializes the buffer so it may be split in a different mode at a later
+    /// time. There must be no read or write grants active, or an error will be returned.
+    ///
+    /// The `Producer` and `Consumer` must be from THIS `BBBuffer`, or an error will
+    /// be returned.
+    ///
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (prod, cons) = buffer.try_split().unwrap();
+    ///
+    /// // Not possible to split twice
+    /// assert!(buffer.try_split().is_err());
+    ///
+    /// // Release the producer and consumer
+    /// assert!(buffer.try_release(prod, cons).is_ok());
+    ///
+    /// // Split the buffer in framed mode
+    /// let (fprod, fcons) = buffer.try_split_framed().unwrap();
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
+    /// ```
+    pub fn try_release(
+        &'a self,
+        prod: Producer<'a, N>,
+        cons: Consumer<'a, N>,
+    ) -> CoreResult<(), (Producer<'a, N>, Consumer<'a, N>)> {
+        // Note: Re-entrancy is not possible because we require ownership
+        // of the producer and consumer, which are not cloneable. We also
+        // can assume the buffer has been split, because
+
+        // Are these our producers and consumers?
+        let our_prod = prod.bbq.as_ptr() as *const Self == self;
+        let our_cons = cons.bbq.as_ptr() as *const Self == self;
+
+        if !(our_prod && our_cons) {
+            // Can't release, not our producer and consumer
+            return Err((prod, cons));
+        }
+
+        let wr_in_progress = self.0.write_in_progress.load(Acquire);
+        let rd_in_progress = self.0.read_in_progress.load(Acquire);
+
+        if wr_in_progress || rd_in_progress {
+            // Can't release, active grant(s) in progress
+            return Err((prod, cons));
+        }
+
+        // Drop the producer and consumer halves
+        drop(prod);
+        drop(cons);
+
+        // Re-initialize the buffer (not totally needed, but nice to do)
+        self.0.write.store(0, Release);
+        self.0.read.store(0, Release);
+        self.0.reserve.store(0, Release);
+        self.0.last.store(0, Release);
+
+        // Mark the buffer as ready to be split
+        self.0.already_split.store(false, Release);
+
+        Ok(())
+    }
+
+    /// Attempt to release the Producer and Consumer in Framed mode
+    ///
+    /// This re-initializes the buffer so it may be split in a different mode at a later
+    /// time. There must be no read or write grants active, or an error will be returned.
+    ///
+    /// The `FrameProducer` and `FrameConsumer` must be from THIS `BBBuffer`, or an error
+    /// will be returned.
+    pub fn try_release_framed(
+        &'a self,
+        prod: FrameProducer<'a, N>,
+        cons: FrameConsumer<'a, N>,
+    ) -> CoreResult<(), (FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+        self.try_release(prod.producer, cons.consumer)
+            .map_err(|(producer, consumer)| {
+                // Restore the wrapper types
+                (FrameProducer { producer }, FrameConsumer { consumer })
+            })
     }
 }
 
