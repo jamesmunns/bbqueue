@@ -32,7 +32,7 @@ unsafe impl<A> Sync for ConstBBBuffer<A> {}
 
 impl<'a, T, N> BBBuffer<T, N>
 where
-    T: Sized, 
+    T: Sized,
     N: ArrayLength<T>,
 {
     /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
@@ -339,7 +339,12 @@ where
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, T, N> Send for Producer<'a, T, N> where T: Sized, N: ArrayLength<T> {}
+unsafe impl<'a, T, N> Send for Producer<'a, T, N>
+where
+    T: Sized,
+    N: ArrayLength<T>,
+{
+}
 
 impl<'a, T, N> Producer<'a, T, N>
 where
@@ -543,14 +548,19 @@ where
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
 pub struct Consumer<'a, T, N>
 where
-    T: Sized, 
+    T: Sized,
     N: ArrayLength<T>,
 {
     bbq: NonNull<BBBuffer<T, N>>,
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, T, N> Send for Consumer<'a, T, N> where T: Sized, N: ArrayLength<T> {}
+unsafe impl<'a, T, N> Send for Consumer<'a, T, N>
+where
+    T: Sized,
+    N: ArrayLength<T>,
+{
+}
 
 impl<'a, T, N> Consumer<'a, T, N>
 where
@@ -713,7 +723,12 @@ where
     bbq: NonNull<BBBuffer<T, N>>,
 }
 
-unsafe impl<'a, T, N> Send for GrantW<'a, T, N> where T: Sized, N: ArrayLength<T> {}
+unsafe impl<'a, T, N> Send for GrantW<'a, T, N>
+where
+    T: Sized,
+    N: ArrayLength<T>,
+{
+}
 
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
@@ -726,14 +741,19 @@ unsafe impl<'a, T, N> Send for GrantW<'a, T, N> where T: Sized, N: ArrayLength<T
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, T, N>
 where
-    T: Sized, 
+    T: Sized,
     N: ArrayLength<T>,
 {
     pub(crate) buf: &'a [T],
     bbq: NonNull<BBBuffer<T, N>>,
 }
 
-unsafe impl<'a, T, N> Send for GrantR<'a, T, N> where T: Sized, N: ArrayLength<T> {}
+unsafe impl<'a, T, N> Send for GrantR<'a, T, N>
+where
+    T: Sized,
+    N: ArrayLength<T>,
+{
+}
 
 impl<'a, T, N> GrantW<'a, T, N>
 where

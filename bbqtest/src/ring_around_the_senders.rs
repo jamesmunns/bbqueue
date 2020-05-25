@@ -3,7 +3,7 @@ mod tests {
 
     use core::convert::TryFrom;
     use core::fmt::Debug;
-    
+
     use bbqueue::{
         consts::*, ArrayLength, BBBuffer, ConstBBBuffer, Consumer, GrantR, GrantW, Producer,
     };
@@ -71,7 +71,9 @@ mod tests {
                     gr_w.iter_mut()
                         .take(BYTES_PER_GRANT)
                         .enumerate()
-                        .for_each(|(i, by)| *by = T::try_from(i).ok().expect("can construct from usize"));
+                        .for_each(|(i, by)| {
+                            *by = T::try_from(i).ok().expect("can construct from usize")
+                        });
                     gr_w.commit(BYTES_PER_GRANT);
                     (Self::Idle, Self::Idle)
                 }
@@ -79,7 +81,9 @@ mod tests {
                     gr_r.iter()
                         .take(BYTES_PER_GRANT)
                         .enumerate()
-                        .for_each(|(i, by)| assert_eq!(*by, T::try_from(i).ok().expect("can construct from usize")));
+                        .for_each(|(i, by)| {
+                            assert_eq!(*by, T::try_from(i).ok().expect("can construct from usize"))
+                        });
                     gr_r.release(BYTES_PER_GRANT);
                     (Self::Idle, Self::Idle)
                 }
@@ -101,7 +105,10 @@ mod tests {
         generic_hello::<DataTy>(&BB);
     }
 
-    fn generic_hello<T>(bb: &'static BBBuffer<T, BufferSize>) where T: Sized + TryFrom<usize> + Debug + PartialEq {
+    fn generic_hello<T>(bb: &'static BBBuffer<T, BufferSize>)
+    where
+        T: Sized + TryFrom<usize> + Debug + PartialEq,
+    {
         let (prod, cons) = bb.try_split().unwrap();
 
         // create the channels

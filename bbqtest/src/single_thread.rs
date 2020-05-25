@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
     use core::convert::TryFrom;
+    use std::fmt::Debug;
 
     use bbqueue::{consts::*, BBBuffer};
 
@@ -45,7 +45,7 @@ mod tests {
     enum PodEnum {
         Empty,
         Tuple((u64, i64, usize)),
-        Array([i16; 16])
+        Array([i16; 16]),
     }
 
     impl From<u8> for PodEnum {
@@ -76,22 +76,27 @@ mod tests {
             let mut vec = Vec::with_capacity(v as usize);
             vec.iter_mut().for_each(|e| *e = v);
 
-            let maybe_boxed = Some(Box::new(RefStruct{ vec: vec.clone(), maybe_boxed: None }));
-            RefStruct {
-                vec,
-                maybe_boxed
-            }
+            let maybe_boxed = Some(Box::new(RefStruct {
+                vec: vec.clone(),
+                maybe_boxed: None,
+            }));
+            RefStruct { vec, maybe_boxed }
         }
     }
 
-    fn generic_sanity_check<T>() where T: Sized + TryFrom<u8> + Debug + PartialEq + Clone {
+    fn generic_sanity_check<T>()
+    where
+        T: Sized + TryFrom<u8> + Debug + PartialEq + Clone,
+    {
         let bb: BBBuffer<T, U6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
         const ITERS: usize = 100000;
 
         for i in 0..ITERS {
-            let j = T::try_from((i & 255) as u8).ok().expect("can construct type from u8");
+            let j = T::try_from((i & 255) as u8)
+                .ok()
+                .expect("can construct type from u8");
 
             #[cfg(feature = "extra-verbose")]
             println!("===========================");
