@@ -13,7 +13,7 @@
 //! # fn bbqtest() {
 //! use bbqueue::{BBBuffer, consts::*};
 //!
-//! let bb: BBBuffer<U1000> = BBBuffer::new();
+//! let bb: BBBuffer<u8, U1000> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 //!
 //! // One frame in, one frame out

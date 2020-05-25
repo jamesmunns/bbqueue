@@ -26,7 +26,7 @@
 //! # use bbqueue::cm_mutex::{BBBuffer, consts::*};
 //! #
 //! // Create a buffer with six elements
-//! let bb: BBBuffer<U6> = BBBuffer::new();
+//! let bb: BBBuffer<u8, U6> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split().unwrap();
 //!
 //! // Request space for one byte
@@ -58,7 +58,7 @@
 //! # use bbqueue::cm_mutex::{BBBuffer, ConstBBBuffer, consts::*};
 //! #
 //! // Create a buffer with six elements
-//! static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+//! static BB: BBBuffer<u8, U6> = BBBuffer( ConstBBBuffer::new() );
 //!
 //! fn main() {
 //!     // Split the bbqueue into producer and consumer halves.

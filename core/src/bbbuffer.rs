@@ -53,7 +53,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (prod, cons) = buffer.try_split().unwrap();
     ///
     /// // Not possible to split twice
@@ -108,7 +108,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (prod, cons) = buffer.try_split().unwrap();
     ///
     /// // Not possible to split twice
@@ -261,7 +261,7 @@ impl<A> ConstBBBuffer<A> {
     /// ```rust,no_run
     /// use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
     ///
-    /// static BUF: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+    /// static BUF: BBBuffer<u8, U6> = BBBuffer( ConstBBBuffer::new() );
     ///
     /// fn main() {
     ///    let (prod, cons) = BUF.try_split().unwrap();
@@ -360,7 +360,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (mut prod, cons) = buffer.try_split().unwrap();
     ///
     /// // Successfully obtain and commit a grant of four bytes
@@ -450,7 +450,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
     /// // Successfully obtain and commit a grant of four bytes
@@ -568,7 +568,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
     /// // Successfully obtain and commit a grant of four bytes
@@ -652,7 +652,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// assert_eq!(buffer.capacity(), 6);
     /// # // bbqueue test shim!
     /// # }
@@ -682,7 +682,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// # // bbqueue test shim!
     /// # }
     /// #
@@ -762,7 +762,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
     /// // Successfully obtain and commit a grant of four bytes
@@ -877,7 +877,7 @@ where
     /// use bbqueue::{BBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
     /// // Successfully obtain and commit a grant of four bytes
