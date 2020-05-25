@@ -17,7 +17,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("bbq 2048/4096", |bench| bench.iter(|| chunky(&data, 2048)));
 
-    let buffy: BBBuffer<U65536> = BBBuffer::new();
+    let buffy: BBBuffer<u8, U65536> = BBBuffer::new();
     let (mut prod, mut cons) = buffy.try_split().unwrap();
 
     c.bench_function("bbq 8192/65536", |bench| {
@@ -196,7 +196,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
 use crossbeam_utils::thread;
 fn chunky(data: &[u8], chunksz: usize) {
-    let buffy: BBBuffer<U4096> = BBBuffer::new();
+    let buffy: BBBuffer<u8, U4096> = BBBuffer::new();
     let (mut prod, mut cons) = buffy.try_split().unwrap();
 
     thread::scope(|sc| {

@@ -22,16 +22,18 @@ use generic_array::{ArrayLength, GenericArray};
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<N: ArrayLength<u8>>(
+#[derive(Debug)]
+pub struct BBBuffer<T: Sized, N: ArrayLength<T>>(
     // Underlying data storage
-    #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
+    #[doc(hidden)] pub ConstBBBuffer<GenericArray<T, N>>,
 );
 
 unsafe impl<A> Sync for ConstBBBuffer<A> {}
 
-impl<'a, N> BBBuffer<N>
+impl<'a, T, N> BBBuffer<T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized, 
+    N: ArrayLength<T>,
 {
     /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
@@ -64,7 +66,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
+    pub fn try_split(&'a self) -> Result<(Producer<'a, T, N>, Consumer<'a, T, N>)> {
         if atomic::swap(&self.0.already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
@@ -90,23 +92,6 @@ where
                 },
             ))
         }
-    }
-
-    /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
-    /// to gain access to the buffer. If buffer has already been split, an error
-    /// will be returned.
-    ///
-    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
-    /// to zero. This may take a measurable amount of time, depending on the size
-    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
-    /// is placed at `static` scope within the `.bss` region, the explicit initialization
-    /// will be elided (as it is already performed as part of memory initialization)
-    ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
-    /// section while splitting.
-    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
-        let (producer, consumer) = self.try_split()?;
-        Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
 
     /// Attempt to release the Producer and Consumer
@@ -144,9 +129,9 @@ where
     /// ```
     pub fn try_release(
         &'a self,
-        prod: Producer<'a, N>,
-        cons: Consumer<'a, N>,
-    ) -> CoreResult<(), (Producer<'a, N>, Consumer<'a, N>)> {
+        prod: Producer<'a, T, N>,
+        cons: Consumer<'a, T, N>,
+    ) -> CoreResult<(), (Producer<'a, T, N>, Consumer<'a, T, N>)> {
         // Note: Re-entrancy is not possible because we require ownership
         // of the producer and consumer, which are not cloneable. We also
         // can assume the buffer has been split, because
@@ -183,6 +168,28 @@ where
 
         Ok(())
     }
+}
+
+impl<'a, N> BBBuffer<u8, N>
+where
+    N: ArrayLength<u8>,
+{
+    /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
+    /// to gain access to the buffer. If buffer has already been split, an error
+    /// will be returned.
+    ///
+    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
+    /// to zero. This may take a measurable amount of time, depending on the size
+    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
+    /// is placed at `static` scope within the `.bss` region, the explicit initialization
+    /// will be elided (as it is already performed as part of memory initialization)
+    ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// section while splitting.
+    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+        let (producer, consumer) = self.try_split()?;
+        Ok((FrameProducer { producer }, FrameConsumer { consumer }))
+    }
 
     /// Attempt to release the Producer and Consumer in Framed mode
     ///
@@ -210,6 +217,7 @@ where
 /// scope, and is generally never used directly. This process is necessary to
 /// work around current limitations in `const fn`, and will be replaced in
 /// the future.
+#[derive(Debug)]
 pub struct ConstBBBuffer<A> {
     buf: UnsafeCell<MaybeUninit<A>>,
 
@@ -322,19 +330,21 @@ impl<A> ConstBBBuffer<A> {
 ///
 /// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
 /// discussion of grant methods that could be added in the future.
-pub struct Producer<'a, N>
+pub struct Producer<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
-    bbq: NonNull<BBBuffer<N>>,
+    bbq: NonNull<BBBuffer<T, N>>,
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
+unsafe impl<'a, T, N> Send for Producer<'a, T, N> where T: Sized, N: ArrayLength<T> {}
 
-impl<'a, N> Producer<'a, N>
+impl<'a, T, N> Producer<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
@@ -368,7 +378,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, T, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
@@ -417,7 +427,7 @@ where
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
-        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let start_of_buf_ptr = inner.buf.get().cast::<T>();
         let grant_slice =
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
@@ -465,7 +475,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, T, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
@@ -519,7 +529,7 @@ where
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
-        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let start_of_buf_ptr = inner.buf.get().cast::<T>();
         let grant_slice =
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
@@ -531,19 +541,21 @@ where
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
-pub struct Consumer<'a, N>
+pub struct Consumer<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized, 
+    N: ArrayLength<T>,
 {
-    bbq: NonNull<BBBuffer<N>>,
+    bbq: NonNull<BBBuffer<T, N>>,
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
+unsafe impl<'a, T, N> Send for Consumer<'a, T, N> where T: Sized, N: ArrayLength<T> {}
 
-impl<'a, N> Consumer<'a, N>
+impl<'a, T, N> Consumer<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
@@ -575,7 +587,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
+    pub fn read(&mut self) -> Result<GrantR<'a, T, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         if atomic::swap(&inner.read_in_progress, true, AcqRel) {
@@ -615,7 +627,7 @@ where
 
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
-        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let start_of_buf_ptr = inner.buf.get().cast::<T>();
         let grant_slice = unsafe { from_raw_parts(start_of_buf_ptr.offset(read as isize), sz) };
 
         Ok(GrantR {
@@ -625,9 +637,10 @@ where
     }
 }
 
-impl<N> BBBuffer<N>
+impl<T, N> BBBuffer<T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     /// Returns the size of the backing storage.
     ///
@@ -654,9 +667,10 @@ where
     }
 }
 
-impl<N> BBBuffer<N>
+impl<T, N> BBBuffer<T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     /// Create a new bbqueue
     ///
@@ -690,15 +704,16 @@ where
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
-pub struct GrantW<'a, N>
+pub struct GrantW<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
-    pub(crate) buf: &'a mut [u8],
-    bbq: NonNull<BBBuffer<N>>,
+    pub(crate) buf: &'a mut [T],
+    bbq: NonNull<BBBuffer<T, N>>,
 }
 
-unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
+unsafe impl<'a, T, N> Send for GrantW<'a, T, N> where T: Sized, N: ArrayLength<T> {}
 
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
@@ -709,19 +724,21 @@ unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
-pub struct GrantR<'a, N>
+pub struct GrantR<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized, 
+    N: ArrayLength<T>,
 {
-    pub(crate) buf: &'a [u8],
-    bbq: NonNull<BBBuffer<N>>,
+    pub(crate) buf: &'a [T],
+    bbq: NonNull<BBBuffer<T, N>>,
 }
 
-unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
+unsafe impl<'a, T, N> Send for GrantR<'a, T, N> where T: Sized, N: ArrayLength<T> {}
 
-impl<'a, N> GrantW<'a, N>
+impl<'a, T, N> GrantW<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
     /// This makes the data available to be read via `read()`. This consumes
@@ -760,7 +777,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn buf(&mut self) -> &mut [u8] {
+    pub fn buf(&mut self) -> &mut [T] {
         self.buf
     }
 
@@ -775,8 +792,8 @@ where
     ///
     /// Additionally, you must ensure that a separate reference to this data is not created
     /// to this data, e.g. using `DerefMut` or the `buf()` method of this grant.
-    pub unsafe fn as_static_mut_buf(&mut self) -> &'static mut [u8] {
-        transmute::<&mut [u8], &'static mut [u8]>(self.buf)
+    pub unsafe fn as_static_mut_buf(&mut self) -> &'static mut [T] {
+        transmute::<&mut [T], &'static mut [T]>(self.buf)
     }
 
     #[inline(always)]
@@ -826,9 +843,10 @@ where
     }
 }
 
-impl<'a, N> GrantR<'a, N>
+impl<'a, T, N> GrantR<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes. This consumes the grant.
@@ -846,6 +864,7 @@ where
         forget(self);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn shrink(&mut self, len: usize) {
         self.buf = &self.buf[..len];
     }
@@ -879,7 +898,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn buf(&self) -> &[u8] {
+    pub fn buf(&self) -> &[T] {
         self.buf
     }
 
@@ -894,8 +913,8 @@ where
     ///
     /// Additionally, you must ensure that a separate reference to this data is not created
     /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
-    pub unsafe fn as_static_buf(&self) -> &'static [u8] {
-        transmute::<&[u8], &'static [u8]>(self.buf)
+    pub unsafe fn as_static_buf(&self) -> &'static [T] {
+        transmute::<&[T], &'static [T]>(self.buf)
     }
 
     #[inline(always)]
@@ -912,49 +931,54 @@ where
     }
 }
 
-impl<'a, N> Drop for GrantW<'a, N>
+impl<'a, T, N> Drop for GrantW<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     fn drop(&mut self) {
         self.commit_inner(0)
     }
 }
 
-impl<'a, N> Drop for GrantR<'a, N>
+impl<'a, T, N> Drop for GrantR<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
     fn drop(&mut self) {
         self.release_inner(0)
     }
 }
 
-impl<'a, N> Deref for GrantW<'a, N>
+impl<'a, T, N> Deref for GrantW<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
-    type Target = [u8];
+    type Target = [T];
 
     fn deref(&self) -> &Self::Target {
         self.buf
     }
 }
 
-impl<'a, N> DerefMut for GrantW<'a, N>
+impl<'a, T, N> DerefMut for GrantW<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
-    fn deref_mut(&mut self) -> &mut [u8] {
+    fn deref_mut(&mut self) -> &mut [T] {
         self.buf
     }
 }
 
-impl<'a, N> Deref for GrantR<'a, N>
+impl<'a, T, N> Deref for GrantR<'a, T, N>
 where
-    N: ArrayLength<u8>,
+    T: Sized,
+    N: ArrayLength<T>,
 {
-    type Target = [u8];
+    type Target = [T];
 
     fn deref(&self) -> &Self::Target {
         self.buf

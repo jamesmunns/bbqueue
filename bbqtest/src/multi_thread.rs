@@ -13,6 +13,8 @@ mod tests {
 
     const RPT_IVAL: usize = ITERS / 100;
 
+    // Data type
+    type DataTy = u8;
     // These two should be the same
     type QueueSizeTy = U1024;
     const QUEUE_SIZE: usize = 1024;
@@ -29,7 +31,7 @@ mod tests {
         println!("RTX: Generating Test Data...");
         let gen_start = Instant::now();
         let mut data = Vec::with_capacity(ITERS);
-        (0..ITERS).for_each(|_| data.push(rand::random::<u8>()));
+        (0..ITERS).for_each(|_| data.push(rand::random::<DataTy>()));
         let mut data_rx = data.clone();
 
         let mut trng = thread_rng();
@@ -50,7 +52,7 @@ mod tests {
         #[cfg(feature = "verbose")]
         println!("RTX: Running test...");
 
-        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        static BB: BBBuffer<DataTy, QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
         let (mut tx, mut rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
@@ -142,7 +144,7 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        static BB: BBBuffer<DataTy, QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
         let (mut tx, mut rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
@@ -236,7 +238,7 @@ mod tests {
 
     #[test]
     fn sanity_check_grant_max() {
-        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        static BB: BBBuffer<DataTy, QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
         let (mut tx, mut rx) = BB.try_split().unwrap();
 
         #[cfg(feature = "verbose")]

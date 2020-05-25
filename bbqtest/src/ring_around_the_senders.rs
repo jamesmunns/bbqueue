@@ -1,18 +1,22 @@
 #[cfg(test)]
 mod tests {
 
+    use core::convert::TryFrom;
+    use core::fmt::Debug;
+    
     use bbqueue::{
         consts::*, ArrayLength, BBBuffer, ConstBBBuffer, Consumer, GrantR, GrantW, Producer,
     };
 
-    enum Potato<'a, N>
+    enum Potato<'a, T, N>
     where
-        N: ArrayLength<u8>,
+        T: Sized + TryFrom<usize>,
+        N: ArrayLength<T>,
     {
-        Tx((Producer<'a, N>, u8)),
-        Rx((Consumer<'a, N>, u8)),
-        TxG(GrantW<'a, N>),
-        RxG(GrantR<'a, N>),
+        Tx((Producer<'a, T, N>, u8)),
+        Rx((Consumer<'a, T, N>, u8)),
+        TxG(GrantW<'a, T, N>),
+        RxG(GrantR<'a, T, N>),
         Idle,
         Done,
     }
@@ -28,9 +32,10 @@ mod tests {
     const BYTES_PER_GRANT: usize = 129;
     type BufferSize = U4096;
 
-    impl<'a, N> Potato<'a, N>
+    impl<'a, T, N> Potato<'a, T, N>
     where
-        N: ArrayLength<u8>,
+        T: Sized + TryFrom<usize> + Debug + PartialEq,
+        N: ArrayLength<T>,
     {
         fn work(self) -> (Self, Self) {
             match self {
@@ -66,7 +71,7 @@ mod tests {
                     gr_w.iter_mut()
                         .take(BYTES_PER_GRANT)
                         .enumerate()
-                        .for_each(|(i, by)| *by = i as u8);
+                        .for_each(|(i, by)| *by = T::try_from(i).ok().expect("can construct from usize"));
                     gr_w.commit(BYTES_PER_GRANT);
                     (Self::Idle, Self::Idle)
                 }
@@ -74,7 +79,7 @@ mod tests {
                     gr_r.iter()
                         .take(BYTES_PER_GRANT)
                         .enumerate()
-                        .for_each(|(i, by)| assert_eq!(*by, i as u8));
+                        .for_each(|(i, by)| assert_eq!(*by, T::try_from(i).ok().expect("can construct from usize")));
                     gr_r.release(BYTES_PER_GRANT);
                     (Self::Idle, Self::Idle)
                 }
@@ -84,31 +89,37 @@ mod tests {
         }
     }
 
-    static BB: BBBuffer<BufferSize> = BBBuffer(ConstBBBuffer::new());
+    // Data type
+    type DataTy = u8;
+    static BB: BBBuffer<DataTy, BufferSize> = BBBuffer(ConstBBBuffer::new());
 
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread::spawn;
 
     #[test]
     fn hello() {
-        let (prod, cons) = BB.try_split().unwrap();
+        generic_hello::<DataTy>(&BB);
+    }
+
+    fn generic_hello<T>(bb: &'static BBBuffer<T, BufferSize>) where T: Sized + TryFrom<usize> + Debug + PartialEq {
+        let (prod, cons) = bb.try_split().unwrap();
 
         // create the channels
         let (tx_1_2, rx_1_2): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, T, BufferSize>>,
+            Receiver<Potato<'static, T, BufferSize>>,
         ) = channel();
         let (tx_2_3, rx_2_3): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, T, BufferSize>>,
+            Receiver<Potato<'static, T, BufferSize>>,
         ) = channel();
         let (tx_3_4, rx_3_4): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, T, BufferSize>>,
+            Receiver<Potato<'static, T, BufferSize>>,
         ) = channel();
         let (tx_4_1, rx_4_1): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, T, BufferSize>>,
+            Receiver<Potato<'static, T, BufferSize>>,
         ) = channel();
 
         tx_1_2.send(Potato::Tx((prod, 3))).unwrap();
@@ -116,7 +127,7 @@ mod tests {
 
         let thread_1 = spawn(move || {
             let mut count = TOTAL_RINGS;
-            let mut me: Potato<'static, BufferSize> = Potato::Idle;
+            let mut me: Potato<'static, T, BufferSize> = Potato::Idle;
 
             loop {
                 if let Potato::Idle = me {
@@ -168,9 +179,9 @@ mod tests {
         });
 
         let closure_2_3_4 =
-            move |rx: Receiver<Potato<'static, BufferSize>>,
-                  tx: Sender<Potato<'static, BufferSize>>| {
-                let mut me: Potato<'static, BufferSize> = Potato::Idle;
+            move |rx: Receiver<Potato<'static, T, BufferSize>>,
+                  tx: Sender<Potato<'static, T, BufferSize>>| {
+                let mut me: Potato<'static, T, BufferSize> = Potato::Idle;
                 let mut count = 0;
 
                 loop {

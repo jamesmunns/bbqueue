@@ -11,7 +11,7 @@ mod tests {
 
     #[test]
     fn deref_deref_mut() {
-        let bb: BBBuffer<U6> = BBBuffer::new();
+        let bb: BBBuffer<u8, U6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
         let mut wgr = prod.grant_exact(1).unwrap();
@@ -34,8 +34,8 @@ mod tests {
     #[test]
     fn static_allocator() {
         // Check we can make multiple static items...
-        static BBQ1: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
-        static BBQ2: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ1: BBBuffer<u8, U6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ2: BBBuffer<u8, U6> = BBBuffer(ConstBBBuffer::new());
         let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
         let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
 
@@ -55,8 +55,8 @@ mod tests {
     #[test]
     fn release() {
         // Check we can make multiple static items...
-        static BBQ1: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
-        static BBQ2: BBBuffer<U6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ1: BBBuffer<u8, U6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ2: BBBuffer<u8, U6> = BBBuffer(ConstBBBuffer::new());
         let (prod1, cons1) = BBQ1.try_split().unwrap();
         let (prod2, cons2) = BBQ2.try_split().unwrap();
 
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn direct_usage_sanity() {
         // Initialize
-        let bb: BBBuffer<U6> = BBBuffer::new();
+        let bb: BBBuffer<u8, U6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn zero_sized_grant() {
-        let bb: BBBuffer<U1000> = BBBuffer::new();
+        let bb: BBBuffer<u8, U1000> = BBBuffer::new();
         let (mut prod, mut _cons) = bb.try_split().unwrap();
 
         let size = 1000;
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn frame_sanity() {
-        let bb: BBBuffer<U1000> = BBBuffer::new();
+        let bb: BBBuffer<u8, U1000> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         // One frame in, one frame out
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn frame_wrap() {
-        let bb: BBBuffer<U22> = BBBuffer::new();
+        let bb: BBBuffer<u8, U22> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         // 10 + 1 used
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn frame_big_little() {
-        let bb: BBBuffer<U65536> = BBBuffer::new();
+        let bb: BBBuffer<u8, U65536> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         // Create a frame that should take 3 bytes for the header
