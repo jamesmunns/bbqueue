@@ -10,7 +10,6 @@ use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
     result::Result as CoreResult,
-    slice::from_raw_parts,
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
@@ -616,7 +615,7 @@ where
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice = unsafe { from_raw_parts(start_of_buf_ptr.offset(read as isize), sz) };
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
 
         Ok(GrantR {
             buf: grant_slice,
@@ -713,7 +712,7 @@ pub struct GrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    pub(crate) buf: &'a [u8],
+    pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
 }
 
@@ -847,7 +846,10 @@ where
     }
 
     pub(crate) fn shrink(&mut self, len: usize) {
-        self.buf = &self.buf[..len];
+        let mut new_buf: &mut [u8] = &mut [];
+        core::mem::swap(&mut self.buf, &mut new_buf);
+        let (new, _) = new_buf.split_at_mut(len);
+        self.buf = new;
     }
 
     /// Obtain access to the inner buffer for reading
@@ -957,6 +959,15 @@ where
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
+        self.buf
+    }
+}
+
+impl<'a, N> DerefMut for GrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
     }
 }
