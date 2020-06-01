@@ -885,6 +885,14 @@ where
         self.buf
     }
 
+    /// Obtain mutable access to the read grant
+    ///
+    /// This is useful if you are performing in-place operations
+    /// on an incoming packet, such as decryption
+    pub fn buf_mut(&mut self) -> &mut [u8] {
+        self.buf
+    }
+
     /// Sometimes, it's not possible for the lifetimes to check out. For example,
     /// if you need to hand this buffer to a function that expects to receive a
     /// `&'static [u8]`, it is not possible for the inner reference to outlive the
