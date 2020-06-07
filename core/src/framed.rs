@@ -204,6 +204,15 @@ where
     }
 }
 
+impl<'a, N> DerefMut for FrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn deref_mut(&mut self) -> &mut [u8] {
+        &mut self.grant_r.buf[self.hdr_len.into()..]
+    }
+}
+
 impl<'a, N> FrameGrantW<'a, N>
 where
     N: ArrayLength<u8>,

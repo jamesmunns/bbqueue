@@ -10,7 +10,6 @@ use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
     result::Result as CoreResult,
-    slice::from_raw_parts,
     slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
@@ -638,7 +637,7 @@ where
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<T>();
-        let grant_slice = unsafe { from_raw_parts(start_of_buf_ptr.offset(read as isize), sz) };
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
 
         Ok(GrantR {
             buf: grant_slice,
@@ -744,7 +743,7 @@ where
     T: Sized,
     N: ArrayLength<T>,
 {
-    pub(crate) buf: &'a [T],
+    pub(crate) buf: &'a mut [T],
     bbq: NonNull<BBBuffer<T, N>>,
 }
 
@@ -886,7 +885,10 @@ where
 
     #[allow(dead_code)]
     pub(crate) fn shrink(&mut self, len: usize) {
-        self.buf = &self.buf[..len];
+        let mut new_buf: &mut [T] = &mut [];
+        core::mem::swap(&mut self.buf, &mut new_buf);
+        let (new, _) = new_buf.split_at_mut(len);
+        self.buf = new;
     }
 
     /// Obtain access to the inner buffer for reading
@@ -919,6 +921,14 @@ where
     /// # }
     /// ```
     pub fn buf(&self) -> &[T] {
+        self.buf
+    }
+
+    /// Obtain mutable access to the read grant
+    ///
+    /// This is useful if you are performing in-place operations
+    /// on an incoming packet, such as decryption
+    pub fn buf_mut(&mut self) -> &mut [T] {
         self.buf
     }
 
@@ -1001,6 +1011,16 @@ where
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
+        self.buf
+    }
+}
+
+impl<'a, T, N> DerefMut for GrantR<'a, T, N>
+where
+    T: Sized,
+    N: ArrayLength<T>,
+{
+    fn deref_mut(&mut self) -> &mut [T] {
         self.buf
     }
 }
