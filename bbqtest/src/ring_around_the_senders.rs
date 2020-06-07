@@ -5,7 +5,7 @@ mod tests {
     use core::fmt::Debug;
 
     use bbqueue::{
-        consts::*, ArrayLength, BBBuffer, ConstBBBuffer, Consumer, GrantR, GrantW, Producer,
+        consts::*, ArrayLength, ConstBBBuffer, Consumer, GenericBBBuffer, GrantR, GrantW, Producer,
     };
 
     enum Potato<'a, T, N>
@@ -95,7 +95,7 @@ mod tests {
 
     // Data type
     type DataTy = u8;
-    static BB: BBBuffer<DataTy, BufferSize> = BBBuffer(ConstBBBuffer::new());
+    static BB: GenericBBBuffer<DataTy, BufferSize> = GenericBBBuffer(ConstBBBuffer::new());
 
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread::spawn;
@@ -105,7 +105,7 @@ mod tests {
         generic_hello::<DataTy>(&BB);
     }
 
-    fn generic_hello<T>(bb: &'static BBBuffer<T, BufferSize>)
+    fn generic_hello<T>(bb: &'static GenericBBBuffer<T, BufferSize>)
     where
         T: Sized + TryFrom<usize> + Debug + PartialEq,
     {

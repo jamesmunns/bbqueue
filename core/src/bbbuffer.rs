@@ -23,19 +23,24 @@ use generic_array::{ArrayLength, GenericArray};
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
 #[derive(Debug)]
-pub struct BBBuffer<T: Sized, N: ArrayLength<T>>(
+pub struct GenericBBBuffer<T: Sized, N: ArrayLength<T>>(
     // Underlying data storage
     #[doc(hidden)] pub ConstBBBuffer<GenericArray<T, N>>,
 );
 
+/// An alias of `GenericBBBuffer` parametrized with `u8` for operations on byte-based buffers,
+/// including `try_split_framed` method, `FrameProducer` and `FrameConsumer`.
+/// Added for compatibility with code depending on `BBBuffer` type name
+pub type BBBuffer<N> = GenericBBBuffer<u8, N>;
+
 unsafe impl<A> Sync for ConstBBBuffer<A> {}
 
-impl<'a, T, N> BBBuffer<T, N>
+impl<'a, T, N> GenericBBBuffer<T, N>
 where
     T: Sized,
     N: ArrayLength<T>,
 {
-    /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
+    /// Attempt to split the `GenericBBBuffer` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
     ///
     /// NOTE: When splitting, the underlying buffer will be explicitly initialized
@@ -50,10 +55,10 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (prod, cons) = buffer.try_split().unwrap();
     ///
     /// // Not possible to split twice
@@ -99,16 +104,16 @@ where
     /// This re-initializes the buffer so it may be split in a different mode at a later
     /// time. There must be no read or write grants active, or an error will be returned.
     ///
-    /// The `Producer` and `Consumer` must be from THIS `BBBuffer`, or an error will
+    /// The `Producer` and `Consumer` must be from THIS `GenericBBBuffer`, or an error will
     /// be returned.
     ///
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (prod, cons) = buffer.try_split().unwrap();
     ///
     /// // Not possible to split twice
@@ -170,11 +175,11 @@ where
     }
 }
 
-impl<'a, N> BBBuffer<u8, N>
+impl<'a, N> GenericBBBuffer<u8, N>
 where
     N: ArrayLength<u8>,
 {
-    /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
+    /// Attempt to split the `GenericBBBuffer` into `FrameConsumer` and `FrameProducer` halves
     /// to gain access to the buffer. If buffer has already been split, an error
     /// will be returned.
     ///
@@ -196,7 +201,7 @@ where
     /// This re-initializes the buffer so it may be split in a different mode at a later
     /// time. There must be no read or write grants active, or an error will be returned.
     ///
-    /// The `FrameProducer` and `FrameConsumer` must be from THIS `BBBuffer`, or an error
+    /// The `FrameProducer` and `FrameConsumer` must be from THIS `GenericBBBuffer`, or an error
     /// will be returned.
     pub fn try_release_framed(
         &'a self,
@@ -211,9 +216,9 @@ where
     }
 }
 
-/// `const-fn` version BBBuffer
+/// `const-fn` version GenericBBBuffer
 ///
-/// NOTE: This is only necessary to use when creating a `BBBuffer` at static
+/// NOTE: This is only necessary to use when creating a `GenericBBBuffer` at static
 /// scope, and is generally never used directly. This process is necessary to
 /// work around current limitations in `const fn`, and will be replaced in
 /// the future.
@@ -235,7 +240,7 @@ pub struct ConstBBBuffer<A> {
     /// when exiting the inverted condition
     last: AtomicUsize,
 
-    /// Used by the Writer to remember what bytes are currently
+    /// Used by the Writer to remember what elements are currently
     /// allowed to be written to, but are not yet ready to be
     /// read from
     reserve: AtomicUsize,
@@ -251,17 +256,17 @@ pub struct ConstBBBuffer<A> {
 }
 
 impl<A> ConstBBBuffer<A> {
-    /// Create a new constant inner portion of a `BBBuffer`.
+    /// Create a new constant inner portion of a `GenericBBBuffer`.
     ///
-    /// NOTE: This is only necessary to use when creating a `BBBuffer` at static
+    /// NOTE: This is only necessary to use when creating a `GenericBBBuffer` at static
     /// scope, and is generally never used directly. This process is necessary to
     /// work around current limitations in `const fn`, and will be replaced in
     /// the future.
     ///
     /// ```rust,no_run
-    /// use bbqueue::{BBBuffer, ConstBBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, ConstBBBuffer, consts::*};
     ///
-    /// static BUF: BBBuffer<u8, U6> = BBBuffer( ConstBBBuffer::new() );
+    /// static BUF: GenericBBBuffer<u8, U6> = GenericBBBuffer( ConstBBBuffer::new() );
     ///
     /// fn main() {
     ///    let (prod, cons) = BUF.try_split().unwrap();
@@ -285,9 +290,9 @@ impl<A> ConstBBBuffer<A> {
             /// and can cause the .data section to be much larger than necessary. By
             /// forcing the `last` pointer to be zero initially, we place the structure
             /// in an "inverted" condition, which will be resolved on the first commited
-            /// bytes that are written to the structure.
+            /// elements (i.e. bytes) that are written to the structure.
             ///
-            /// When read == last == write, no bytes will be allowed to be read (good), but
+            /// When read == last == write, no elements will be allowed to be read (good), but
             /// write grants can be given out (also good).
             last: AtomicUsize::new(0),
 
@@ -306,7 +311,7 @@ impl<A> ConstBBBuffer<A> {
     }
 }
 
-/// `Producer` is the primary interface for pushing data into a `BBBuffer`.
+/// `Producer` is the primary interface for pushing data into a `GenericBBBuffer`.
 /// There are various methods for obtaining a grant to write to the buffer, with
 /// different potential tradeoffs. As all grants are required to be a contiguous
 /// range of data, different strategies are sometimes useful when making the decision
@@ -318,15 +323,15 @@ impl<A> ConstBBBuffer<A> {
 ///   * User will receive a grant `sz == N` (or receive an error)
 ///   * This may cause a wraparound if a grant of size N is not available
 ///       at the end of the ring.
-///   * If this grant caused a wraparound, the bytes that were "skipped" at the
+///   * If this grant caused a wraparound, the elements that were "skipped" at the
 ///       end of the ring will not be available until the reader reaches them,
 ///       regardless of whether the grant commited any data or not.
-///   * Maximum possible waste due to skipping: `N - 1` bytes
+///   * Maximum possible waste due to skipping: `N - 1` elements
 /// * `grant_max_remaining(N)`
 ///   * User will receive a grant `0 < sz <= N` (or receive an error)
 ///   * This will only cause a wrap to the beginning of the ring if exactly
-///       zero bytes are available at the end of the ring.
-///   * Maximum possible waste due to skipping: 0 bytes
+///       zero element slots are available at the end of the ring.
+///   * Maximum possible waste due to skipping: 0 elements
 ///
 /// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
 /// discussion of grant methods that could be added in the future.
@@ -335,7 +340,7 @@ where
     T: Sized,
     N: ArrayLength<T>,
 {
-    bbq: NonNull<BBBuffer<T, N>>,
+    bbq: NonNull<GenericBBBuffer<T, N>>,
     pd: PhantomData<&'a ()>,
 }
 
@@ -352,7 +357,7 @@ where
     N: ArrayLength<T>,
 {
     /// Request a writable, contiguous section of memory of exactly
-    /// `sz` bytes. If the buffer size requested is not available,
+    /// `sz` element slots. If the buffer size requested is not available,
     /// an error will be returned.
     ///
     /// This method may cause the buffer to wrap around early if the
@@ -362,18 +367,18 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (mut prod, cons) = buffer.try_split().unwrap();
     ///
-    /// // Successfully obtain and commit a grant of four bytes
+    /// // Successfully obtain and commit a grant of four elements
     /// let mut grant = prod.grant_exact(4).unwrap();
     /// assert_eq!(grant.buf().len(), 4);
     /// grant.commit(4);
     ///
-    /// // Try to obtain a grant of three bytes
+    /// // Try to obtain a grant of three elements
     /// assert!(prod.grant_exact(3).is_err());
     /// # // bbqueue test shim!
     /// # }
@@ -443,7 +448,7 @@ where
     }
 
     /// Request a writable, contiguous section of memory of up to
-    /// `sz` bytes. If a buffer of size `sz` is not available without
+    /// `sz` elements. If a buffer of size `sz` is not available without
     /// wrapping, but some space (0 < available < sz) is available without
     /// wrapping, then a grant will be given for the remaining size at the
     /// end of the buffer. If no space is available for writing, an error
@@ -452,23 +457,23 @@ where
     /// ```
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
-    /// // Successfully obtain and commit a grant of four bytes
+    /// // Successfully obtain and commit a grant of four elements
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
     /// assert_eq!(grant.buf().len(), 4);
     /// grant.commit(4);
     ///
-    /// // Release the four initial commited bytes
+    /// // Release the four initial commited elements
     /// let mut grant = cons.read().unwrap();
     /// assert_eq!(grant.buf().len(), 4);
     /// grant.release(4);
     ///
-    /// // Try to obtain a grant of three bytes, get two bytes
+    /// // Try to obtain a grant of three elements, get two elements
     /// let mut grant = prod.grant_max_remaining(3).unwrap();
     /// assert_eq!(grant.buf().len(), 2);
     /// grant.commit(2);
@@ -545,13 +550,13 @@ where
     }
 }
 
-/// `Consumer` is the primary interface for reading data from a `BBBuffer`.
+/// `Consumer` is the primary interface for reading data from a `GenericBBBuffer`.
 pub struct Consumer<'a, T, N>
 where
     T: Sized,
     N: ArrayLength<T>,
 {
-    bbq: NonNull<BBBuffer<T, N>>,
+    bbq: NonNull<GenericBBBuffer<T, N>>,
     pd: PhantomData<&'a ()>,
 }
 
@@ -567,21 +572,21 @@ where
     T: Sized,
     N: ArrayLength<T>,
 {
-    /// Obtains a contiguous slice of committed bytes. This slice may not
-    /// contain ALL available bytes, if the writer has wrapped around. The
-    /// remaining bytes will be available after all readable bytes are
+    /// Obtains a contiguous slice of committed elements. This slice may not
+    /// contain ALL available elements, if the writer has wrapped around. The
+    /// remaining elements will be available after all readable elements are
     /// released
     ///
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
-    /// // Successfully obtain and commit a grant of four bytes
+    /// // Successfully obtain and commit a grant of four elements
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
     /// assert_eq!(grant.buf().len(), 4);
     /// grant.commit(4);
@@ -647,22 +652,22 @@ where
     }
 }
 
-impl<T, N> BBBuffer<T, N>
+impl<T, N> GenericBBBuffer<T, N>
 where
     T: Sized,
     N: ArrayLength<T>,
 {
     /// Returns the size of the backing storage.
     ///
-    /// This is the maximum number of bytes that can be stored in this queue.
+    /// This is the maximum number of elements that can be stored in this queue.
     ///
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// assert_eq!(buffer.capacity(), 6);
     /// # // bbqueue test shim!
     /// # }
@@ -677,7 +682,7 @@ where
     }
 }
 
-impl<T, N> BBBuffer<T, N>
+impl<T, N> GenericBBBuffer<T, N>
 where
     T: Sized,
     N: ArrayLength<T>,
@@ -689,10 +694,10 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// # // bbqueue test shim!
     /// # }
     /// #
@@ -710,7 +715,7 @@ where
 /// may be written to, and potentially "committed" to the queue.
 ///
 /// NOTE: If the grant is dropped without explicitly commiting
-/// the contents, then no bytes will be comitted for writing.
+/// the contents, then no elements will be comitted for writing.
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
@@ -720,7 +725,7 @@ where
     N: ArrayLength<T>,
 {
     pub(crate) buf: &'a mut [T],
-    bbq: NonNull<BBBuffer<T, N>>,
+    bbq: NonNull<GenericBBBuffer<T, N>>,
 }
 
 unsafe impl<'a, T, N> Send for GrantW<'a, T, N>
@@ -735,7 +740,7 @@ where
 /// from the queue
 ///
 /// NOTE: If the grant is dropped without explicitly releasing
-/// the contents, then no bytes will be released as read.
+/// the contents, then no elements will be released as read.
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
@@ -745,7 +750,7 @@ where
     N: ArrayLength<T>,
 {
     pub(crate) buf: &'a [T],
-    bbq: NonNull<BBBuffer<T, N>>,
+    bbq: NonNull<GenericBBBuffer<T, N>>,
 }
 
 unsafe impl<'a, T, N> Send for GrantR<'a, T, N>
@@ -779,13 +784,13 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
-    /// // Successfully obtain and commit a grant of four bytes
+    /// // Successfully obtain and commit a grant of four elements
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
     /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
     /// grant.commit(4);
@@ -835,7 +840,7 @@ where
         let new_write = inner.reserve.load(Acquire);
 
         if (new_write < write) && (write != max) {
-            // We have already wrapped, but we are skipping some bytes at the end of the ring.
+            // We have already wrapped, but we are skipping some elements at the end of the ring.
             // Mark `last` where the write pointer used to be to hold the line here
             inner.last.store(write, Release);
         } else if new_write > last {
@@ -868,7 +873,7 @@ where
     T: Sized,
     N: ArrayLength<T>,
 {
-    /// Release a sequence of bytes from the buffer, allowing the space
+    /// Release a sequence of elements from the buffer, allowing the space
     /// to be used by later writes. This consumes the grant.
     ///
     /// If `used` is larger than the given grant, the full grant will
@@ -894,13 +899,13 @@ where
     /// ```
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::{GenericBBBuffer, consts::*};
     ///
     /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<u8, U6> = BBBuffer::new();
+    /// let buffer: GenericBBBuffer<u8, U6> = GenericBBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
-    /// // Successfully obtain and commit a grant of four bytes
+    /// // Successfully obtain and commit a grant of four elements
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
     /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
     /// grant.commit(4);

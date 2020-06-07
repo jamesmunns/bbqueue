@@ -3,7 +3,7 @@ mod tests {
     use core::convert::TryFrom;
     use std::fmt::Debug;
 
-    use bbqueue::{consts::*, BBBuffer};
+    use bbqueue::{consts::*, GenericBBBuffer};
 
     #[test]
     fn sanity_check_u8() {
@@ -88,7 +88,7 @@ mod tests {
     where
         T: Sized + TryFrom<u8> + Debug + PartialEq + Clone,
     {
-        let bb: BBBuffer<T, U6> = BBBuffer::new();
+        let bb: GenericBBBuffer<T, U6> = GenericBBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
         const ITERS: usize = 100000;
