@@ -88,7 +88,7 @@ pub struct FrameProducer<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    pub(crate) producer: Producer<'a, N>,
+    pub(crate) producer: Producer<'a, u8, N>,
 }
 
 impl<'a, N> FrameProducer<'a, N>
@@ -113,7 +113,7 @@ pub struct FrameConsumer<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    pub(crate) consumer: Consumer<'a, N>,
+    pub(crate) consumer: Consumer<'a, u8, N>,
 }
 
 impl<'a, N> FrameConsumer<'a, N>
@@ -156,7 +156,7 @@ pub struct FrameGrantW<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    grant_w: GrantW<'a, N>,
+    grant_w: GrantW<'a, u8, N>,
     hdr_len: u8,
 }
 
@@ -169,7 +169,7 @@ pub struct FrameGrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    grant_r: GrantR<'a, N>,
+    grant_r: GrantR<'a, u8, N>,
     hdr_len: u8,
 }
 
