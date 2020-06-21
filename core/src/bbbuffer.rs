@@ -622,6 +622,91 @@ where
             bbq: self.bbq,
         })
     }
+
+    /// Obtains a contiguous slice of committed bytes. This slice may not
+    /// contain ALL available bytes, if the writer has wrapped around. The
+    /// remaining bytes will be available after all readable bytes are
+    /// released
+    ///
+    /// This grant automatically releases the configured amount of bytes on drop.
+    ///
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// grant.commit(4);
+    ///
+    /// // Obtain a read grant that automatically marks the obtained 4 bytes as read as soon as it is dropped.
+    /// let mut grant = cons.read_with_auto_release(4).unwrap();
+    /// assert_eq!(grant.buf().len(), 4);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
+    /// ```
+    pub fn read_with_auto_release(
+        &mut self,
+        auto_release_count: usize,
+    ) -> Result<AutoReleaseGrantR<'a, N>> {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+
+        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+            return Err(Error::GrantInProgress);
+        }
+
+        let write = inner.write.load(Acquire);
+        let last = inner.last.load(Acquire);
+        let mut read = inner.read.load(Acquire);
+
+        // Resolve the inverted case or end of read
+        if (read == last) && (write < read) {
+            read = 0;
+            // This has some room for error, the other thread reads this
+            // Impact to Grant:
+            //   Grant checks if read < write to see if inverted. If not inverted, but
+            //     no space left, Grant will initiate an inversion, but will not trigger it
+            // Impact to Commit:
+            //   Commit does not check read, but if Grant has started an inversion,
+            //   grant could move Last to the prior write position
+            // MOVING READ BACKWARDS!
+            inner.read.store(0, Release);
+        }
+
+        let sz = if write < read {
+            // Inverted, only believe last
+            last
+        } else {
+            // Not inverted, only believe write
+            write
+        } - read;
+
+        if sz == 0 {
+            inner.read_in_progress.store(false, Release);
+            return Err(Error::InsufficientSize);
+        }
+
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
+
+        Ok(AutoReleaseGrantR {
+            buf: grant_slice,
+            bbq: self.bbq,
+            auto_release_count,
+        })
+    }
 }
 
 impl<N> BBBuffer<N>
@@ -717,6 +802,26 @@ where
 }
 
 unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
+
+/// A structure representing a contiguous region of memory that
+/// may be read from, and potentially "released" (or cleared)
+/// from the queue
+///
+/// NOTE: If the grant is dropped without explicitly releasing
+/// the contents, then the configured amount of bytes will be released as read.
+/// If the `thumbv6` feature is selected, dropping the grant
+/// without releasing it takes a short critical section,
+#[derive(Debug, PartialEq)]
+pub struct AutoReleaseGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    pub(crate) buf: &'a mut [u8],
+    bbq: NonNull<BBBuffer<N>>,
+    auto_release_count: usize,
+}
+
+unsafe impl<'a, N> Send for AutoReleaseGrantR<'a, N> where N: ArrayLength<u8> {}
 
 impl<'a, N> GrantW<'a, N>
 where
@@ -922,6 +1027,96 @@ where
     }
 }
 
+impl<'a, N> AutoReleaseGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    /// Release a sequence of bytes from the buffer, allowing the space
+    /// to be used by later writes. This consumes the grant.
+    ///
+    /// If `used` is larger than the given grant, the full grant will
+    /// be released.
+    ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// section while releasing.
+    pub fn release(mut self, used: usize) {
+        // Saturate the grant release
+        let used = min(self.buf.len(), used);
+
+        self.release_inner(used);
+        forget(self);
+    }
+
+    /// Obtain access to the inner buffer for reading
+    ///
+    /// ```
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
+    /// grant.commit(4);
+    ///
+    /// // Obtain a read grant, and copy to a buffer
+    /// let mut grant = cons.read().unwrap();
+    /// let mut buf = [0u8; 4];
+    /// buf.copy_from_slice(grant.buf());
+    /// assert_eq!(&buf, &[1, 2, 3, 4]);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
+    /// ```
+    pub fn buf(&self) -> &[u8] {
+        self.buf
+    }
+
+    /// Obtain mutable access to the read grant
+    ///
+    /// This is useful if you are performing in-place operations
+    /// on an incoming packet, such as decryption
+    pub fn buf_mut(&mut self) -> &mut [u8] {
+        self.buf
+    }
+
+    /// Sometimes, it's not possible for the lifetimes to check out. For example,
+    /// if you need to hand this buffer to a function that expects to receive a
+    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
+    /// grant itself.
+    ///
+    /// You MUST guarantee that in no cases, the reference that is returned here outlives
+    /// the grant itself. Once the grant has been released, referencing the data contained
+    /// WILL cause undefined behavior.
+    ///
+    /// Additionally, you must ensure that a separate reference to this data is not created
+    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
+    pub unsafe fn as_static_buf(&self) -> &'static [u8] {
+        transmute::<&[u8], &'static [u8]>(self.buf)
+    }
+
+    #[inline(always)]
+    pub(crate) fn release_inner(&mut self, used: usize) {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+
+        // This should always be checked by the public interfaces
+        debug_assert!(used <= self.buf.len());
+
+        // This should be fine, purely incrementing
+        let _ = atomic::fetch_add(&inner.read, used, Release);
+
+        inner.read_in_progress.store(false, Release);
+    }
+}
+
 impl<'a, N> Drop for GrantW<'a, N>
 where
     N: ArrayLength<u8>,
@@ -937,6 +1132,15 @@ where
 {
     fn drop(&mut self) {
         self.release_inner(0)
+    }
+}
+
+impl<'a, N> Drop for AutoReleaseGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        self.release_inner(self.auto_release_count)
     }
 }
 
@@ -972,6 +1176,26 @@ where
 }
 
 impl<'a, N> DerefMut for GrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.buf
+    }
+}
+
+impl<'a, N> Deref for AutoReleaseGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.buf
+    }
+}
+
+impl<'a, N> DerefMut for AutoReleaseGrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
