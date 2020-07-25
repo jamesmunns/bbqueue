@@ -144,7 +144,7 @@ where
 
 unsafe impl<N> Send for Producer<N> where N: ArrayLength<u8> {}
 
-impl<'a, N: 'a> Producer<N>
+impl<'a, N> Producer<N>
 where
     N: ArrayLength<u8>,
 {
@@ -360,7 +360,7 @@ where
 
 unsafe impl<N> Send for Consumer<N> where N: ArrayLength<u8> {}
 
-impl<'a, N: 'a> Consumer<N>
+impl<'a, N> Consumer<N>
 where
     N: ArrayLength<u8>,
 {

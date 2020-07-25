@@ -232,7 +232,7 @@ where
 
 unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
 
-impl<'a, N: 'a> Producer<'a, N>
+impl<'a, N> Producer<'a, N>
 where
     N: ArrayLength<u8>,
 {
@@ -326,7 +326,7 @@ where
 
 unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
 
-impl<'a, N: 'a> Consumer<'a, N>
+impl<'a, N> Consumer<'a, N>
 where
     N: ArrayLength<u8>,
 {
