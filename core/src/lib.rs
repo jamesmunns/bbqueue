@@ -108,6 +108,8 @@
 mod bbbuffer;
 pub use bbbuffer::*;
 
+mod common;
+
 /// There are no longer separate `atomic` and `cm_mutex` modules. You can just use the types at the
 /// crate root.
 #[deprecated(
