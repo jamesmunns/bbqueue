@@ -67,19 +67,18 @@ where
             let mu_ptr = self.0.buf.get();
             (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
-            let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
-            let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
+            let nn = NonNull::new_unchecked(&self.0 as *const _ as *mut _);
 
             Ok((
                 Producer {
                     inner: common::Producer {
-                        bbq: nn1,
+                        bbq: nn,
                     },
                     pd: PhantomData,
                 },
                 Consumer {
                     inner: common::Consumer {
-                        bbq: nn2,
+                        bbq: nn,
                     },
                     pd: PhantomData,
                 },
@@ -147,8 +146,8 @@ where
         // can assume the buffer has been split, because
 
         // Are these our producers and consumers?
-        let our_prod = prod.inner.bbq.as_ptr() as *const Self == self;
-        let our_cons = cons.inner.bbq.as_ptr() as *const Self == self;
+        let our_prod = prod.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
+        let our_cons = cons.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
 
         if !(our_prod && our_cons) {
             // Can't release, not our producer and consumer
@@ -233,7 +232,7 @@ where
 
 unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
 
-impl<'a, N> Producer<'a, N>
+impl<'a, N: 'a> Producer<'a, N>
 where
     N: ArrayLength<u8>,
 {
@@ -269,7 +268,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_exact(&'a mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         self.inner.grant_exact(sz)
     }
 
@@ -311,7 +310,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_max_remaining(&'a mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_max_remaining(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         self.inner.grant_max_remaining(sz)
     }
 }
@@ -327,7 +326,7 @@ where
 
 unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
 
-impl<'a, N> Consumer<'a, N>
+impl<'a, N: 'a> Consumer<'a, N>
 where
     N: ArrayLength<u8>,
 {
@@ -361,7 +360,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn read(&'a mut self) -> Result<GrantR<'a, N>> {
+    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         self.inner.read()
     }
 }

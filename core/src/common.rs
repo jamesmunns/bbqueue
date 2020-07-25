@@ -7,13 +7,12 @@ use core::{
     mem::{forget, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
-    slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
         Ordering::{AcqRel, Acquire, Release},
     },
 };
-use generic_array::ArrayLength;
+use generic_array::{ArrayLength, GenericArray};
 
 /// `const-fn` version BBBuffer
 ///
@@ -139,12 +138,12 @@ pub struct Producer<N>
 where
     N: ArrayLength<u8>,
 {
-    pub(crate) bbq: NonNull<ConstBBBuffer<N>>,
+    pub(crate) bbq: NonNull<ConstBBBuffer<GenericArray<u8, N>>>,
 }
 
 unsafe impl<N> Send for Producer<N> where N: ArrayLength<u8> {}
 
-impl<N> Producer<N>
+impl<'a, N: 'a> Producer<N>
 where
     N: ArrayLength<u8>,
 {
@@ -180,7 +179,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_exact<'a>(&'a mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
@@ -227,11 +226,9 @@ where
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
-        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
-            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+            &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+                .as_mut_slice()[start .. start + sz];
 
         Ok(GrantW {
             buf: grant_slice,
@@ -277,7 +274,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_max_remaining<'a>(&'a mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
@@ -329,11 +326,9 @@ where
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
-        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
-            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+            &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+                .as_mut_slice()[start .. start + sz];
 
         Ok(GrantW {
             buf: grant_slice,
@@ -347,12 +342,12 @@ pub struct Consumer<N>
 where
     N: ArrayLength<u8>,
 {
-    pub(crate) bbq: NonNull<ConstBBBuffer<N>>,
+    pub(crate) bbq: NonNull<ConstBBBuffer<GenericArray<u8, N>>>,
 }
 
 unsafe impl<N> Send for Consumer<N> where N: ArrayLength<u8> {}
 
-impl<N> Consumer<N>
+impl<'a, N: 'a> Consumer<N>
 where
     N: ArrayLength<u8>,
 {
@@ -386,7 +381,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn read<'a>(&'a mut self) -> Result<GrantR<'a, N>> {
+    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.read_in_progress, true, AcqRel) {
@@ -424,10 +419,9 @@ where
             return Err(Error::InsufficientSize);
         }
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
-        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
+        let grant_slice =
+            &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+                .as_mut_slice()[read .. read + sz];
 
         Ok(GrantR {
             buf: grant_slice,
@@ -449,7 +443,7 @@ where
     N: ArrayLength<u8>,
 {
     pub(crate) buf: &'a mut [u8],
-    pub(crate) bbq: NonNull<ConstBBBuffer<N>>,
+    pub(crate) bbq: NonNull<ConstBBBuffer<GenericArray<u8, N>>>,
 }
 
 unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
@@ -468,7 +462,7 @@ where
     N: ArrayLength<u8>,
 {
     pub(crate) buf: &'a mut [u8],
-    pub(crate) bbq: NonNull<ConstBBBuffer<N>>,
+    pub(crate) bbq: NonNull<ConstBBBuffer<GenericArray<u8, N>>>,
 }
 
 unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
