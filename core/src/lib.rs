@@ -105,11 +105,14 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod bbbuffer;
 pub use bbbuffer::*;
 
 mod common;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub mod heap;
 
 /// There are no longer separate `atomic` and `cm_mutex` modules. You can just use the types at the

@@ -24,6 +24,7 @@ thumbv6 = ["cortex-m"]
 # TODO: These don't really do anything anymore
 atomic = []
 std = []
+alloc = []
 
 
 [package.metadata.docs.rs]

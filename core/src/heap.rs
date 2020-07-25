@@ -5,7 +5,10 @@ use crate::{
     common::{self, atomic},
     Error, Result,
 };
-use std::sync::Arc;
+use alloc::{
+    boxed::Box,
+    sync::Arc,
+};
 use core::{
     ptr::NonNull,
     sync::atomic::{
