@@ -1,14 +1,14 @@
+//! Heap-allocated flavor of BBQueue.
+
 pub use crate::common::{ConstBBBuffer, GrantR, GrantW};
 use crate::{
     common::{self, atomic},
-    framed::{FrameConsumer, FrameProducer},
     Error, Result,
 };
+use alloc::{boxed::Box, sync::Arc};
 use core::{
-    marker::PhantomData,
     ptr::NonNull,
-    result::Result as CoreResult,
-    sync::atomic::Ordering::{AcqRel, Acquire, Release},
+    sync::atomic::{AtomicBool, Ordering::AcqRel},
 };
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
@@ -17,10 +17,10 @@ use generic_array::{ArrayLength, GenericArray};
 /// a BBQueue or a split Producer/Consumer pair
 pub struct BBBuffer<N: ArrayLength<u8>>(
     // Underlying data storage
-    #[doc(hidden)] pub ConstBBBuffer<GenericArray<u8, N>>,
+    #[doc(hidden)] pub Box<ConstBBBuffer<GenericArray<u8, N>>>,
 );
 
-impl<'a, N> BBBuffer<N>
+impl<N> BBBuffer<N>
 where
     N: ArrayLength<u8>,
 {
@@ -39,14 +39,12 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::consts::*;
+    /// use bbqueue::heap::BBBuffer;
     ///
     /// // Create and split a new buffer
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
     /// let (prod, cons) = buffer.try_split().unwrap();
-    ///
-    /// // Not possible to split twice
-    /// assert!(buffer.try_split().is_err());
     /// # // bbqueue test shim!
     /// # }
     /// #
@@ -55,7 +53,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
+    pub fn try_split(self) -> Result<(Producer<N>, Consumer<N>)> {
         if atomic::swap(&self.0.already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
@@ -67,21 +65,23 @@ where
             let mu_ptr = self.0.buf.get();
             (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
-            let nn = NonNull::new_unchecked(&self.0 as *const _ as *mut _);
+            let nn: NonNull<_> = Box::leak(self.0).into();
+            let dealloc_on_drop = Arc::new(AtomicBool::new(false));
 
             Ok((
                 Producer {
                     inner: common::Producer { bbq: nn },
-                    pd: PhantomData,
+                    dealloc_on_drop: dealloc_on_drop.clone(),
                 },
                 Consumer {
                     inner: common::Consumer { bbq: nn },
-                    pd: PhantomData,
+                    dealloc_on_drop: dealloc_on_drop.clone(),
                 },
             ))
         }
     }
 
+    /*
     /// Attempt to split the `BBBuffer` into `FrameConsumer` and `FrameProducer` halves
     /// to gain access to the buffer. If buffer has already been split, an error
     /// will be returned.
@@ -94,106 +94,10 @@ where
     ///
     /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
     /// section while splitting.
-    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+    pub fn try_split_framed(self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
-    }
-
-    /// Attempt to release the Producer and Consumer
-    ///
-    /// This re-initializes the buffer so it may be split in a different mode at a later
-    /// time. There must be no read or write grants active, or an error will be returned.
-    ///
-    /// The `Producer` and `Consumer` must be from THIS `BBBuffer`, or an error will
-    /// be returned.
-    ///
-    /// ```rust
-    /// # // bbqueue test shim!
-    /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
-    ///
-    /// // Create and split a new buffer
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
-    /// let (prod, cons) = buffer.try_split().unwrap();
-    ///
-    /// // Not possible to split twice
-    /// assert!(buffer.try_split().is_err());
-    ///
-    /// // Release the producer and consumer
-    /// assert!(buffer.try_release(prod, cons).is_ok());
-    ///
-    /// // Split the buffer in framed mode
-    /// let (fprod, fcons) = buffer.try_split_framed().unwrap();
-    /// # // bbqueue test shim!
-    /// # }
-    /// #
-    /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
-    /// # bbqtest();
-    /// # }
-    /// ```
-    pub fn try_release(
-        &'a self,
-        prod: Producer<'a, N>,
-        cons: Consumer<'a, N>,
-    ) -> CoreResult<(), (Producer<'a, N>, Consumer<'a, N>)> {
-        // Note: Re-entrancy is not possible because we require ownership
-        // of the producer and consumer, which are not cloneable. We also
-        // can assume the buffer has been split, because
-
-        // Are these our producers and consumers?
-        let our_prod =
-            prod.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
-        let our_cons =
-            cons.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
-
-        if !(our_prod && our_cons) {
-            // Can't release, not our producer and consumer
-            return Err((prod, cons));
-        }
-
-        let wr_in_progress = self.0.write_in_progress.load(Acquire);
-        let rd_in_progress = self.0.read_in_progress.load(Acquire);
-
-        if wr_in_progress || rd_in_progress {
-            // Can't release, active grant(s) in progress
-            return Err((prod, cons));
-        }
-
-        // Drop the producer and consumer halves
-        drop(prod);
-        drop(cons);
-
-        // Re-initialize the buffer (not totally needed, but nice to do)
-        self.0.write.store(0, Release);
-        self.0.read.store(0, Release);
-        self.0.reserve.store(0, Release);
-        self.0.last.store(0, Release);
-
-        // Mark the buffer as ready to be split
-        self.0.already_split.store(false, Release);
-
-        Ok(())
-    }
-
-    /// Attempt to release the Producer and Consumer in Framed mode
-    ///
-    /// This re-initializes the buffer so it may be split in a different mode at a later
-    /// time. There must be no read or write grants active, or an error will be returned.
-    ///
-    /// The `FrameProducer` and `FrameConsumer` must be from THIS `BBBuffer`, or an error
-    /// will be returned.
-    pub fn try_release_framed(
-        &'a self,
-        prod: FrameProducer<'a, N>,
-        cons: FrameConsumer<'a, N>,
-    ) -> CoreResult<(), (FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
-        self.try_release(prod.producer, cons.consumer)
-            .map_err(|(producer, consumer)| {
-                // Restore the wrapper types
-                (FrameProducer { producer }, FrameConsumer { consumer })
-            })
-    }
+    }*/
 }
 
 /// `Producer` is the primary interface for pushing data into a `BBBuffer`.
@@ -220,17 +124,17 @@ where
 ///
 /// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
 /// discussion of grant methods that could be added in the future.
-pub struct Producer<'a, N>
+pub struct Producer<N>
 where
     N: ArrayLength<u8>,
 {
     inner: common::Producer<N>,
-    pd: PhantomData<&'a ()>,
+    dealloc_on_drop: Arc<AtomicBool>,
 }
 
-unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
+unsafe impl<N> Send for Producer<N> where N: ArrayLength<u8> {}
 
-impl<'a, N> Producer<'a, N>
+impl<N> Producer<N>
 where
     N: ArrayLength<u8>,
 {
@@ -245,7 +149,8 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::consts::*;
+    /// use bbqueue::heap::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
@@ -266,7 +171,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_exact<'a>(&'a mut self, sz: usize) -> Result<GrantW<'a, N>> {
         self.inner.grant_exact(sz)
     }
 
@@ -280,7 +185,8 @@ where
     /// ```
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::consts::*;
+    /// use bbqueue::heap::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
@@ -308,23 +214,23 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_max_remaining(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_max_remaining<'a>(&'a mut self, sz: usize) -> Result<GrantW<'a, N>> {
         self.inner.grant_max_remaining(sz)
     }
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
-pub struct Consumer<'a, N>
+pub struct Consumer<N>
 where
     N: ArrayLength<u8>,
 {
     inner: common::Consumer<N>,
-    pd: PhantomData<&'a ()>,
+    dealloc_on_drop: Arc<AtomicBool>,
 }
 
-unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
+unsafe impl<N> Send for Consumer<N> where N: ArrayLength<u8> {}
 
-impl<'a, N> Consumer<'a, N>
+impl<N> Consumer<N>
 where
     N: ArrayLength<u8>,
 {
@@ -336,7 +242,8 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::consts::*;
+    /// use bbqueue::heap::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
@@ -344,12 +251,14 @@ where
     ///
     /// // Successfully obtain and commit a grant of four bytes
     /// let mut grant = prod.grant_max_remaining(4).unwrap();
-    /// assert_eq!(grant.buf().len(), 4);
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
     /// grant.commit(4);
     ///
-    /// // Obtain a read grant
+    /// // Obtain a read grant, and copy to a buffer
     /// let mut grant = cons.read().unwrap();
-    /// assert_eq!(grant.buf().len(), 4);
+    /// let mut buf = [0u8; 4];
+    /// buf.copy_from_slice(grant.buf());
+    /// assert_eq!(&buf, &[1, 2, 3, 4]);
     /// # // bbqueue test shim!
     /// # }
     /// #
@@ -358,8 +267,34 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
+    pub fn read<'a>(&'a mut self) -> Result<GrantR<'a, N>> {
         self.inner.read()
+    }
+}
+
+impl<N> Drop for Producer<N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        if atomic::swap(&self.dealloc_on_drop, true, AcqRel) {
+            unsafe {
+                Box::from_raw(self.inner.bbq.as_ptr());
+            }
+        }
+    }
+}
+
+impl<N> Drop for Consumer<N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        if atomic::swap(&self.dealloc_on_drop, true, AcqRel) {
+            unsafe {
+                Box::from_raw(self.inner.bbq.as_ptr());
+            }
+        }
     }
 }
 
@@ -374,7 +309,8 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::consts::*;
+    /// use bbqueue::heap::BBBuffer;
     ///
     /// // Create a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
@@ -403,7 +339,8 @@ where
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
+    /// use bbqueue::consts::*;
+    /// use bbqueue::heap::BBBuffer;
     ///
     /// // Create a new buffer of 6 elements
     /// let buffer: BBBuffer<U6> = BBBuffer::new();
@@ -416,6 +353,6 @@ where
     /// # }
     /// ```
     pub fn new() -> Self {
-        Self(ConstBBBuffer::new())
+        Self(Box::new(ConstBBBuffer::new()))
     }
 }
