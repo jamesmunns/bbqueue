@@ -1,5 +1,3 @@
-#![feature(maybe_uninit_ref)]
-
 //! # BBQueue
 //!
 //! BBQueue, short for "BipBuffer Queue", is a Single Producer Single Consumer,

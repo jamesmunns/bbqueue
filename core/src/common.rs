@@ -7,6 +7,7 @@ use core::{
     mem::{forget, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
+    slice::from_raw_parts_mut,
     sync::atomic::{
         AtomicBool, AtomicUsize,
         Ordering::{AcqRel, Acquire, Release},
@@ -226,9 +227,15 @@ where
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
-            &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
-                .as_mut_slice()[start .. start + sz];
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+        // TODO feature(maybe_uninit_ref)
+        //let grant_slice =
+        //    &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+        //        .as_mut_slice()[start .. start + sz];
 
         Ok(GrantW {
             buf: grant_slice,
@@ -326,9 +333,15 @@ where
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
-            &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
-                .as_mut_slice()[start .. start + sz];
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+        // TODO feature(maybe_uninit_ref)
+        //let grant_slice =
+        //    &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+        //        .as_mut_slice()[start .. start + sz];
 
         Ok(GrantW {
             buf: grant_slice,
@@ -419,9 +432,15 @@ where
             return Err(Error::InsufficientSize);
         }
 
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
-            &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
-                .as_mut_slice()[read .. read + sz];
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
+        // TODO feature(maybe_uninit_ref)
+        //let grant_slice =
+        //    &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+        //        .as_mut_slice()[read .. read + sz];
 
         Ok(GrantR {
             buf: grant_slice,
