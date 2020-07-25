@@ -109,6 +109,8 @@ mod bbbuffer;
 pub use bbbuffer::*;
 
 mod common;
+#[cfg(feature = "std")]
+pub mod heap;
 
 /// There are no longer separate `atomic` and `cm_mutex` modules. You can just use the types at the
 /// crate root.
