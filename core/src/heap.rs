@@ -5,16 +5,10 @@ use crate::{
     common::{self, atomic},
     Error, Result,
 };
-use alloc::{
-    boxed::Box,
-    sync::Arc,
-};
+use alloc::{boxed::Box, sync::Arc};
 use core::{
     ptr::NonNull,
-    sync::atomic::{
-        AtomicBool,
-        Ordering::AcqRel,
-    },
+    sync::atomic::{AtomicBool, Ordering::AcqRel},
 };
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
@@ -76,15 +70,11 @@ where
 
             Ok((
                 Producer {
-                    inner: common::Producer {
-                        bbq: nn,
-                    },
+                    inner: common::Producer { bbq: nn },
                     dealloc_on_drop: dealloc_on_drop.clone(),
                 },
                 Consumer {
-                    inner: common::Consumer {
-                        bbq: nn,
-                    },
+                    inner: common::Consumer { bbq: nn },
                     dealloc_on_drop: dealloc_on_drop.clone(),
                 },
             ))
@@ -288,7 +278,9 @@ where
 {
     fn drop(&mut self) {
         if atomic::swap(&self.dealloc_on_drop, true, AcqRel) {
-            unsafe { Box::from_raw(self.inner.bbq.as_ptr()); }
+            unsafe {
+                Box::from_raw(self.inner.bbq.as_ptr());
+            }
         }
     }
 }
@@ -299,7 +291,9 @@ where
 {
     fn drop(&mut self) {
         if atomic::swap(&self.dealloc_on_drop, true, AcqRel) {
-            unsafe { Box::from_raw(self.inner.bbq.as_ptr()); }
+            unsafe {
+                Box::from_raw(self.inner.bbq.as_ptr());
+            }
         }
     }
 }
@@ -362,4 +356,3 @@ where
         Self(Box::new(ConstBBBuffer::new()))
     }
 }
-

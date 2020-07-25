@@ -1,6 +1,4 @@
-use crate::{
-    Error, Result,
-};
+use crate::{Error, Result};
 use core::{
     cell::UnsafeCell,
     cmp::min,
@@ -435,12 +433,10 @@ where
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice =
-            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
         // TODO feature(maybe_uninit_ref)
-        //let grant_slice =
-        //    &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
-        //        .as_mut_slice()[read .. read + sz];
+        //let grant_slice = &mut unsafe { inner.buf.get().as_mut().unwrap().get_mut() }
+        //    .as_mut_slice()[read..read + sz];
 
         Ok(GrantR {
             buf: grant_slice,

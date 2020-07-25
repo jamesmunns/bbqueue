@@ -71,15 +71,11 @@ where
 
             Ok((
                 Producer {
-                    inner: common::Producer {
-                        bbq: nn,
-                    },
+                    inner: common::Producer { bbq: nn },
                     pd: PhantomData,
                 },
                 Consumer {
-                    inner: common::Consumer {
-                        bbq: nn,
-                    },
+                    inner: common::Consumer { bbq: nn },
                     pd: PhantomData,
                 },
             ))
@@ -146,8 +142,10 @@ where
         // can assume the buffer has been split, because
 
         // Are these our producers and consumers?
-        let our_prod = prod.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
-        let our_cons = cons.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
+        let our_prod =
+            prod.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
+        let our_cons =
+            cons.inner.bbq.as_ptr() as *const ConstBBBuffer<GenericArray<u8, N>> == &self.0;
 
         if !(our_prod && our_cons) {
             // Can't release, not our producer and consumer
@@ -421,4 +419,3 @@ where
         Self(ConstBBBuffer::new())
     }
 }
-
