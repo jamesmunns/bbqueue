@@ -11,9 +11,9 @@
 //! ```rust
 //! # // bbqueue test shim!
 //! # fn bbqtest() {
-//! use bbqueue::{BBBuffer, consts::*};
+//! use bbqueue::{GenericArray, ArrayStorage, BBBuffer, consts::*};
 //!
-//! let bb: BBBuffer<U1000> = BBBuffer::new();
+//! let bb: BBBuffer<ArrayStorage<GenericArray<u8, U1000>>> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 //!
 //! // One frame in, one frame out
@@ -70,7 +70,7 @@
 //! | (2^56)..(2^64)        | 9                    |
 //!
 
-use crate::{Consumer, GrantR, GrantW, Producer};
+use crate::{BBStorage, Consumer, GrantR, GrantW, Producer};
 
 use crate::{
     vusize::{decode_usize, decoded_len, encode_usize_to_slice, encoded_len},
@@ -81,25 +81,24 @@ use core::{
     cmp::min,
     ops::{Deref, DerefMut},
 };
-use generic_array::ArrayLength;
 
 /// A producer of Framed data
-pub struct FrameProducer<'a, N>
+pub struct FrameProducer<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
-    pub(crate) producer: Producer<'a, N>,
+    pub(crate) producer: Producer<'a, A>,
 }
 
-impl<'a, N> FrameProducer<'a, N>
+impl<'a, A> FrameProducer<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     /// Receive a grant for a frame with a maximum size of `max_sz` in bytes.
     ///
     /// This size does not include the size of the frame header. The exact size
     /// of the frame can be set on `commit`.
-    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
+    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, A>> {
         let hdr_len = encoded_len(max_sz);
         Ok(FrameGrantW {
             grant_w: self.producer.grant_exact(max_sz + hdr_len)?,
@@ -109,19 +108,19 @@ where
 }
 
 /// A consumer of Framed data
-pub struct FrameConsumer<'a, N>
+pub struct FrameConsumer<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
-    pub(crate) consumer: Consumer<'a, N>,
+    pub(crate) consumer: Consumer<'a, A>,
 }
 
-impl<'a, N> FrameConsumer<'a, N>
+impl<'a, A> FrameConsumer<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     /// Obtain the next available frame, if any
-    pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
+    pub fn read(&mut self) -> Option<FrameGrantR<'a, A>> {
         // Get all available bytes. We never wrap a frame around,
         // so if a header is available, the whole frame will be.
         let mut grant_r = self.consumer.read().ok()?;
@@ -153,11 +152,11 @@ where
 /// the contents without first calling `to_commit()`, then no
 /// frame will be comitted for writing.
 #[derive(Debug, PartialEq)]
-pub struct FrameGrantW<'a, N>
+pub struct FrameGrantW<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
-    grant_w: GrantW<'a, N>,
+    grant_w: GrantW<'a, A>,
     hdr_len: u8,
 }
 
@@ -166,17 +165,17 @@ where
 /// NOTE: If the grant is dropped without explicitly releasing
 /// the contents, then no frame will be released.
 #[derive(Debug, PartialEq)]
-pub struct FrameGrantR<'a, N>
+pub struct FrameGrantR<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
-    grant_r: GrantR<'a, N>,
+    grant_r: GrantR<'a, A>,
     hdr_len: u8,
 }
 
-impl<'a, N> Deref for FrameGrantW<'a, N>
+impl<'a, A> Deref for FrameGrantW<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     type Target = [u8];
 
@@ -185,18 +184,18 @@ where
     }
 }
 
-impl<'a, N> DerefMut for FrameGrantW<'a, N>
+impl<'a, A> DerefMut for FrameGrantW<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.grant_w.buf[self.hdr_len.into()..]
     }
 }
 
-impl<'a, N> Deref for FrameGrantR<'a, N>
+impl<'a, A> Deref for FrameGrantR<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     type Target = [u8];
 
@@ -205,9 +204,9 @@ where
     }
 }
 
-impl<'a, N> DerefMut for FrameGrantR<'a, N>
+impl<'a, A> DerefMut for FrameGrantR<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.grant_r.buf[self.hdr_len.into()..]
@@ -216,15 +215,15 @@ where
 
 /// You can now use the to_commit method on grants to have them auto-commit
 #[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoReleaseFrameGrantR<'a, N> = FrameGrantR<'a, N>;
+pub type AutoReleaseFrameGrantR<'a, A> = FrameGrantR<'a, A>;
 
 /// You can now use the to_release method on grants to have them auto-commit
 #[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoCommitFrameGrantW<'a, N> = FrameGrantW<'a, N>;
+pub type AutoCommitFrameGrantW<'a, A> = FrameGrantW<'a, A>;
 
-impl<'a, N> FrameGrantW<'a, N>
+impl<'a, A> FrameGrantW<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     /// Commit a frame to make it available to the Consumer half.
     ///
@@ -267,7 +266,7 @@ where
     /// be changed by calling `AutoCommitFrameGrantW::to_commit()`.
     #[deprecated(note = "Use `to_commit()` instead")]
     #[allow(deprecated)]
-    pub fn into_auto_commit(mut self) -> AutoCommitFrameGrantW<'a, N> {
+    pub fn into_auto_commit(mut self) -> AutoCommitFrameGrantW<'a, A> {
         let grant_len = self.grant_w.len();
         let hdr_len: usize = self.hdr_len.into();
         let frame_len = grant_len - hdr_len;
@@ -280,9 +279,9 @@ where
     }
 }
 
-impl<'a, N> FrameGrantR<'a, N>
+impl<'a, A> FrameGrantR<'a, A>
 where
-    N: ArrayLength<u8>,
+    A: BBStorage,
 {
     /// Release a frame to make the space available for future writing
     ///
@@ -305,7 +304,7 @@ where
     /// NOTE: Framed Read Grants always release the entire contents.
     #[deprecated(note = "Use `auto_release()` instead")]
     #[allow(deprecated)]
-    pub fn into_auto_release(mut self) -> AutoReleaseFrameGrantR<'a, N> {
+    pub fn into_auto_release(mut self) -> AutoReleaseFrameGrantR<'a, A> {
         self.grant_r.to_release(self.grant_r.len());
         self
     }

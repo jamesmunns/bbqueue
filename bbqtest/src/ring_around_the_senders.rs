@@ -2,17 +2,18 @@
 mod tests {
 
     use bbqueue::{
-        consts::*, ArrayLength, BBBuffer, ConstBBBuffer, Consumer, GrantR, GrantW, Producer,
+        consts::*, ArrayStorage, BBBuffer, BBStorage, ConstBBBuffer, Consumer, GenericArray,
+        GrantR, GrantW, Producer,
     };
 
-    enum Potato<'a, N>
+    enum Potato<'a, A>
     where
-        N: ArrayLength<u8>,
+        A: BBStorage,
     {
-        Tx((Producer<'a, N>, u8)),
-        Rx((Consumer<'a, N>, u8)),
-        TxG(GrantW<'a, N>),
-        RxG(GrantR<'a, N>),
+        Tx((Producer<'a, A>, u8)),
+        Rx((Consumer<'a, A>, u8)),
+        TxG(GrantW<'a, A>),
+        RxG(GrantR<'a, A>),
         Idle,
         Done,
     }
@@ -26,11 +27,11 @@ mod tests {
     const TX_GRANTS_PER_RING: u8 = 3;
     const RX_GRANTS_PER_RING: u8 = 3;
     const BYTES_PER_GRANT: usize = 129;
-    type BufferSize = U4096;
+    type Buffer = ArrayStorage<GenericArray<u8, U4096>>;
 
-    impl<'a, N> Potato<'a, N>
+    impl<'a, A> Potato<'a, A>
     where
-        N: ArrayLength<u8>,
+        A: BBStorage,
     {
         fn work(self) -> (Self, Self) {
             match self {
@@ -84,7 +85,7 @@ mod tests {
         }
     }
 
-    static BB: BBBuffer<BufferSize> = BBBuffer(ConstBBBuffer::new());
+    static BB: BBBuffer<Buffer> = BBBuffer(ConstBBBuffer::new(ArrayStorage::new()));
 
     use std::sync::mpsc::{channel, Receiver, Sender};
     use std::thread::spawn;
@@ -95,20 +96,20 @@ mod tests {
 
         // create the channels
         let (tx_1_2, rx_1_2): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, Buffer>>,
+            Receiver<Potato<'static, Buffer>>,
         ) = channel();
         let (tx_2_3, rx_2_3): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, Buffer>>,
+            Receiver<Potato<'static, Buffer>>,
         ) = channel();
         let (tx_3_4, rx_3_4): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, Buffer>>,
+            Receiver<Potato<'static, Buffer>>,
         ) = channel();
         let (tx_4_1, rx_4_1): (
-            Sender<Potato<'static, BufferSize>>,
-            Receiver<Potato<'static, BufferSize>>,
+            Sender<Potato<'static, Buffer>>,
+            Receiver<Potato<'static, Buffer>>,
         ) = channel();
 
         tx_1_2.send(Potato::Tx((prod, 3))).unwrap();
@@ -116,7 +117,7 @@ mod tests {
 
         let thread_1 = spawn(move || {
             let mut count = TOTAL_RINGS;
-            let mut me: Potato<'static, BufferSize> = Potato::Idle;
+            let mut me: Potato<'static, Buffer> = Potato::Idle;
 
             loop {
                 if let Potato::Idle = me {
@@ -167,50 +168,49 @@ mod tests {
             }
         });
 
-        let closure_2_3_4 =
-            move |rx: Receiver<Potato<'static, BufferSize>>,
-                  tx: Sender<Potato<'static, BufferSize>>| {
-                let mut me: Potato<'static, BufferSize> = Potato::Idle;
-                let mut count = 0;
+        let closure_2_3_4 = move |rx: Receiver<Potato<'static, Buffer>>,
+                                  tx: Sender<Potato<'static, Buffer>>| {
+            let mut me: Potato<'static, Buffer> = Potato::Idle;
+            let mut count = 0;
 
-                loop {
-                    if let Potato::Idle = me {
-                        if let Ok(new) = rx.try_recv() {
-                            if let Potato::Tx(_) = &new {
-                                count += 1;
-                            }
-                            me = new;
-                        } else {
-                            continue;
+            loop {
+                if let Potato::Idle = me {
+                    if let Ok(new) = rx.try_recv() {
+                        if let Potato::Tx(_) = &new {
+                            count += 1;
                         }
-                    }
-                    let (new_me, send) = me.work();
-
-                    let we_done = if let Potato::Done = &send {
-                        true
+                        me = new;
                     } else {
-                        false
-                    };
-
-                    let nop = if let Potato::Idle = &send {
-                        true
-                    } else {
-                        false
-                    };
-
-                    if !nop {
-                        tx.send(send).ok();
+                        continue;
                     }
-
-                    if we_done {
-                        assert_eq!(count, TOTAL_RINGS);
-                        println!("We good.");
-                        return;
-                    }
-
-                    me = new_me;
                 }
-            };
+                let (new_me, send) = me.work();
+
+                let we_done = if let Potato::Done = &send {
+                    true
+                } else {
+                    false
+                };
+
+                let nop = if let Potato::Idle = &send {
+                    true
+                } else {
+                    false
+                };
+
+                if !nop {
+                    tx.send(send).ok();
+                }
+
+                if we_done {
+                    assert_eq!(count, TOTAL_RINGS);
+                    println!("We good.");
+                    return;
+                }
+
+                me = new_me;
+            }
+        };
 
         let thread_2 = spawn(move || closure_2_3_4(rx_1_2, tx_2_3));
         let thread_3 = spawn(move || closure_2_3_4(rx_2_3, tx_3_4));
