@@ -823,7 +823,7 @@ where
     }
 
     #[inline(always)]
-    fn commit_inner(&mut self, used: usize) {
+    pub(crate) fn commit_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
         // Writer component. Must never write to READ,

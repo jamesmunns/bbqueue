@@ -173,6 +173,31 @@ where
     hdr_len: u8,
 }
 
+/// A write grant for a single frame
+///
+/// NOTE: If the grant is dropped without explicitly commiting
+/// the contents, then no frame will be comitted for writing. TODO TODO
+#[derive(Debug, PartialEq)]
+pub struct AutoCommitFrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    grant_w: FrameGrantW<'a, N>,
+    to_commit: usize,
+}
+
+/// A read grant for a single frame
+///
+/// NOTE: If the grant is dropped without explicitly releasing
+/// the contents, then no frame will be released. TODO TODO
+#[derive(Debug, PartialEq)]
+pub struct AutoReleaseFrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    grant_r: FrameGrantR<'a, N>,
+}
+
 impl<'a, N> Deref for FrameGrantW<'a, N>
 where
     N: ArrayLength<u8>,
@@ -208,8 +233,53 @@ impl<'a, N> DerefMut for FrameGrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_r.buf[self.hdr_len.into()..]
+        self.grant_r.deref_mut()
+    }
+}
+
+impl<'a, N> Deref for AutoCommitFrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Target = [u8];
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        self.grant_w.deref()
+    }
+}
+
+impl<'a, N> DerefMut for AutoCommitFrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.grant_w.deref_mut()
+    }
+}
+
+impl<'a, N> Deref for AutoReleaseFrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Target = [u8];
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        self.grant_r.deref()
+    }
+}
+
+impl<'a, N> DerefMut for AutoReleaseFrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.grant_r.deref_mut()
     }
 }
 
@@ -229,7 +299,7 @@ where
         let total_len = frame_len + hdr_len;
 
         // Write the actual frame length to the header
-        encode_usize_to_slice(used, hdr_len, &mut self.grant_w[..hdr_len]);
+        encode_usize_to_slice(frame_len, hdr_len, &mut self.grant_w[..hdr_len]);
 
         // Commit the header + frame
         self.grant_w.commit(total_len);
@@ -248,5 +318,69 @@ where
         // size down to the correct size
         let len = self.grant_r.len();
         self.grant_r.release_inner(len);
+    }
+}
+
+
+impl<'a, N> AutoCommitFrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    /// Commit a frame to make it available to the Consumer half.
+    ///
+    /// `used` is the size of the payload, in bytes, not
+    /// including the frame header
+    #[inline(always)]
+    pub fn commit(mut self, used: usize) {
+        self.to_commit = used;
+    }
+
+    /// Configures the amount of bytes to be commited on drop.
+    pub fn to_commit(&mut self, to_commit: usize) {
+        self.to_commit = to_commit;
+    }
+}
+
+impl<'a, N> AutoReleaseFrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    /// Release a frame to make the space available for future writing
+    ///
+    /// Note: The full frame is always released
+    #[inline(always)]
+    pub fn release(self) {
+        // Drop is called automatically
+    }
+}
+
+impl<'a, N> Drop for AutoCommitFrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        // Saturate the commit size to the available frame size
+        let grant_len = self.grant_w.len();
+        let hdr_len: usize = self.grant_w.hdr_len.into();
+        let frame_len = min(self.to_commit, grant_len - hdr_len);
+        let total_len = frame_len + hdr_len;
+
+        // Write the actual frame length to the header
+        encode_usize_to_slice(frame_len, hdr_len, &mut self.grant_w[..hdr_len]);
+
+        // Commit the header + frame
+        self.grant_w.grant_w.commit_inner(total_len);
+    }
+}
+
+impl<'a, N> Drop for AutoReleaseFrameGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        // For a read grant, we have already shrunk the grant
+        // size down to the correct size
+        let len = self.grant_r.len();
+        self.grant_r.grant_r.release_inner(len);
     }
 }
