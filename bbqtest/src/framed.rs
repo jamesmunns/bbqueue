@@ -155,6 +155,5 @@ mod tests {
         }
 
         assert!(cons.read().is_none());
-
     }
 }

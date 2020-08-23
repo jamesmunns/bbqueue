@@ -334,12 +334,9 @@ where
     ///
     /// NOTE: Framed Read Grants always release the entire contents.
     pub fn into_auto_release(self) -> AutoReleaseFrameGrantR<'a, N> {
-        AutoReleaseFrameGrantR {
-            grant_r: self
-        }
+        AutoReleaseFrameGrantR { grant_r: self }
     }
 }
-
 
 impl<'a, N> AutoCommitFrameGrantW<'a, N>
 where
