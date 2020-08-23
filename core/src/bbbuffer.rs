@@ -826,6 +826,13 @@ where
     pub(crate) fn commit_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
 
+        // If there is no grant in progress, return early. This
+        // generally means we are dropping the grant within a
+        // wrapper structure
+        if !inner.write_in_progress.load(Acquire) {
+            return;
+        }
+
         // Writer component. Must never write to READ,
         // be careful writing to LAST
 
@@ -965,6 +972,13 @@ where
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
+
+        // If there is no grant in progress, return early. This
+        // generally means we are dropping the grant within a
+        // wrapper structure
+        if !inner.read_in_progress.load(Acquire) {
+            return;
+        }
 
         // This should always be checked by the public interfaces
         debug_assert!(used <= self.buf.len());

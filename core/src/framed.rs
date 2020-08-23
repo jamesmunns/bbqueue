@@ -173,10 +173,10 @@ where
     hdr_len: u8,
 }
 
-/// A write grant for a single frame
+/// A write grant for a single frame that automatically commits
 ///
 /// NOTE: If the grant is dropped without explicitly commiting
-/// the contents, then no frame will be comitted for writing. TODO TODO
+/// the contents, then the frame will still be comitted on drop.
 #[derive(Debug, PartialEq)]
 pub struct AutoCommitFrameGrantW<'a, N>
 where
@@ -186,10 +186,10 @@ where
     to_commit: usize,
 }
 
-/// A read grant for a single frame
+/// A read grant for a single frame that automatically releases
 ///
 /// NOTE: If the grant is dropped without explicitly releasing
-/// the contents, then no frame will be released. TODO TODO
+/// the contents, then the frame will still be released on drop
 #[derive(Debug, PartialEq)]
 pub struct AutoReleaseFrameGrantR<'a, N>
 where
@@ -233,9 +233,8 @@ impl<'a, N> DerefMut for FrameGrantR<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
-        self.grant_r.deref_mut()
+        &mut self.grant_r.buf[self.hdr_len.into()..]
     }
 }
 
@@ -304,6 +303,17 @@ where
         // Commit the header + frame
         self.grant_w.commit(total_len);
     }
+
+    /// Convert the grant into a grant that automatically commits
+    ///
+    /// NOTE: by default, the full grant will be committed. This can
+    /// be changed by calling `AutoCommitFrameGrantW::to_commit()`.
+    pub fn into_auto_commit(self) -> AutoCommitFrameGrantW<'a, N> {
+        AutoCommitFrameGrantW {
+            to_commit: self.len(),
+            grant_w: self,
+        }
+    }
 }
 
 impl<'a, N> FrameGrantR<'a, N>
@@ -318,6 +328,15 @@ where
         // size down to the correct size
         let len = self.grant_r.len();
         self.grant_r.release_inner(len);
+    }
+
+    /// Convert the grant into a grant that automatically releases
+    ///
+    /// NOTE: Framed Read Grants always release the entire contents.
+    pub fn into_auto_release(self) -> AutoReleaseFrameGrantR<'a, N> {
+        AutoReleaseFrameGrantR {
+            grant_r: self
+        }
     }
 }
 
@@ -360,13 +379,13 @@ where
 {
     fn drop(&mut self) {
         // Saturate the commit size to the available frame size
-        let grant_len = self.grant_w.len();
+        let grant_len = self.grant_w.grant_w.len();
         let hdr_len: usize = self.grant_w.hdr_len.into();
         let frame_len = min(self.to_commit, grant_len - hdr_len);
         let total_len = frame_len + hdr_len;
 
         // Write the actual frame length to the header
-        encode_usize_to_slice(frame_len, hdr_len, &mut self.grant_w[..hdr_len]);
+        encode_usize_to_slice(frame_len, hdr_len, &mut self.grant_w.grant_w[..hdr_len]);
 
         // Commit the header + frame
         self.grant_w.grant_w.commit_inner(total_len);
@@ -380,7 +399,7 @@ where
     fn drop(&mut self) {
         // For a read grant, we have already shrunk the grant
         // size down to the correct size
-        let len = self.grant_r.len();
+        let len = self.grant_r.grant_r.len();
         self.grant_r.grant_r.release_inner(len);
     }
 }
