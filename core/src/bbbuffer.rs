@@ -423,6 +423,7 @@ where
         Ok(GrantW {
             buf: grant_slice,
             bbq: self.bbq,
+            to_commit: 0,
         })
     }
 
@@ -525,6 +526,7 @@ where
         Ok(GrantW {
             buf: grant_slice,
             bbq: self.bbq,
+            to_commit: 0,
         })
     }
 }
@@ -620,6 +622,7 @@ where
         Ok(GrantR {
             buf: grant_slice,
             bbq: self.bbq,
+            to_release: 0,
         })
     }
 }
@@ -685,7 +688,10 @@ where
 /// may be written to, and potentially "committed" to the queue.
 ///
 /// NOTE: If the grant is dropped without explicitly commiting
-/// the contents, then no bytes will be comitted for writing.
+/// the contents, or by setting a the number of bytes to
+/// automatically be committed with `to_commit()`, then no bytes
+/// will be comitted for writing.
+///
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
@@ -695,6 +701,7 @@ where
 {
     pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
+    pub(crate) to_commit: usize,
 }
 
 unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
@@ -704,7 +711,11 @@ unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
 /// from the queue
 ///
 /// NOTE: If the grant is dropped without explicitly releasing
-/// the contents, then no bytes will be released as read.
+/// the contents, or by setting the number of bytes to automatically
+/// be released with `to_release()`, then no bytes will be released
+/// as read.
+///
+///
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
@@ -714,53 +725,18 @@ where
 {
     pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
+    pub(crate) to_release: usize,
 }
 
 unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
 
-/// A structure representing a contiguous region of memory that
-/// may be written to, and potentially "committed" to the queue.
-///
-/// By default, all bytes in the write buffer are commited on drop.
-/// Use `::to_commit()` to configure the amount of bytes to be commited.
-///
-/// NOTE: If the grant is dropped without explicitly commiting
-/// the contents, then the configured amount of bytes will be
-/// comitted for writing.
-/// If the `thumbv6` feature is selected, dropping the grant
-/// without committing it takes a short critical section,
-#[derive(Debug, PartialEq)]
-pub struct AutoCommitGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    grant: GrantW<'a, N>,
-    to_commit: usize,
-}
+/// You can now use the to_commit method on grants to have them auto-commit
+#[deprecated(note = "You can now use the to_commit method on grants to have them auto-commit")]
+pub type AutoCommitGrantW<'a, N> = GrantW<'a, N>;
 
-unsafe impl<'a, N> Send for AutoCommitGrantW<'a, N> where N: ArrayLength<u8> {}
-
-/// A structure representing a contiguous region of memory that
-/// may be read from, and potentially "released" (or cleared)
-/// from the queue.
-///
-/// By default, all bytes in the read buffer are marked as read on drop.
-/// Use `::to_release()` to configure the amount of bytes to be released.
-///
-/// NOTE: If the grant is dropped without explicitly releasing
-/// the contents, then the configured amount of bytes will be released as read.
-/// If the `thumbv6` feature is selected, dropping the grant
-/// without releasing it takes a short critical section,
-#[derive(Debug, PartialEq)]
-pub struct AutoReleaseGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    grant: GrantR<'a, N>,
-    to_release: usize,
-}
-
-unsafe impl<'a, N> Send for AutoReleaseGrantR<'a, N> where N: ArrayLength<u8> {}
+/// You can now use the to_release method on grants to have them auto-release
+#[deprecated(note = "You can now use the to_release method on grants to have them auto-release")]
+pub type AutoReleaseGrantR<'a, N> = GrantR<'a, N>;
 
 impl<'a, N> GrantW<'a, N>
 where
@@ -876,13 +852,17 @@ where
     }
 
     /// Transforms this into a write grant that automatically commits all bytes on drop.
-    /// To configure the amount of bytes to be committed on drop, use `AutoCommitGrantW::to_commit()`.
-    pub fn into_auto_commit(self) -> AutoCommitGrantW<'a, N> {
-        let to_commit = self.len();
-        AutoCommitGrantW {
-            grant: self,
-            to_commit,
-        }
+    /// To configure the amount of bytes to be committed on drop, use `GrantW::to_commit()`.
+    #[deprecated(note = "Use `to_commit()` instead")]
+    #[allow(deprecated)]
+    pub fn into_auto_commit(mut self) -> AutoCommitGrantW<'a, N> {
+        self.to_commit = self.buf.len();
+        self
+    }
+
+    /// Configures the amount of bytes to be commited on drop.
+    pub fn to_commit(&mut self, amt: usize) {
+        self.to_commit = self.buf.len().min(amt);
     }
 }
 
@@ -990,162 +970,17 @@ where
     }
 
     /// Transforms this into a read grant that automatically releases all bytes on drop.
-    /// To configure the amount of bytes to be released on drop, use `AutoReleaseGrantR::to_release()`.
-    pub fn into_auto_release(self) -> AutoReleaseGrantR<'a, N> {
-        let to_release = self.len();
-        AutoReleaseGrantR {
-            grant: self,
-            to_release,
-        }
-    }
-}
-
-impl<'a, N> AutoCommitGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    /// Finalizes a writable grant given by `grant()` or `grant_max()`.
-    /// This makes the data available to be read via `read()`. This consumes
-    /// the grant.
-    ///
-    /// If `used` is larger than the given grant, the maximum amount will
-    /// be commited
-    ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
-    /// section while committing.
-    pub fn commit(mut self, used: usize) {
-        self.grant.commit_inner(used);
-        forget(self);
-    }
-
-    /// Obtain access to the inner buffer for writing
-    ///
-    /// ```rust
-    /// # // bbqueue test shim!
-    /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
-    ///
-    /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
-    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
-    ///
-    /// // Successfully obtain and commit a grant of four bytes
-    /// let grant = prod.grant_max_remaining(4).unwrap();
-    /// let mut grant = grant.into_auto_commit();
-    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
-    /// # // bbqueue test shim!
-    /// # }
-    /// #
-    /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
-    /// # bbqtest();
-    /// # }
-    /// ```
-    pub fn buf(&mut self) -> &mut [u8] {
-        self.grant.buf
-    }
-
-    /// Sometimes, it's not possible for the lifetimes to check out. For example,
-    /// if you need to hand this buffer to a function that expects to receive a
-    /// `&'static mut [u8]`, it is not possible for the inner reference to outlive the
-    /// grant itself.
-    ///
-    /// You MUST guarantee that in no cases, the reference that is returned here outlives
-    /// the grant itself. Once the grant has been released, referencing the data contained
-    /// WILL cause undefined behavior.
-    ///
-    /// Additionally, you must ensure that a separate reference to this data is not created
-    /// to this data, e.g. using `DerefMut` or the `buf()` method of this grant.
-    pub unsafe fn as_static_mut_buf(&mut self) -> &'static mut [u8] {
-        transmute::<&mut [u8], &'static mut [u8]>(self.grant.buf)
-    }
-
-    /// Configures the amount of bytes to be commited on drop.
-    pub fn to_commit(&mut self, to_commit: usize) {
-        self.to_commit = to_commit;
-    }
-}
-
-impl<'a, N> AutoReleaseGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    /// Release a sequence of bytes from the buffer, allowing the space
-    /// to be used by later writes. This consumes the grant.
-    ///
-    /// If `used` is larger than the given grant, the full grant will
-    /// be released.
-    ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
-    /// section while releasing.
-    pub fn release(mut self, used: usize) {
-        // Saturate the grant release
-        let used = min(self.grant.buf.len(), used);
-
-        self.grant.release_inner(used);
-        forget(self);
-    }
-
-    /// Obtain access to the inner buffer for reading
-    ///
-    /// ```
-    /// # // bbqueue test shim!
-    /// # fn bbqtest() {
-    /// use bbqueue::{BBBuffer, consts::*};
-    ///
-    /// // Create and split a new buffer of 6 elements
-    /// let buffer: BBBuffer<U6> = BBBuffer::new();
-    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
-    ///
-    /// // Successfully obtain and commit a grant of four bytes
-    /// let mut grant = prod.grant_max_remaining(4).unwrap();
-    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
-    /// grant.commit(4);
-    ///
-    /// // Obtain a read grant, and copy to a buffer
-    /// let grant = cons.read().unwrap();
-    /// let mut grant = grant.into_auto_release();
-    /// let mut buf = [0u8; 4];
-    /// buf.copy_from_slice(grant.buf());
-    /// assert_eq!(&buf, &[1, 2, 3, 4]);
-    /// # // bbqueue test shim!
-    /// # }
-    /// #
-    /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
-    /// # bbqtest();
-    /// # }
-    /// ```
-    pub fn buf(&self) -> &[u8] {
-        self.grant.buf
-    }
-
-    /// Obtain mutable access to the read grant
-    ///
-    /// This is useful if you are performing in-place operations
-    /// on an incoming packet, such as decryption
-    pub fn buf_mut(&mut self) -> &mut [u8] {
-        self.grant.buf
-    }
-
-    /// Sometimes, it's not possible for the lifetimes to check out. For example,
-    /// if you need to hand this buffer to a function that expects to receive a
-    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
-    /// grant itself.
-    ///
-    /// You MUST guarantee that in no cases, the reference that is returned here outlives
-    /// the grant itself. Once the grant has been released, referencing the data contained
-    /// WILL cause undefined behavior.
-    ///
-    /// Additionally, you must ensure that a separate reference to this data is not created
-    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
-    pub unsafe fn as_static_buf(&self) -> &'static [u8] {
-        transmute::<&[u8], &'static [u8]>(self.grant.buf)
+    /// To configure the amount of bytes to be released on drop, use `GrantR::to_release()`.
+    #[deprecated(note = "Use `to_release()` instead")]
+    #[allow(deprecated)]
+    pub fn into_auto_release(mut self) -> AutoReleaseGrantR<'a, N> {
+        self.to_release = self.len();
+        self
     }
 
     /// Configures the amount of bytes to be released on drop.
-    pub fn to_release(&mut self, to_release: usize) {
-        self.to_release = to_release;
+    pub fn to_release(&mut self, amt: usize) {
+        self.to_release = self.buf.len().min(amt);
     }
 }
 
@@ -1154,7 +989,7 @@ where
     N: ArrayLength<u8>,
 {
     fn drop(&mut self) {
-        self.commit_inner(0)
+        self.commit_inner(self.to_commit)
     }
 }
 
@@ -1163,25 +998,7 @@ where
     N: ArrayLength<u8>,
 {
     fn drop(&mut self) {
-        self.release_inner(0)
-    }
-}
-
-impl<'a, N> Drop for AutoCommitGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    fn drop(&mut self) {
-        self.grant.commit_inner(self.to_commit)
-    }
-}
-
-impl<'a, N> Drop for AutoReleaseGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    fn drop(&mut self) {
-        self.grant.release_inner(self.to_release)
+        self.release_inner(self.to_release)
     }
 }
 
@@ -1222,46 +1039,6 @@ where
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
-    }
-}
-
-impl<'a, N> Deref for AutoCommitGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.grant.buf
-    }
-}
-
-impl<'a, N> DerefMut for AutoCommitGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    fn deref_mut(&mut self) -> &mut [u8] {
-        self.grant.buf
-    }
-}
-
-impl<'a, N> Deref for AutoReleaseGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.grant.buf
-    }
-}
-
-impl<'a, N> DerefMut for AutoReleaseGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
-    fn deref_mut(&mut self) -> &mut [u8] {
-        self.grant.buf
     }
 }
 
