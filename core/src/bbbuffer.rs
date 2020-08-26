@@ -731,15 +731,11 @@ where
 unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
 
 /// You can now use the to_commit method on grants to have them auto-commit
-#[deprecated(
-    note = "You can now use the to_commit method on grants to have them auto-commit"
-)]
+#[deprecated(note = "You can now use the to_commit method on grants to have them auto-commit")]
 pub type AutoCommitGrantW<'a, N> = GrantW<'a, N>;
 
 /// You can now use the to_release method on grants to have them auto-release
-#[deprecated(
-    note = "You can now use the to_release method on grants to have them auto-release"
-)]
+#[deprecated(note = "You can now use the to_release method on grants to have them auto-release")]
 pub type AutoReleaseGrantR<'a, N> = GrantR<'a, N>;
 
 impl<'a, N> GrantW<'a, N>
@@ -981,7 +977,6 @@ where
         self.to_release = self.len();
         self
     }
-
 
     /// Configures the amount of bytes to be released on drop.
     pub fn to_release(&mut self, amt: usize) {

@@ -259,7 +259,6 @@ where
             let size = self.set_header(amt);
             self.grant_w.to_commit(size);
         }
-
     }
 
     /// Convert the grant into a grant that automatically commits
@@ -297,11 +296,8 @@ where
 
     /// Set whether the read fram should be automatically released
     pub fn auto_release(&mut self, is_auto: bool) {
-        self.grant_r.to_release(if is_auto {
-            self.grant_r.len()
-        } else {
-            0
-        });
+        self.grant_r
+            .to_release(if is_auto { self.grant_r.len() } else { 0 });
     }
 
     /// Convert the grant into a grant that automatically releases
