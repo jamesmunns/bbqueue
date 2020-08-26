@@ -138,7 +138,6 @@ where
         let total_len = frame_len + hdr_len;
         let hdr_len = hdr_len as u8;
 
-        println!("{}, {}", grant_r.len(), total_len);
         debug_assert!(grant_r.len() >= total_len);
 
         // Reduce the grant down to the size of the frame with a header
@@ -151,7 +150,8 @@ where
 /// A write grant for a single frame
 ///
 /// NOTE: If the grant is dropped without explicitly commiting
-/// the contents, then no frame will be comitted for writing.
+/// the contents without first calling `to_commit()`, then no
+/// frame will be comitted for writing.
 #[derive(Debug, PartialEq)]
 pub struct FrameGrantW<'a, N>
 where
@@ -253,8 +253,13 @@ where
 
     /// Configures the amount of bytes to be commited on drop.
     pub fn to_commit(&mut self, amt: usize) {
-        let size = self.set_header(amt);
-        self.grant_w.to_commit(size);
+        if amt == 0 {
+            self.grant_w.to_commit(0);
+        } else {
+            let size = self.set_header(amt);
+            self.grant_w.to_commit(size);
+        }
+
     }
 
     /// Convert the grant into a grant that automatically commits

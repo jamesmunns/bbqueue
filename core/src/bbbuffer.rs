@@ -688,7 +688,10 @@ where
 /// may be written to, and potentially "committed" to the queue.
 ///
 /// NOTE: If the grant is dropped without explicitly commiting
-/// the contents, then no bytes will be comitted for writing.
+/// the contents, or by setting a the number of bytes to
+/// automatically be committed with `to_commit()`, then no bytes
+/// will be comitted for writing.
+///
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
@@ -708,7 +711,11 @@ unsafe impl<'a, N> Send for GrantW<'a, N> where N: ArrayLength<u8> {}
 /// from the queue
 ///
 /// NOTE: If the grant is dropped without explicitly releasing
-/// the contents, then no bytes will be released as read.
+/// the contents, or by setting the number of bytes to automatically
+/// be released with `to_release()`, then no bytes will be released
+/// as read.
+///
+///
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
@@ -849,18 +856,16 @@ where
     }
 
     /// Transforms this into a write grant that automatically commits all bytes on drop.
-    /// To configure the amount of bytes to be committed on drop, use `AutoCommitGrantW::to_commit()`.
+    /// To configure the amount of bytes to be committed on drop, use `GrantW::to_commit()`.
     #[deprecated(note = "Use `to_commit()` instead")]
     #[allow(deprecated)]
     pub fn into_auto_commit(mut self) -> AutoCommitGrantW<'a, N> {
-        println!("Setting grantw to {}", self.buf.len());
         self.to_commit = self.buf.len();
         self
     }
 
     /// Configures the amount of bytes to be commited on drop.
     pub fn to_commit(&mut self, amt: usize) {
-        println!("Setting grantw to {}", amt);
         self.to_commit = self.buf.len().min(amt);
     }
 }
@@ -969,7 +974,7 @@ where
     }
 
     /// Transforms this into a read grant that automatically releases all bytes on drop.
-    /// To configure the amount of bytes to be released on drop, use `AutoReleaseGrantR::to_release()`.
+    /// To configure the amount of bytes to be released on drop, use `GrantR::to_release()`.
     #[deprecated(note = "Use `to_release()` instead")]
     #[allow(deprecated)]
     pub fn into_auto_release(mut self) -> AutoReleaseGrantR<'a, N> {
@@ -989,8 +994,6 @@ where
     N: ArrayLength<u8>,
 {
     fn drop(&mut self) {
-        println!("dropping grantw {}", self.to_commit);
-        println!("{:02X?}", self.buf());
         self.commit_inner(self.to_commit)
     }
 }
@@ -1000,7 +1003,6 @@ where
     N: ArrayLength<u8>,
 {
     fn drop(&mut self) {
-        println!("dropping grantr {}", self.to_release);
         self.release_inner(self.to_release)
     }
 }
