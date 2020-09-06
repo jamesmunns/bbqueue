@@ -815,13 +815,14 @@ where
         // Saturate the grant commit
         let len = self.buf.len();
         let used = min(len, used);
+        let update = len - used;
 
         let write = inner.write.load(Acquire);
-        atomic::fetch_sub(&inner.reserve, len - used, AcqRel);
+        // fetch_sub returns the previous value, so recalculate the subtraction here.
+        let new_write = atomic::fetch_sub(&inner.reserve, update, AcqRel) - update;
 
         let max = N::to_usize();
         let last = inner.last.load(Acquire);
-        let new_write = inner.reserve.load(Acquire);
 
         if (new_write < write) && (write != max) {
             // We have already wrapped, but we are skipping some bytes at the end of the ring.
