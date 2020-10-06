@@ -136,8 +136,10 @@ pub use generic_array::ArrayLength;
 /// Result type used by the `BBQueue` interfaces
 pub type Result<T> = CoreResult<T, Error>;
 
+use defmt::Format;
+
 /// Error type used by the `BBQueue` interfaces
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Format)]
 pub enum Error {
     /// The buffer does not contain sufficient size for the requested action
     InsufficientSize,
