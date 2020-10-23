@@ -625,6 +625,60 @@ where
             to_release: 0,
         })
     }
+
+    /// Obtains up to two contiguous slices of committed bytes.
+    /// Combined these contain all previously commited data.
+    pub fn split_read(&mut self) -> Result<SplitGrantR<'a, N>> {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+
+        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+            return Err(Error::GrantInProgress);
+        }
+
+        let write = inner.write.load(Acquire);
+        let last = inner.last.load(Acquire);
+        let mut read = inner.read.load(Acquire);
+
+        // Resolve the inverted case or end of read
+        if (read == last) && (write < read) {
+            read = 0;
+            // This has some room for error, the other thread reads this
+            // Impact to Grant:
+            //   Grant checks if read < write to see if inverted. If not inverted, but
+            //     no space left, Grant will initiate an inversion, but will not trigger it
+            // Impact to Commit:
+            //   Commit does not check read, but if Grant has started an inversion,
+            //   grant could move Last to the prior write position
+            // MOVING READ BACKWARDS!
+            inner.read.store(0, Release);
+        }
+
+        let (sz1, sz2) = if write < read {
+            // Inverted, only believe last
+            (last - read, write)
+        } else {
+            // Not inverted, only believe write
+            (write - read, 0)
+        };
+
+        if sz1 == 0 {
+            inner.read_in_progress.store(false, Release);
+            return Err(Error::InsufficientSize);
+        }
+
+        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
+        // are all `#[repr(Transparent)]
+        let start_of_buf_ptr = inner.buf.get().cast::<u8>();
+        let grant_slice1 = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz1) };
+        let grant_slice2 = if sz2 > 0 { Some(unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) }) } else { None };
+
+        Ok(SplitGrantR {
+            buf1: grant_slice1,
+            buf2: grant_slice2,
+            bbq: self.bbq,
+            to_release: 0,
+        })
+    }
 }
 
 impl<N> BBBuffer<N>
@@ -728,7 +782,23 @@ where
     pub(crate) to_release: usize,
 }
 
+/// A structure representing upt to two contiguous regions of memory that
+/// may be read from, and potentially "released" (or cleared)
+/// from the queue
+#[derive(Debug, PartialEq)]
+pub struct SplitGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    pub(crate) buf1: &'a mut [u8],
+    pub(crate) buf2: Option<&'a mut [u8]>,
+    bbq: NonNull<BBBuffer<N>>,
+    pub(crate) to_release: usize,
+}
+
 unsafe impl<'a, N> Send for GrantR<'a, N> where N: ArrayLength<u8> {}
+
+unsafe impl<'a, N> Send for SplitGrantR<'a, N> where N: ArrayLength<u8> {}
 
 /// You can now use the to_commit method on grants to have them auto-commit
 #[deprecated(note = "You can now use the to_commit method on grants to have them auto-commit")]
@@ -983,6 +1053,160 @@ where
         self.to_release = self.buf.len().min(amt);
     }
 }
+
+impl<'a, N> SplitGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    /// Release a sequence of bytes from the buffer, allowing the space
+    /// to be used by later writes. This consumes the grant.
+    ///
+    /// If `used` is larger than the given grant, the full grant will
+    /// be released.
+    ///
+    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// section while releasing.
+    pub fn release(mut self, used: usize) {
+        // Saturate the grant release
+        let used = min(self.combined_len(), used);
+
+        self.release_inner(used);
+        forget(self);
+    }
+
+    /// Obtain access to the first inner buffer for reading
+    ///
+    /// ```
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
+    /// use bbqueue::{BBBuffer, consts::*};
+    ///
+    /// // Create and split a new buffer of 6 elements
+    /// let buffer: BBBuffer<U6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
+    /// grant.commit(4);
+    ///
+    /// // Obtain a read grant, and copy to a buffer
+    /// let mut grant = cons.read().unwrap();
+    /// let mut buf = [0u8; 4];
+    /// buf.copy_from_slice(grant.buf());
+    /// assert_eq!(&buf, &[1, 2, 3, 4]);
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
+    /// ```
+    pub fn buf_first(&self) -> &[u8] {
+        self.buf1
+    }
+
+    /// Obtain access to the second inner buffer for reading
+    pub fn buf_second(&self) -> Option<&[u8]> {
+        if let Some(buf2) = &self.buf2 {
+            Some(&buf2)
+        } else {
+            None
+        }
+        // self.buf2.map(|b| b.as_ref())
+    }
+
+    /// Obtain mutable access to the first part of the read grant
+    ///
+    /// This is useful if you are performing in-place operations
+    /// on an incoming packet, such as decryption
+    pub fn buf_mut_first(&mut self) -> &mut [u8] {
+        self.buf1
+    }
+
+    /// Obtain mutable access to the second part of the read grant
+    ///
+    /// This is useful if you are performing in-place operations
+    /// on an incoming packet, such as decryption
+    pub fn buf_mut_second(&mut self) -> Option<&mut [u8]> {
+        //TODO: cannot move out of `self.buf2`
+        // self.buf2
+        None
+    }
+
+    /// Sometimes, it's not possible for the lifetimes to check out. For example,
+    /// if you need to hand this buffer to a function that expects to receive a
+    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
+    /// grant itself.
+    ///
+    /// You MUST guarantee that in no cases, the reference that is returned here outlives
+    /// the grant itself. Once the grant has been released, referencing the data contained
+    /// WILL cause undefined behavior.
+    ///
+    /// Additionally, you must ensure that a separate reference to this data is not created
+    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
+    pub unsafe fn as_static_buf_first(&self) -> &'static [u8] {
+        transmute::<&[u8], &'static [u8]>(self.buf1)
+    }
+
+    /// Sometimes, it's not possible for the lifetimes to check out. For example,
+    /// if you need to hand this buffer to a function that expects to receive a
+    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
+    /// grant itself.
+    ///
+    /// You MUST guarantee that in no cases, the reference that is returned here outlives
+    /// the grant itself. Once the grant has been released, referencing the data contained
+    /// WILL cause undefined behavior.
+    ///
+    /// Additionally, you must ensure that a separate reference to this data is not created
+    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
+    pub unsafe fn as_static_buf_second(&self) -> Option<&'static [u8]> {
+        //TODO: cannot move out of `self.buf2`
+        // transmute::<Option<&[u8]>, Option<&'static [u8]>>(self.buf2.map(|b| b.as_ref()))
+        None
+    }
+
+    #[inline(always)]
+    pub(crate) fn release_inner(&mut self, used: usize) {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+
+        // If there is no grant in progress, return early. This
+        // generally means we are dropping the grant within a
+        // wrapper structure
+        if !inner.read_in_progress.load(Acquire) {
+            return;
+        }
+
+        // This should always be checked by the public interfaces
+        debug_assert!(used <= self.combined_len());
+
+        if used <= self.buf1.len() {
+            // This should be fine, purely incrementing
+            let _ = atomic::fetch_add(&inner.read, used, Release);
+        } else {
+            // Also release parts of the second buffer
+            //TODO: Check if this is sound
+            inner.read.store(used - self.buf1.len(), Release);
+        }
+
+        inner.read_in_progress.store(false, Release);
+    }
+
+    /// Configures the amount of bytes to be released on drop.
+    pub fn to_release(&mut self, amt: usize) {
+        self.to_release = self.combined_len().min(amt);
+    }
+
+    fn combined_len(&self) -> usize {
+        if let Some(buf2) = &self.buf2 {
+            self.buf1.len() + buf2.len()
+        } else {
+            self.buf1.len()
+        }
+    }
+}
+
 
 impl<'a, N> Drop for GrantW<'a, N>
 where
