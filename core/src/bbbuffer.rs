@@ -669,8 +669,13 @@ where
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice1 = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz1) };
-        let grant_slice2 = if sz2 > 0 { Some(unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) }) } else { None };
+        let grant_slice1 =
+            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz1) };
+        let grant_slice2 = if sz2 > 0 {
+            Some(unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) })
+        } else {
+            None
+        };
 
         Ok(SplitGrantR {
             buf1: grant_slice1,
@@ -1206,7 +1211,6 @@ where
         }
     }
 }
-
 
 impl<'a, N> Drop for GrantW<'a, N>
 where
