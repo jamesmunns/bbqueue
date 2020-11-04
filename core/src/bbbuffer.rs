@@ -671,11 +671,7 @@ where
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice1 =
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz1) };
-        let grant_slice2 = if sz2 > 0 {
-            Some(unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) })
-        } else {
-            None
-        };
+        let grant_slice2 = unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) };
 
         Ok(SplitGrantR {
             buf1: grant_slice1,
@@ -796,7 +792,7 @@ where
     N: ArrayLength<u8>,
 {
     pub(crate) buf1: &'a mut [u8],
-    pub(crate) buf2: Option<&'a mut [u8]>,
+    pub(crate) buf2: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
     pub(crate) to_release: usize,
 }
@@ -1113,13 +1109,8 @@ where
     }
 
     /// Obtain access to the second inner buffer for reading
-    pub fn buf_second(&self) -> Option<&[u8]> {
-        if let Some(buf2) = &self.buf2 {
-            Some(&buf2)
-        } else {
-            None
-        }
-        // self.buf2.map(|b| b.as_ref())
+    pub fn buf_second(&self) -> &[u8] {
+        self.buf2
     }
 
     /// Obtain mutable access to the first part of the read grant
@@ -1134,10 +1125,8 @@ where
     ///
     /// This is useful if you are performing in-place operations
     /// on an incoming packet, such as decryption
-    pub fn buf_mut_second(&mut self) -> Option<&mut [u8]> {
-        //TODO: cannot move out of `self.buf2`
-        // self.buf2
-        None
+    pub fn buf_mut_second(&mut self) -> &mut [u8] {
+        self.buf2
     }
 
     /// Sometimes, it's not possible for the lifetimes to check out. For example,
@@ -1166,10 +1155,8 @@ where
     ///
     /// Additionally, you must ensure that a separate reference to this data is not created
     /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
-    pub unsafe fn as_static_buf_second(&self) -> Option<&'static [u8]> {
-        //TODO: cannot move out of `self.buf2`
-        // transmute::<Option<&[u8]>, Option<&'static [u8]>>(self.buf2.map(|b| b.as_ref()))
-        None
+    pub unsafe fn as_static_buf_second(&self) -> &'static [u8] {
+        transmute::<&[u8], &'static [u8]>(self.buf2)
     }
 
     #[inline(always)]
@@ -1204,11 +1191,7 @@ where
     }
 
     fn combined_len(&self) -> usize {
-        if let Some(buf2) = &self.buf2 {
-            self.buf1.len() + buf2.len()
-        } else {
-            self.buf1.len()
-        }
+        self.buf1.len() + self.buf2.len()
     }
 }
 
