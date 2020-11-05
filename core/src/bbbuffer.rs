@@ -1190,7 +1190,8 @@ where
         self.to_release = self.combined_len().min(amt);
     }
 
-    fn combined_len(&self) -> usize {
+    /// The combined length of both buffers
+    pub fn combined_len(&self) -> usize {
         self.buf1.len() + self.buf2.len()
     }
 }

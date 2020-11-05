@@ -326,4 +326,70 @@ mod tests {
         }
         rgrant.release();
     }
+
+    #[test]
+    fn split_sanity_check() {
+        let bb: BBBuffer<U10> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split().unwrap();
+
+        // Fill buffer
+        let mut wgrant = prod.grant_exact(10).unwrap();
+        assert_eq!(wgrant.len(), 10);
+        wgrant.copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        wgrant.commit(10);
+
+        let rgrant = cons.split_read().unwrap();
+        assert_eq!(rgrant.combined_len(), 10);
+        assert_eq!(rgrant.buf_first(), &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(rgrant.buf_second(), &[]);
+        // Release part of the buffer
+        rgrant.release(6);
+
+        // Almost fill buffer again => | 11 | 12 | 13 | 14 | 15 | x | 7 | 8 | 9 | 10 |
+        let mut wgrant = prod.grant_exact(5).unwrap();
+        assert_eq!(wgrant.len(), 5);
+        wgrant.copy_from_slice(&[11, 12, 13, 14, 15]);
+        wgrant.commit(5);
+
+        let rgrant = cons.split_read().unwrap();
+        assert_eq!(rgrant.combined_len(), 9);
+        assert_eq!(rgrant.buf_first(), &[7, 8, 9, 10]);
+        assert_eq!(rgrant.buf_second(), &[11, 12, 13, 14, 15]);
+
+        // Release part of the buffer => | x | x | x | 14 | 15 | x | x | x | x | x |
+        rgrant.release(7);
+
+        // Check that it is not possible to claim more space than what should be available
+        assert!(prod.grant_exact(6).is_err());
+
+        // Fill buffer to the end => | x | x | x | 14 | 15 | 21 | 22 | 23 | 24 | 25 |
+        let mut wgrant = prod.grant_exact(5).unwrap();
+        wgrant.copy_from_slice(&[21, 22, 23, 24, 25]);
+        wgrant.commit(5);
+
+        let rgrant = cons.split_read().unwrap();
+        assert_eq!(rgrant.combined_len(), 7);
+        assert_eq!(rgrant.buf_first(), &[14, 15, 21, 22, 23, 24, 25]);
+        assert_eq!(rgrant.buf_second(), &[]);
+        rgrant.release(0);
+
+        // Fill buffer to the end => | 26 | 27 | x | 14 | 15 | 21 | 22 | 23 | 24 | 25 |
+        let mut wgrant = prod.grant_exact(2).unwrap();
+        wgrant.copy_from_slice(&[26, 27]);
+        wgrant.commit(2);
+
+        // Fill buffer to the end => | x | 27 | x | x | x | x | x | x | x | x |
+        let rgrant = cons.split_read().unwrap();
+        assert_eq!(rgrant.combined_len(), 9);
+        assert_eq!(rgrant.buf_first(), &[14, 15, 21, 22, 23, 24, 25]);
+        assert_eq!(rgrant.buf_second(), &[26, 27]);
+        rgrant.release(8);
+
+        let rgrant = cons.split_read().unwrap();
+        assert_eq!(rgrant.combined_len(), 1);
+        assert_eq!(rgrant.buf_first(), &[27]);
+        assert_eq!(rgrant.buf_second(), &[]);
+        rgrant.release(1);
+        
+    }
 }
