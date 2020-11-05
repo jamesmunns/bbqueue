@@ -390,6 +390,5 @@ mod tests {
         assert_eq!(rgrant.buf_first(), &[27]);
         assert_eq!(rgrant.buf_second(), &[]);
         rgrant.release(1);
-        
     }
 }
