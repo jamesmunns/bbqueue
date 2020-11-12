@@ -1135,7 +1135,6 @@ where
             let _ = atomic::fetch_add(&inner.read, used, Release);
         } else {
             // Also release parts of the second buffer
-            //TODO: Check if this is sound
             inner.read.store(used - self.buf1.len(), Release);
         }
 
