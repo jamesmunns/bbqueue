@@ -340,8 +340,10 @@ mod tests {
 
         let rgrant = cons.split_read().unwrap();
         assert_eq!(rgrant.combined_len(), 10);
-        assert_eq!(rgrant.buf_first(), &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        assert_eq!(rgrant.buf_second(), &[]);
+        assert_eq!(
+            rgrant.bufs(),
+            (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10][..], &[][..])
+        );
         // Release part of the buffer
         rgrant.release(6);
 
@@ -353,8 +355,10 @@ mod tests {
 
         let rgrant = cons.split_read().unwrap();
         assert_eq!(rgrant.combined_len(), 9);
-        assert_eq!(rgrant.buf_first(), &[7, 8, 9, 10]);
-        assert_eq!(rgrant.buf_second(), &[11, 12, 13, 14, 15]);
+        assert_eq!(
+            rgrant.bufs(),
+            (&[7, 8, 9, 10][..], &[11, 12, 13, 14, 15][..])
+        );
 
         // Release part of the buffer => | x | x | x | 14 | 15 | x | x | x | x | x |
         rgrant.release(7);
@@ -369,8 +373,7 @@ mod tests {
 
         let rgrant = cons.split_read().unwrap();
         assert_eq!(rgrant.combined_len(), 7);
-        assert_eq!(rgrant.buf_first(), &[14, 15, 21, 22, 23, 24, 25]);
-        assert_eq!(rgrant.buf_second(), &[]);
+        assert_eq!(rgrant.bufs(), (&[14, 15, 21, 22, 23, 24, 25][..], &[][..]));
         rgrant.release(0);
 
         // Fill buffer to the end => | 26 | 27 | x | 14 | 15 | 21 | 22 | 23 | 24 | 25 |
@@ -381,14 +384,15 @@ mod tests {
         // Fill buffer to the end => | x | 27 | x | x | x | x | x | x | x | x |
         let rgrant = cons.split_read().unwrap();
         assert_eq!(rgrant.combined_len(), 9);
-        assert_eq!(rgrant.buf_first(), &[14, 15, 21, 22, 23, 24, 25]);
-        assert_eq!(rgrant.buf_second(), &[26, 27]);
+        assert_eq!(
+            rgrant.bufs(),
+            (&[14, 15, 21, 22, 23, 24, 25][..], &[26, 27][..])
+        );
         rgrant.release(8);
 
         let rgrant = cons.split_read().unwrap();
         assert_eq!(rgrant.combined_len(), 1);
-        assert_eq!(rgrant.buf_first(), &[27]);
-        assert_eq!(rgrant.buf_second(), &[]);
+        assert_eq!(rgrant.bufs(), (&[27][..], &[][..]));
         rgrant.release(1);
     }
 }
