@@ -783,7 +783,7 @@ where
     pub(crate) to_release: usize,
 }
 
-/// A structure representing upt to two contiguous regions of memory that
+/// A structure representing up to two contiguous regions of memory that
 /// may be read from, and potentially "released" (or cleared)
 /// from the queue
 #[derive(Debug, PartialEq)]
