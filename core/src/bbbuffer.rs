@@ -71,10 +71,7 @@ where
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
         // Set producer/consumer taken bit, error and reset if one was already set
-        let prev = self
-            .0
-            .split_prod_cons
-            .fetch_or(BIT_PRODUCER | BIT_CONSUMER, AcqRel);
+        let prev = atomic::fetch_or(&self.0.split_prod_cons, BIT_PRODUCER | BIT_CONSUMER, AcqRel);
         if prev > 0 {
             self.0.split_prod_cons.store(prev, Release);
             return Err(Error::AlreadySplit);
@@ -133,7 +130,7 @@ where
     /// while splitting.
     pub fn try_take_producer(&'a self) -> Result<Producer<'a, N>> {
         // Set producer taken bit, error if already set
-        if self.0.split_prod_cons.fetch_or(BIT_PRODUCER, AcqRel) & BIT_PRODUCER > 0 {
+        if atomic::fetch_or(&self.0.split_prod_cons, BIT_PRODUCER, AcqRel) & BIT_PRODUCER > 0 {
             return Err(Error::AlreadySplit);
         }
 
@@ -167,7 +164,7 @@ where
     /// while splitting.
     pub fn try_take_consumer(&'a self) -> Result<Consumer<'a, N>> {
         // Set producer taken bit, error if already set
-        if self.0.split_prod_cons.fetch_or(BIT_CONSUMER, AcqRel) & BIT_CONSUMER > 0 {
+        if atomic::fetch_or(&self.0.split_prod_cons, BIT_CONSUMER, AcqRel) & BIT_CONSUMER > 0 {
             return Err(Error::AlreadySplit);
         }
 
@@ -348,7 +345,7 @@ where
         self.0.last.store(0, Release);
 
         // Mark the buffer as ready to retake producer
-        self.0.split_prod_cons.fetch_and(!BIT_PRODUCER, Release);
+        atomic::fetch_and(&self.0.split_prod_cons, !BIT_PRODUCER, Release);
 
         Ok(())
     }
@@ -419,7 +416,7 @@ where
         self.0.last.store(0, Release);
 
         // Mark the buffer as ready to retake consumer
-        self.0.split_prod_cons.fetch_and(!BIT_CONSUMER, Release);
+        atomic::fetch_and(&self.0.split_prod_cons, !BIT_CONSUMER, Release);
 
         Ok(())
     }
@@ -1437,7 +1434,7 @@ where
 #[cfg(feature = "thumbv6")]
 mod atomic {
     use core::sync::atomic::{
-        AtomicBool, AtomicUsize,
+        AtomicBool, AtomicU8, AtomicUsize,
         Ordering::{self, Acquire, Release},
     };
     use cortex_m::interrupt::free;
@@ -1461,6 +1458,24 @@ mod atomic {
     }
 
     #[inline(always)]
+    pub fn fetch_and(atomic: &AtomicU8, val: u8, _order: Ordering) -> u8 {
+        free(|_| {
+            let prev = atomic.load(Acquire);
+            atomic.store(prev & val, Release);
+            prev
+        })
+    }
+
+    #[inline(always)]
+    pub fn fetch_or(atomic: &AtomicU8, val: u8, _order: Ordering) -> u8 {
+        free(|_| {
+            let prev = atomic.load(Acquire);
+            atomic.store(prev | val, Release);
+            prev
+        })
+    }
+
+    #[inline(always)]
     pub fn swap(atomic: &AtomicBool, val: bool, _order: Ordering) -> bool {
         free(|_| {
             let prev = atomic.load(Acquire);
@@ -1472,7 +1487,7 @@ mod atomic {
 
 #[cfg(not(feature = "thumbv6"))]
 mod atomic {
-    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
     #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
@@ -1482,6 +1497,16 @@ mod atomic {
     #[inline(always)]
     pub fn fetch_sub(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
         atomic.fetch_sub(val, order)
+    }
+
+    #[inline(always)]
+    pub fn fetch_and(atomic: &AtomicU8, val: u8, order: Ordering) -> u8 {
+        atomic.fetch_and(val, order)
+    }
+
+    #[inline(always)]
+    pub fn fetch_or(atomic: &AtomicU8, val: u8, order: Ordering) -> u8 {
+        atomic.fetch_or(val, order)
     }
 
     #[inline(always)]
