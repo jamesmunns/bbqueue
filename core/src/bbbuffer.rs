@@ -1116,36 +1116,6 @@ where
         (self.buf1, self.buf2)
     }
 
-    /// Sometimes, it's not possible for the lifetimes to check out. For example,
-    /// if you need to hand this buffer to a function that expects to receive a
-    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
-    /// grant itself.
-    ///
-    /// You MUST guarantee that in no cases, the reference that is returned here outlives
-    /// the grant itself. Once the grant has been released, referencing the data contained
-    /// WILL cause undefined behavior.
-    ///
-    /// Additionally, you must ensure that a separate reference to this data is not created
-    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
-    pub unsafe fn as_static_buf_first(&self) -> &'static [u8] {
-        transmute::<&[u8], &'static [u8]>(self.buf1)
-    }
-
-    /// Sometimes, it's not possible for the lifetimes to check out. For example,
-    /// if you need to hand this buffer to a function that expects to receive a
-    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
-    /// grant itself.
-    ///
-    /// You MUST guarantee that in no cases, the reference that is returned here outlives
-    /// the grant itself. Once the grant has been released, referencing the data contained
-    /// WILL cause undefined behavior.
-    ///
-    /// Additionally, you must ensure that a separate reference to this data is not created
-    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
-    pub unsafe fn as_static_buf_second(&self) -> &'static [u8] {
-        transmute::<&[u8], &'static [u8]>(self.buf2)
-    }
-
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref().0 };
