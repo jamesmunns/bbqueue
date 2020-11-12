@@ -626,7 +626,7 @@ where
         })
     }
 
-    /// Obtains up to two contiguous slices of committed bytes.
+    /// Obtains two disjoint slices, which are each contiguous of committed bytes.
     /// Combined these contain all previously commited data.
     pub fn split_read(&mut self) -> Result<SplitGrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref().0 };
@@ -1075,7 +1075,7 @@ where
         forget(self);
     }
 
-    /// Obtain access to the first inner buffer for reading
+    /// Obtain access to both inner buffers for reading
     ///
     /// ```
     /// # // bbqueue test shim!
@@ -1104,29 +1104,16 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn buf_first(&self) -> &[u8] {
-        self.buf1
+    pub fn bufs(&self) -> (&[u8], &[u8]) {
+        (self.buf1, self.buf2)
     }
 
-    /// Obtain access to the second inner buffer for reading
-    pub fn buf_second(&self) -> &[u8] {
-        self.buf2
-    }
-
-    /// Obtain mutable access to the first part of the read grant
+    /// Obtain mutable access to both parts of the read grant
     ///
     /// This is useful if you are performing in-place operations
     /// on an incoming packet, such as decryption
-    pub fn buf_mut_first(&mut self) -> &mut [u8] {
-        self.buf1
-    }
-
-    /// Obtain mutable access to the second part of the read grant
-    ///
-    /// This is useful if you are performing in-place operations
-    /// on an incoming packet, such as decryption
-    pub fn buf_mut_second(&mut self) -> &mut [u8] {
-        self.buf2
+    pub fn bufs_mut(&mut self) -> (&mut [u8], &mut [u8]) {
+        (self.buf1, self.buf2)
     }
 
     /// Sometimes, it's not possible for the lifetimes to check out. For example,
