@@ -146,7 +146,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// Attempt to take a `Producer` from the `BBBuffer` to gain access to the
     /// buffer. If a producer has already been taken, an error will be returned.
     ///
-    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
+    /// NOTE: When taking the producer, the underlying buffer will be explicitly initialized
     /// to zero. This may take a measurable amount of time, depending on the size
     /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
@@ -161,12 +161,11 @@ impl<'a, const N: usize> BBBuffer<N> {
         }
 
         unsafe {
-            // TODO: do we need to zero buffer here, like try_split?
-            // // Explicitly zero the data to avoid undefined behavior.
-            // // This is required, because we hand out references to the buffers,
-            // // which mean that creating them as references is technically UB for now
-            // let mu_ptr = self.buf.get();
-            // (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
+            // Explicitly zero the data to avoid undefined behavior.
+            // This is required, because we hand out references to the buffers,
+            // which mean that creating them as references is technically UB for now
+            let mu_ptr = self.buf.get();
+            (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
             let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
 
@@ -180,12 +179,6 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// Attempt to take a `Consumer` from the `BBBuffer` to gain access to the
     /// buffer. If a consumer has already been taken, an error will be returned.
     ///
-    /// NOTE: When splitting, the underlying buffer will be explicitly initialized
-    /// to zero. This may take a measurable amount of time, depending on the size
-    /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
-    /// is placed at `static` scope within the `.bss` region, the explicit initialization
-    /// will be elided (as it is already performed as part of memory initialization)
-    ///
     /// NOTE: If the `thumbv6` feature is selected, this function takes a short critical section
     /// while splitting.
     pub fn try_take_consumer(&'a self) -> Result<Consumer<'a, N>> {
@@ -195,13 +188,6 @@ impl<'a, const N: usize> BBBuffer<N> {
         }
 
         unsafe {
-            // TODO: do we need to zero buffer here, like try_split?
-            // // Explicitly zero the data to avoid undefined behavior.
-            // // This is required, because we hand out references to the buffers,
-            // // which mean that creating them as references is technically UB for now
-            // let mu_ptr = self.buf.get();
-            // (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
-
             let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
 
             Ok(Consumer {
@@ -311,8 +297,9 @@ impl<'a, const N: usize> BBBuffer<N> {
 
     /// Attempt to release the `Producer`.
     ///
-    /// This re-initializes the buffer so it may be split in a different mode at a later
-    /// time. There must be no read or write grants active, or an error will be returned.
+    /// This re-initializes the buffer if the consumer was already released so it may be
+    /// split in a different mode at a later time. There must be no read or write grants
+    /// active, or an error will be returned.
     ///
     /// The `Producer`  ust be from THIS `BBBuffer`, or an error will be returned.
     ///
@@ -368,11 +355,13 @@ impl<'a, const N: usize> BBBuffer<N> {
         // Drop the producer
         drop(prod);
 
-        // Re-initialize the buffer (not totally needed, but nice to do)
-        self.write.store(0, Release);
-        self.read.store(0, Release);
-        self.reserve.store(0, Release);
-        self.last.store(0, Release);
+        // Re-initialize the buffer if consumer is already released (not totally needed, but nice to do)
+        if self.split_prod_cons.load(Acquire) & BIT_CONSUMER == 0 {
+            self.write.store(0, Release);
+            self.read.store(0, Release);
+            self.reserve.store(0, Release);
+            self.last.store(0, Release);
+        }
 
         // Mark the buffer as ready to retake producer
         atomic::fetch_and(&self.split_prod_cons, !BIT_PRODUCER, Release);
@@ -382,8 +371,9 @@ impl<'a, const N: usize> BBBuffer<N> {
 
     /// Attempt to release the `Consumer`.
     ///
-    /// This re-initializes the buffer so it may be split in a different mode at a later
-    /// time. There must be no read or write grants active, or an error will be returned.
+    /// This re-initializes the buffer if the producer was already released so it may be
+    /// split in a different mode at a later time. There must be no read or write grants
+    /// active, or an error will be returned.
     ///
     /// The `Consumer` must be from THIS `BBBuffer`, or an error will be returned.
     ///
@@ -439,11 +429,13 @@ impl<'a, const N: usize> BBBuffer<N> {
         // Drop the consumer
         drop(cons);
 
-        // Re-initialize the buffer (not totally needed, but nice to do)
-        self.write.store(0, Release);
-        self.read.store(0, Release);
-        self.reserve.store(0, Release);
-        self.last.store(0, Release);
+        // Re-initialize the buffer if producer is already released (not totally needed, but nice to do)
+        if self.split_prod_cons.load(Acquire) & BIT_PRODUCER == 0 {
+            self.write.store(0, Release);
+            self.read.store(0, Release);
+            self.reserve.store(0, Release);
+            self.last.store(0, Release);
+        }
 
         // Mark the buffer as ready to retake consumer
         atomic::fetch_and(&self.split_prod_cons, !BIT_CONSUMER, Release);
