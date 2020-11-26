@@ -1,5 +1,5 @@
 [package]
-name = "bbqueue"
+name = "bbqueue-ng"
 version = "0.4.11"
 description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"
