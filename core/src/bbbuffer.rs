@@ -1170,6 +1170,15 @@ where
     }
 }
 
+impl<'a, N> Drop for SplitGrantR<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn drop(&mut self) {
+        self.release_inner(self.to_release)
+    }
+}
+
 impl<'a, N> Deref for GrantW<'a, N>
 where
     N: ArrayLength<u8>,
