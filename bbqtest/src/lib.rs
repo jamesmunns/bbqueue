@@ -395,4 +395,66 @@ mod tests {
         assert_eq!(rgrant.bufs(), (&[27][..], &[][..]));
         rgrant.release(1);
     }
+
+    #[test]
+    fn split_read_sanity_check() {
+        let bb: BBBuffer<U6> = BBBuffer::new();
+        let (mut prod, mut cons) = bb.try_split().unwrap();
+
+        const ITERS: usize = 100000;
+
+        for i in 0..ITERS {
+            let j = (i & 255) as u8;
+
+            #[cfg(feature = "extra-verbose")]
+            println!("===========================");
+            #[cfg(feature = "extra-verbose")]
+            println!("INDEX: {:?}", j);
+            #[cfg(feature = "extra-verbose")]
+            println!("===========================");
+
+            #[cfg(feature = "extra-verbose")]
+            println!("START: {:?}", bb);
+
+            let mut wgr = prod.grant_exact(1).unwrap();
+
+            #[cfg(feature = "extra-verbose")]
+            println!("GRANT: {:?}", bb);
+
+            wgr[0] = j;
+
+            #[cfg(feature = "extra-verbose")]
+            println!("WRITE: {:?}", bb);
+
+            wgr.commit(1);
+
+            #[cfg(feature = "extra-verbose")]
+            println!("COMIT: {:?}", bb);
+
+            // This panicked before with Err(GrantInProgress), because SplitGrantR did not implement Drop
+            let rgr = cons.split_read().unwrap();
+            drop(rgr);
+
+            #[cfg(feature = "extra-verbose")]
+            println!("READ : {:?}", bb);
+
+            let rgr = cons.split_read().unwrap();
+            let (first, second) = rgr.bufs();
+            if first.len() == 1 {
+                assert_eq!(first[0], j);
+            } else if second.len() == 1 {
+                assert_eq!(second[0], j);
+            } else {
+                assert!(false, "wrong len");
+            }
+
+            #[cfg(feature = "extra-verbose")]
+            println!("RELSE: {:?}", bb);
+
+            rgr.release(1);
+
+            #[cfg(feature = "extra-verbose")]
+            println!("FINSH: {:?}", bb);
+        }
+    }
 }
