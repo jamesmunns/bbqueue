@@ -17,6 +17,12 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 generic-array = "0.13"
 cortex-m = { version = "0.6.0", optional = true }
+embedded-dma = "0.1.1"
+
+[dependencies.defmt]
+git = "https://github.com/knurling-rs/defmt"
+branch = "main"
+optional = true
 
 [features]
 thumbv6 = ["cortex-m"]
@@ -25,6 +31,15 @@ thumbv6 = ["cortex-m"]
 atomic = []
 std = []
 
+enable-defmt = ["defmt"]
+
+# do NOT modify these features
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
 
 [package.metadata.docs.rs]
 all-features = true

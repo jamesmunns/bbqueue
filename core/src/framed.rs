@@ -310,3 +310,32 @@ where
         self
     }
 }
+
+use embedded_dma::{
+    WriteBuffer,
+    ReadBuffer,
+};
+
+unsafe impl<'a, N> WriteBuffer for FrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Word = u8;
+    unsafe fn write_buffer(&mut self) -> (*mut Self::Word, usize) {
+        let buf = self.deref_mut();
+        let len = buf.len();
+        (buf.as_mut_ptr(), len)
+    }
+}
+
+unsafe impl<'a, N> ReadBuffer for FrameGrantW<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Word = u8;
+    unsafe fn read_buffer(&self) -> (*const Self::Word, usize) {
+        let buf = self.deref();
+        let len = buf.len();
+        (buf.as_ptr(), len)
+    }
+}
