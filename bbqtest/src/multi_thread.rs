@@ -1,7 +1,7 @@
 #[cfg_attr(not(feature = "verbose"), allow(unused_variables))]
 #[cfg(test)]
 mod tests {
-    use bbqueue::{consts::*, BBBuffer, ConstBBBuffer, Error};
+    use bbqueue::{BBBuffer, ConstBBBuffer, Error};
     use rand::prelude::*;
     use std::thread::spawn;
     use std::time::{Duration, Instant};
@@ -13,8 +13,6 @@ mod tests {
 
     const RPT_IVAL: usize = ITERS / 100;
 
-    // These two should be the same
-    type QueueSizeTy = U1024;
     const QUEUE_SIZE: usize = 1024;
 
     const TIMEOUT_NODATA: Duration = Duration::from_millis(10_000);
@@ -50,7 +48,7 @@ mod tests {
         #[cfg(feature = "verbose")]
         println!("RTX: Running test...");
 
-        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        static BB: BBBuffer<QUEUE_SIZE> = BBBuffer(ConstBBBuffer::new());
         let (mut tx, mut rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
@@ -142,7 +140,7 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        static BB: BBBuffer<QUEUE_SIZE> = BBBuffer(ConstBBBuffer::new());
         let (mut tx, mut rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
@@ -236,7 +234,7 @@ mod tests {
 
     #[test]
     fn sanity_check_grant_max() {
-        static BB: BBBuffer<QueueSizeTy> = BBBuffer(ConstBBBuffer::new());
+        static BB: BBBuffer<QUEUE_SIZE> = BBBuffer(ConstBBBuffer::new());
         let (mut tx, mut rx) = BB.try_split().unwrap();
 
         #[cfg(feature = "verbose")]
@@ -320,7 +318,7 @@ mod tests {
                         println!("len: {:?}", gr.len());
                         #[cfg(feature = "verbose")]
                         println!("{:?}", gr);
-                        panic!("RX Iter: {}");
+                        panic!("RX Iter: {}", rxd_ct);
                     }
                     gr.release(1);
 
