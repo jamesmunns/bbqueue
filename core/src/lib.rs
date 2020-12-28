@@ -1,4 +1,10 @@
-//! # BBQueue
+//! # BBQueue(-ng)
+//!
+//! ## EXPERIMENTAL NOTICE
+//!
+//! **NOTE**: This is the experimental next-generation version of bbqueue. This version generally doesn't respect semver, and may have incorrect documentation. If you want something more stable, use the regular version of `bbqueue`!
+//!
+//! ## Probably out of date docs
 //!
 //! BBQueue, short for "BipBuffer Queue", is a Single Producer Single Consumer,
 //! lockless, no_std, thread safe, queue, based on [BipBuffers]. For more info on
