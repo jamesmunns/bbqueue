@@ -26,8 +26,7 @@ pub struct BBBuffer<const N: usize>(
 
 unsafe impl<const A: usize> Sync for ConstBBBuffer<{ A }> {}
 
-impl<'a, const N: usize> BBBuffer<{ N }>
-{
+impl<'a, const N: usize> BBBuffer<{ N }> {
     /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
     ///
@@ -99,7 +98,9 @@ impl<'a, const N: usize> BBBuffer<{ N }>
     ///
     /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
     /// section while splitting.
-    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, { N }>, FrameConsumer<'a, { N }>)> {
+    pub fn try_split_framed(
+        &'a self,
+    ) -> Result<(FrameProducer<'a, { N }>, FrameConsumer<'a, { N }>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
@@ -317,16 +318,14 @@ impl<const A: usize> ConstBBBuffer<{ A }> {
 ///
 /// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
 /// discussion of grant methods that could be added in the future.
-pub struct Producer<'a, const N: usize>
-{
+pub struct Producer<'a, const N: usize> {
     bbq: NonNull<BBBuffer<N>>,
     pd: PhantomData<&'a ()>,
 }
 
 unsafe impl<'a, const N: usize> Send for Producer<'a, { N }> {}
 
-impl<'a, const N: usize> Producer<'a, { N }>
-{
+impl<'a, const N: usize> Producer<'a, { N }> {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
@@ -524,16 +523,14 @@ impl<'a, const N: usize> Producer<'a, { N }>
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
-pub struct Consumer<'a, const N: usize>
-{
+pub struct Consumer<'a, const N: usize> {
     bbq: NonNull<BBBuffer<N>>,
     pd: PhantomData<&'a ()>,
 }
 
 unsafe impl<'a, const N: usize> Send for Consumer<'a, { N }> {}
 
-impl<'a, const N: usize> Consumer<'a, { N }>
-{
+impl<'a, const N: usize> Consumer<'a, { N }> {
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
@@ -670,8 +667,7 @@ impl<'a, const N: usize> Consumer<'a, { N }>
     }
 }
 
-impl<const N: usize> BBBuffer<{ N }>
-{
+impl<const N: usize> BBBuffer<{ N }> {
     /// Returns the size of the backing storage.
     ///
     /// This is the maximum number of bytes that can be stored in this queue.
@@ -697,8 +693,7 @@ impl<const N: usize> BBBuffer<{ N }>
     }
 }
 
-impl<const N: usize> BBBuffer<{ N }>
-{
+impl<const N: usize> BBBuffer<{ N }> {
     /// Create a new bbqueue
     ///
     /// NOTE: For creating a bbqueue in static context, see `ConstBBBuffer::new()`.
@@ -734,8 +729,7 @@ impl<const N: usize> BBBuffer<{ N }>
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
-pub struct GrantW<'a, const N: usize>
-{
+pub struct GrantW<'a, const N: usize> {
     pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
     pub(crate) to_commit: usize,
@@ -756,8 +750,7 @@ unsafe impl<'a, const N: usize> Send for GrantW<'a, { N }> {}
 /// If the `thumbv6` feature is selected, dropping the grant
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
-pub struct GrantR<'a, const N: usize>
-{
+pub struct GrantR<'a, const N: usize> {
     pub(crate) buf: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
     pub(crate) to_release: usize,
@@ -767,8 +760,7 @@ pub struct GrantR<'a, const N: usize>
 /// may be read from, and potentially "released" (or cleared)
 /// from the queue
 #[derive(Debug, PartialEq)]
-pub struct SplitGrantR<'a, const N: usize>
-{
+pub struct SplitGrantR<'a, const N: usize> {
     pub(crate) buf1: &'a mut [u8],
     pub(crate) buf2: &'a mut [u8],
     bbq: NonNull<BBBuffer<N>>,
@@ -779,8 +771,7 @@ unsafe impl<'a, const N: usize> Send for GrantR<'a, { N }> {}
 
 unsafe impl<'a, const N: usize> Send for SplitGrantR<'a, { N }> {}
 
-impl<'a, const N: usize> GrantW<'a, { N }>
-{
+impl<'a, const N: usize> GrantW<'a, { N }> {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
     /// This makes the data available to be read via `read()`. This consumes
     /// the grant.
@@ -896,8 +887,7 @@ impl<'a, const N: usize> GrantW<'a, { N }>
     }
 }
 
-impl<'a, const N: usize> GrantR<'a, { N }>
-{
+impl<'a, const N: usize> GrantR<'a, { N }> {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes. This consumes the grant.
     ///
@@ -1003,8 +993,7 @@ impl<'a, const N: usize> GrantR<'a, { N }>
     }
 }
 
-impl<'a, const N: usize> SplitGrantR<'a, { N }>
-{
+impl<'a, const N: usize> SplitGrantR<'a, { N }> {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes. This consumes the grant.
     ///
@@ -1098,22 +1087,19 @@ impl<'a, const N: usize> SplitGrantR<'a, { N }>
     }
 }
 
-impl<'a, const N: usize> Drop for GrantW<'a, N>
-{
+impl<'a, const N: usize> Drop for GrantW<'a, N> {
     fn drop(&mut self) {
         self.commit_inner(self.to_commit)
     }
 }
 
-impl<'a, const N: usize> Drop for GrantR<'a, N>
-{
+impl<'a, const N: usize> Drop for GrantR<'a, N> {
     fn drop(&mut self) {
         self.release_inner(self.to_release)
     }
 }
 
-impl<'a, const N: usize> Deref for GrantW<'a, N>
-{
+impl<'a, const N: usize> Deref for GrantW<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -1121,15 +1107,13 @@ impl<'a, const N: usize> Deref for GrantW<'a, N>
     }
 }
 
-impl<'a, const N: usize> DerefMut for GrantW<'a, N>
-{
+impl<'a, const N: usize> DerefMut for GrantW<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
     }
 }
 
-impl<'a, const N: usize> Deref for GrantR<'a, N>
-{
+impl<'a, const N: usize> Deref for GrantR<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -1137,8 +1121,7 @@ impl<'a, const N: usize> Deref for GrantR<'a, N>
     }
 }
 
-impl<'a, const N: usize> DerefMut for GrantR<'a, N>
-{
+impl<'a, const N: usize> DerefMut for GrantR<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
     }

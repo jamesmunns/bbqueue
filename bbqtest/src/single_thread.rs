@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use bbqueue::{BBBuffer};
+    use bbqueue::BBBuffer;
 
     #[test]
     fn sanity_check() {

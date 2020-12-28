@@ -1,12 +1,9 @@
 #[cfg(test)]
 mod tests {
 
-    use bbqueue::{
-        BBBuffer, ConstBBBuffer, Consumer, GrantR, GrantW, Producer,
-    };
+    use bbqueue::{BBBuffer, ConstBBBuffer, Consumer, GrantR, GrantW, Producer};
 
-    enum Potato<'a, const N: usize>
-    {
+    enum Potato<'a, const N: usize> {
         Tx((Producer<'a, N>, u8)),
         Rx((Consumer<'a, N>, u8)),
         TxG(GrantW<'a, N>),
@@ -26,8 +23,7 @@ mod tests {
     const BYTES_PER_GRANT: usize = 129;
     const BUFFER_SIZE: usize = 4096;
 
-    impl<'a, const N: usize> Potato<'a, { N }>
-    {
+    impl<'a, const N: usize> Potato<'a, { N }> {
         fn work(self) -> (Self, Self) {
             match self {
                 Self::Tx((mut prod, ct)) => {
