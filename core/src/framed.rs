@@ -81,25 +81,20 @@ use core::{
     cmp::min,
     ops::{Deref, DerefMut},
 };
-use generic_array::ArrayLength;
 
 /// A producer of Framed data
-pub struct FrameProducer<'a, N>
-where
-    N: ArrayLength<u8>,
+pub struct FrameProducer<'a, const N: usize>
 {
     pub(crate) producer: Producer<'a, N>,
 }
 
-impl<'a, N> FrameProducer<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> FrameProducer<'a, { N }>
 {
     /// Receive a grant for a frame with a maximum size of `max_sz` in bytes.
     ///
     /// This size does not include the size of the frame header. The exact size
     /// of the frame can be set on `commit`.
-    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
+    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, { N }>> {
         let hdr_len = encoded_len(max_sz);
         Ok(FrameGrantW {
             grant_w: self.producer.grant_exact(max_sz + hdr_len)?,
@@ -109,19 +104,15 @@ where
 }
 
 /// A consumer of Framed data
-pub struct FrameConsumer<'a, N>
-where
-    N: ArrayLength<u8>,
+pub struct FrameConsumer<'a, const N: usize>
 {
     pub(crate) consumer: Consumer<'a, N>,
 }
 
-impl<'a, N> FrameConsumer<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> FrameConsumer<'a, { N }>
 {
     /// Obtain the next available frame, if any
-    pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
+    pub fn read(&mut self) -> Option<FrameGrantR<'a, { N }>> {
         // Get all available bytes. We never wrap a frame around,
         // so if a header is available, the whole frame will be.
         let mut grant_r = self.consumer.read().ok()?;
@@ -153,9 +144,7 @@ where
 /// the contents without first calling `to_commit()`, then no
 /// frame will be comitted for writing.
 #[derive(Debug, PartialEq)]
-pub struct FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
+pub struct FrameGrantW<'a, const N: usize>
 {
     grant_w: GrantW<'a, N>,
     hdr_len: u8,
@@ -166,17 +155,13 @@ where
 /// NOTE: If the grant is dropped without explicitly releasing
 /// the contents, then no frame will be released.
 #[derive(Debug, PartialEq)]
-pub struct FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
+pub struct FrameGrantR<'a, const N: usize>
 {
     grant_r: GrantR<'a, N>,
     hdr_len: u8,
 }
 
-impl<'a, N> Deref for FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> Deref for FrameGrantW<'a, { N }>
 {
     type Target = [u8];
 
@@ -185,18 +170,14 @@ where
     }
 }
 
-impl<'a, N> DerefMut for FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> DerefMut for FrameGrantW<'a, { N }>
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.grant_w.buf[self.hdr_len.into()..]
     }
 }
 
-impl<'a, N> Deref for FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> Deref for FrameGrantR<'a, { N }>
 {
     type Target = [u8];
 
@@ -205,26 +186,14 @@ where
     }
 }
 
-impl<'a, N> DerefMut for FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> DerefMut for FrameGrantR<'a, { N }>
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.grant_r.buf[self.hdr_len.into()..]
     }
 }
 
-/// You can now use the to_commit method on grants to have them auto-commit
-#[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoReleaseFrameGrantR<'a, N> = FrameGrantR<'a, N>;
-
-/// You can now use the to_release method on grants to have them auto-commit
-#[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoCommitFrameGrantW<'a, N> = FrameGrantW<'a, N>;
-
-impl<'a, N> FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> FrameGrantW<'a, { N }>
 {
     /// Commit a frame to make it available to the Consumer half.
     ///
@@ -260,29 +229,9 @@ where
             self.grant_w.to_commit(size);
         }
     }
-
-    /// Convert the grant into a grant that automatically commits
-    ///
-    /// NOTE: by default, the full grant will be committed. This can
-    /// be changed by calling `AutoCommitFrameGrantW::to_commit()`.
-    #[deprecated(note = "Use `to_commit()` instead")]
-    #[allow(deprecated)]
-    pub fn into_auto_commit(mut self) -> AutoCommitFrameGrantW<'a, N> {
-        let grant_len = self.grant_w.len();
-        let hdr_len: usize = self.hdr_len.into();
-        let frame_len = grant_len - hdr_len;
-
-        // Write the actual frame length to the header
-        encode_usize_to_slice(frame_len, hdr_len, &mut self.grant_w[..hdr_len]);
-
-        self.grant_w.to_commit(self.grant_w.len());
-        self
-    }
 }
 
-impl<'a, N> FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
+impl<'a, const N: usize> FrameGrantR<'a, { N }>
 {
     /// Release a frame to make the space available for future writing
     ///
@@ -298,15 +247,5 @@ where
     pub fn auto_release(&mut self, is_auto: bool) {
         self.grant_r
             .to_release(if is_auto { self.grant_r.len() } else { 0 });
-    }
-
-    /// Convert the grant into a grant that automatically releases
-    ///
-    /// NOTE: Framed Read Grants always release the entire contents.
-    #[deprecated(note = "Use `auto_release()` instead")]
-    #[allow(deprecated)]
-    pub fn into_auto_release(mut self) -> AutoReleaseFrameGrantR<'a, N> {
-        self.grant_r.to_release(self.grant_r.len());
-        self
     }
 }
