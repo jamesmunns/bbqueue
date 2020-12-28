@@ -1,4 +1,10 @@
-# BBQueue
+# BBQueue(-ng)
+
+## EXPERIMENTAL NOTICE
+
+**NOTE**: This is the experimental next-generation version of bbqueue. This version generally doesn't respect semver, and may have incorrect documentation. If you want something more stable, use the regular version of `bbqueue`!
+
+## Probably out of date docs
 
 [![Documentation](https://docs.rs/bbqueue/badge.svg)](https://docs.rs/bbqueue)
 
