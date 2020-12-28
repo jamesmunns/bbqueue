@@ -1,8 +1,8 @@
 on:
   push:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
   pull_request:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
 
 name: TSAN Integration Test
 

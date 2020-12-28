@@ -1,8 +1,8 @@
 on:
   push:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
   pull_request:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
 
 name: Embedded Builds
 
@@ -14,10 +14,10 @@ jobs:
         include:
           - feature: atomic
             target: thumbv7em-none-eabihf
-            rust: stable
+            rust: nightly
           - feature: thumbv6
             target: thumbv6m-none-eabi
-            rust: stable
+            rust: nightly
 
     steps:
       - uses: actions/checkout@v2
