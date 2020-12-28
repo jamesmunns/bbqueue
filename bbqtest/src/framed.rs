@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use bbqueue::{consts::*, BBBuffer};
+    use bbqueue::BBBuffer;
 
     #[test]
     fn frame_wrong_size() {
-        let bb: BBBuffer<U256> = BBBuffer::new();
+        let bb: BBBuffer<256> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         // Create largeish grants
@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn full_size() {
-        let bb: BBBuffer<U256> = BBBuffer::new();
+        let bb: BBBuffer<256> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
         let mut ctr = 0;
 
@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn frame_overcommit() {
-        let bb: BBBuffer<U256> = BBBuffer::new();
+        let bb: BBBuffer<256> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         // Create largeish grants
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn frame_undercommit() {
-        let bb: BBBuffer<U512> = BBBuffer::new();
+        let bb: BBBuffer<512> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         for _ in 0..100_000 {
@@ -132,12 +132,13 @@ mod tests {
 
     #[test]
     fn frame_auto_commit_release() {
-        let bb: BBBuffer<U256> = BBBuffer::new();
+        let bb: BBBuffer<256> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 
         for _ in 0..100 {
             {
-                let mut wgr = prod.grant(64).unwrap().into_auto_commit();
+                let mut wgr = prod.grant(64).unwrap();
+                wgr.to_commit(64);
                 for (i, by) in wgr.iter_mut().enumerate() {
                     *by = i as u8;
                 }
@@ -145,7 +146,10 @@ mod tests {
             }
 
             {
-                let rgr = cons.read().unwrap().into_auto_release();
+                let mut rgr = cons.read().unwrap();
+                rgr.auto_release(true);
+                let rgr = rgr;
+
                 for (i, by) in rgr.iter().enumerate() {
                     assert_eq!(*by, i as u8);
                 }

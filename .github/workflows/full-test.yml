@@ -1,8 +1,8 @@
 on:
   push:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
   pull_request:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
 
 name: Integration Tests
 
@@ -12,9 +12,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - rust: stable
+          - rust: nightly
             build: ""
-          - rust: stable
+          - rust: nightly
             build: "--release"
 
     steps:

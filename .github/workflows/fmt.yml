@@ -1,8 +1,8 @@
 on:
   push:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
   pull_request:
-    branches: [ master ]
+    branches: [ bbqueue-ng ]
 
 name: Formatting check
 
@@ -15,7 +15,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: nightly
           override: true
           components: rustfmt
       - uses: actions-rs/cargo@v1
