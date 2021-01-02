@@ -1,4 +1,4 @@
-use bbqueue::{consts::*, BBBuffer};
+use bbqueue::BBBuffer;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::cmp::min;
 
