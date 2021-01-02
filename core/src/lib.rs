@@ -26,10 +26,7 @@
 //! ## Local usage
 //!
 //! ```rust, no_run
-//! # #[cfg(feature = "atomic")]
-//! # use bbqueue_ng::atomic::BBBuffer;
-//! # #[cfg(not(feature = "atomic"))]
-//! # use bbqueue_ng::cm_mutex::BBBuffer;
+//! # use bbqueue_ng::BBBuffer;
 //! #
 //! // Create a buffer with six elements
 //! let bb: BBBuffer<6> = BBBuffer::new();
@@ -58,10 +55,7 @@
 //! ## Static usage
 //!
 //! ```rust, no_run
-//! # #[cfg(feature = "atomic")]
-//! # use bbqueue_ng::atomic::BBBuffer;
-//! # #[cfg(not(feature = "atomic"))]
-//! # use bbqueue_ng::cm_mutex::BBBuffer;
+//! # use bbqueue_ng::BBBuffer;
 //! #
 //! // Create a buffer with six elements
 //! static BB: BBBuffer<6> = BBBuffer::new();
@@ -113,24 +107,6 @@
 
 mod bbbuffer;
 pub use bbbuffer::*;
-
-/// There are no longer separate `atomic` and `cm_mutex` modules. You can just use the types at the
-/// crate root.
-#[deprecated(
-    note = "There are no longer separate 'atomic' and 'cm_mutex' modules. You can just use the types at the crate root."
-)]
-pub mod atomic {
-    pub use crate::bbbuffer::*;
-}
-
-/// There are no longer separate `atomic` and `cm_mutex` modules. You can just use the types at the
-/// crate root.
-#[deprecated(
-    note = "There are no longer separate 'atomic' and 'cm_mutex' modules. You can just use the types at the crate root."
-)]
-pub mod cm_mutex {
-    pub use crate::bbbuffer::*;
-}
 
 pub mod framed;
 mod vusize;
