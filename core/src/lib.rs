@@ -27,12 +27,12 @@
 //!
 //! ```rust, no_run
 //! # #[cfg(feature = "atomic")]
-//! # use bbqueue::atomic::{BBBuffer, consts::*};
+//! # use bbqueue_ng::atomic::BBBuffer;
 //! # #[cfg(not(feature = "atomic"))]
-//! # use bbqueue::cm_mutex::{BBBuffer, consts::*};
+//! # use bbqueue_ng::cm_mutex::BBBuffer;
 //! #
 //! // Create a buffer with six elements
-//! let bb: BBBuffer<U6> = BBBuffer::new();
+//! let bb: BBBuffer<6> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split().unwrap();
 //!
 //! // Request space for one byte
@@ -59,12 +59,12 @@
 //!
 //! ```rust, no_run
 //! # #[cfg(feature = "atomic")]
-//! # use bbqueue::atomic::{BBBuffer, ConstBBBuffer, consts::*};
+//! # use bbqueue_ng::atomic::BBBuffer;
 //! # #[cfg(not(feature = "atomic"))]
-//! # use bbqueue::cm_mutex::{BBBuffer, ConstBBBuffer, consts::*};
+//! # use bbqueue_ng::cm_mutex::BBBuffer;
 //! #
 //! // Create a buffer with six elements
-//! static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+//! static BB: BBBuffer<6> = BBBuffer::new();
 //!
 //! fn main() {
 //!     // Split the bbqueue into producer and consumer halves.
