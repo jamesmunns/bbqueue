@@ -6,8 +6,6 @@
 
 ## Probably out of date docs
 
-[![Documentation](https://docs.rs/bbqueue/badge.svg)](https://docs.rs/bbqueue)
-
 BBQueue, short for "BipBuffer Queue", is a Single Producer Single Consumer,
 lockless, no_std, thread safe, queue, based on [BipBuffers]. For more info on
 the design of the lock-free algorithm used by bbqueue, see [this blog post].
@@ -27,9 +25,9 @@ block of contiguous memory, which can be filled (or emptied) by a DMA engine.
 
 ## Local usage
 
-```rust
+```rust, no_run
 // Create a buffer with six elements
-let bb: BBBuffer<U6> = BBBuffer::new();
+let bb: BBBuffer<6> = BBBuffer::new();
 let (mut prod, mut cons) = bb.try_split().unwrap();
 
 // Request space for one byte
@@ -54,9 +52,11 @@ rgr.release(1);
 
 ## Static usage
 
-```rust
+```rust, no_run
+use bbqueue_ng::BBBuffer;
+
 // Create a buffer with six elements
-static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+static BB: BBBuffer<6> = BBBuffer::new();
 
 fn main() {
     // Split the bbqueue into producer and consumer halves.
@@ -88,8 +88,6 @@ fn main() {
 }
 ```
 
-The `bbqueue` crate is located in `core/`, and tests are located in `bbqtest/`.
-
 ## Features
 
 By default BBQueue uses atomic operations which are available on most platforms. However on some
@@ -100,6 +98,7 @@ This crate contains special support for Cortex-M0(+) targets with the `thumbv6` 
 enabling the feature, unsupported atomic operations will be replaced with critical sections
 implemented by disabling interrupts. The critical sections are very short, a few instructions at
 most, so they should make no difference to most applications.
+
 
 # License
 
