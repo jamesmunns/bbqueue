@@ -777,21 +777,6 @@ impl<'a, const N: usize> GrantW<'a, { N }> {
         self.buf
     }
 
-    /// Sometimes, it's not possible for the lifetimes to check out. For example,
-    /// if you need to hand this buffer to a function that expects to receive a
-    /// `&'static mut [u8]`, it is not possible for the inner reference to outlive the
-    /// grant itself.
-    ///
-    /// You MUST guarantee that in no cases, the reference that is returned here outlives
-    /// the grant itself. Once the grant has been released, referencing the data contained
-    /// WILL cause undefined behavior.
-    ///
-    /// Additionally, you must ensure that a separate reference to this data is not created
-    /// to this data, e.g. using `DerefMut` or the `buf()` method of this grant.
-    pub unsafe fn as_static_mut_buf(&mut self) -> &'static mut [u8] {
-        transmute::<&mut [u8], &'static mut [u8]>(self.buf)
-    }
-
     #[inline(always)]
     pub(crate) fn commit_inner(&mut self, used: usize) {
         let inner = unsafe { &self.bbq.as_ref() };
@@ -914,21 +899,6 @@ impl<'a, const N: usize> GrantR<'a, { N }> {
     /// on an incoming packet, such as decryption
     pub fn buf_mut(&mut self) -> &mut [u8] {
         self.buf
-    }
-
-    /// Sometimes, it's not possible for the lifetimes to check out. For example,
-    /// if you need to hand this buffer to a function that expects to receive a
-    /// `&'static [u8]`, it is not possible for the inner reference to outlive the
-    /// grant itself.
-    ///
-    /// You MUST guarantee that in no cases, the reference that is returned here outlives
-    /// the grant itself. Once the grant has been released, referencing the data contained
-    /// WILL cause undefined behavior.
-    ///
-    /// Additionally, you must ensure that a separate reference to this data is not created
-    /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
-    pub unsafe fn as_static_buf(&self) -> &'static [u8] {
-        transmute::<&[u8], &'static [u8]>(self.buf)
     }
 
     #[inline(always)]
