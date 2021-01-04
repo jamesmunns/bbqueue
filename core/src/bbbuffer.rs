@@ -6,7 +6,7 @@ use core::{
     cell::UnsafeCell,
     cmp::min,
     marker::PhantomData,
-    mem::{forget, transmute, MaybeUninit},
+    mem::forget,
     ops::{Deref, DerefMut},
     ptr::NonNull,
     result::Result as CoreResult,
@@ -20,7 +20,7 @@ use core::{
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
 pub struct BBBuffer<const N: usize> {
-    buf: UnsafeCell<MaybeUninit<[u8; N]>>,
+    buf: UnsafeCell<[u8; N]>,
 
     /// Where the next byte will be written
     write: AtomicUsize,
@@ -227,7 +227,7 @@ impl<'a, const N: usize> BBBuffer<{ N }> {
     }
 }
 
-impl<const A: usize> BBBuffer<{ A }> {
+impl<const N: usize> BBBuffer<{ N }> {
     /// Create a new constant inner portion of a `BBBuffer`.
     ///
     /// NOTE: This is only necessary to use when creating a `BBBuffer` at static
@@ -247,7 +247,7 @@ impl<const A: usize> BBBuffer<{ A }> {
     pub const fn new() -> Self {
         Self {
             // This will not be initialized until we split the buffer
-            buf: UnsafeCell::new(MaybeUninit::uninit()),
+            buf: UnsafeCell::new([0u8; N]),
 
             /// Owned by the writer
             write: AtomicUsize::new(0),
@@ -394,8 +394,8 @@ impl<'a, const N: usize> Producer<'a, { N }> {
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
+        // This is sound, as UnsafeCell is `#[repr(Transparent)]
+        // Here we are casting a `*mut [u8; N]` to a `*mut u8`
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
@@ -497,8 +497,8 @@ impl<'a, const N: usize> Producer<'a, { N }> {
         // Safe write, only viewed by this task
         inner.reserve.store(start + sz, Release);
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
+        // This is sound, as UnsafeCell is `#[repr(Transparent)]
+        // Here we are casting a `*mut [u8; N]` to a `*mut u8`
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice =
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
@@ -588,8 +588,8 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
             return Err(Error::InsufficientSize);
         }
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
+        // This is sound, as UnsafeCell is `#[repr(Transparent)]
+        // Here we are casting a `*mut [u8; N]` to a `*mut u8`
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
 
@@ -640,8 +640,8 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
             return Err(Error::InsufficientSize);
         }
 
-        // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
-        // are all `#[repr(Transparent)]
+        // This is sound, as UnsafeCell is `#[repr(Transparent)]
+        // Here we are casting a `*mut [u8; N]` to a `*mut u8`
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
         let grant_slice1 =
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz1) };
