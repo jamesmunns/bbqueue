@@ -17,11 +17,7 @@ use core::{
     },
 };
 
-/// A backing structure for a BBQueue. Can be used to create either
-/// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<const N: usize> {
-    buf: UnsafeCell<[u8; N]>,
-
+struct BBHeader {
     /// Where the next byte will be written
     write: AtomicUsize,
 
@@ -49,6 +45,13 @@ pub struct BBBuffer<const N: usize> {
 
     /// Have we already split?
     already_split: AtomicBool,
+}
+
+/// A backing structure for a BBQueue. Can be used to create either
+/// a BBQueue or a split Producer/Consumer pair
+pub struct BBBuffer<const N: usize> {
+    buf: UnsafeCell<[u8; N]>,
+    hdr: BBHeader,
 }
 
 unsafe impl<const A: usize> Sync for BBBuffer<{ A }> {}
@@ -86,17 +89,11 @@ impl<'a, const N: usize> BBBuffer<{ N }> {
     /// # }
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, { N }>, Consumer<'a, { N }>)> {
-        if atomic::swap(&self.already_split, true, AcqRel) {
+        if atomic::swap(&self.hdr.already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
 
         unsafe {
-            // Explicitly zero the data to avoid undefined behavior.
-            // This is required, because we hand out references to the buffers,
-            // which mean that creating them as references is technically UB for now
-            let mu_ptr = self.buf.get();
-            (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
-
             let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
             let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
 
@@ -183,8 +180,8 @@ impl<'a, const N: usize> BBBuffer<{ N }> {
             return Err((prod, cons));
         }
 
-        let wr_in_progress = self.write_in_progress.load(Acquire);
-        let rd_in_progress = self.read_in_progress.load(Acquire);
+        let wr_in_progress = self.hdr.write_in_progress.load(Acquire);
+        let rd_in_progress = self.hdr.read_in_progress.load(Acquire);
 
         if wr_in_progress || rd_in_progress {
             // Can't release, active grant(s) in progress
@@ -196,13 +193,13 @@ impl<'a, const N: usize> BBBuffer<{ N }> {
         drop(cons);
 
         // Re-initialize the buffer (not totally needed, but nice to do)
-        self.write.store(0, Release);
-        self.read.store(0, Release);
-        self.reserve.store(0, Release);
-        self.last.store(0, Release);
+        self.hdr.write.store(0, Release);
+        self.hdr.read.store(0, Release);
+        self.hdr.reserve.store(0, Release);
+        self.hdr.last.store(0, Release);
 
         // Mark the buffer as ready to be split
-        self.already_split.store(false, Release);
+        self.hdr.already_split.store(false, Release);
 
         Ok(())
     }
@@ -249,36 +246,38 @@ impl<const N: usize> BBBuffer<{ N }> {
             // This will not be initialized until we split the buffer
             buf: UnsafeCell::new([0u8; N]),
 
-            /// Owned by the writer
-            write: AtomicUsize::new(0),
+            hdr: BBHeader {
+                /// Owned by the writer
+                write: AtomicUsize::new(0),
 
-            /// Owned by the reader
-            read: AtomicUsize::new(0),
+                /// Owned by the reader
+                read: AtomicUsize::new(0),
 
-            /// Cooperatively owned
-            ///
-            /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
-            /// this would prevent the structure from being entirely zero-initialized,
-            /// and can cause the .data section to be much larger than necessary. By
-            /// forcing the `last` pointer to be zero initially, we place the structure
-            /// in an "inverted" condition, which will be resolved on the first commited
-            /// bytes that are written to the structure.
-            ///
-            /// When read == last == write, no bytes will be allowed to be read (good), but
-            /// write grants can be given out (also good).
-            last: AtomicUsize::new(0),
+                /// Cooperatively owned
+                ///
+                /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
+                /// this would prevent the structure from being entirely zero-initialized,
+                /// and can cause the .data section to be much larger than necessary. By
+                /// forcing the `last` pointer to be zero initially, we place the structure
+                /// in an "inverted" condition, which will be resolved on the first commited
+                /// bytes that are written to the structure.
+                ///
+                /// When read == last == write, no bytes will be allowed to be read (good), but
+                /// write grants can be given out (also good).
+                last: AtomicUsize::new(0),
 
-            /// Owned by the Writer, "private"
-            reserve: AtomicUsize::new(0),
+                /// Owned by the Writer, "private"
+                reserve: AtomicUsize::new(0),
 
-            /// Owned by the Reader, "private"
-            read_in_progress: AtomicBool::new(false),
+                /// Owned by the Reader, "private"
+                read_in_progress: AtomicBool::new(false),
 
-            /// Owned by the Writer, "private"
-            write_in_progress: AtomicBool::new(false),
+                /// Owned by the Writer, "private"
+                write_in_progress: AtomicBool::new(false),
 
-            /// We haven't split at the start
-            already_split: AtomicBool::new(false),
+                /// We haven't split at the start
+                already_split: AtomicBool::new(false),
+            }
         }
     }
 }
@@ -348,16 +347,16 @@ impl<'a, const N: usize> Producer<'a, { N }> {
     /// # }
     /// ```
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, { N }>> {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
-        if atomic::swap(&inner.write_in_progress, true, AcqRel) {
+        if atomic::swap(&inner.hdr.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
-        let write = inner.write.load(Acquire);
-        let read = inner.read.load(Acquire);
+        let write = inner.hdr.write.load(Acquire);
+        let read = inner.hdr.read.load(Acquire);
         let max = N;
         let already_inverted = write < read;
 
@@ -367,7 +366,7 @@ impl<'a, const N: usize> Producer<'a, { N }> {
                 write
             } else {
                 // Inverted, no room is available
-                inner.write_in_progress.store(false, Release);
+                inner.hdr.write_in_progress.store(false, Release);
                 return Err(Error::InsufficientSize);
             }
         } else {
@@ -385,14 +384,14 @@ impl<'a, const N: usize> Producer<'a, { N }> {
                     0
                 } else {
                     // Not invertible, no space
-                    inner.write_in_progress.store(false, Release);
+                    inner.hdr.write_in_progress.store(false, Release);
                     return Err(Error::InsufficientSize);
                 }
             }
         };
 
         // Safe write, only viewed by this task
-        inner.reserve.store(start + sz, Release);
+        inner.hdr.reserve.store(start + sz, Release);
 
         // This is sound, as UnsafeCell is `#[repr(Transparent)]
         // Here we are casting a `*mut [u8; N]` to a `*mut u8`
@@ -446,16 +445,16 @@ impl<'a, const N: usize> Producer<'a, { N }> {
     /// # }
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, { N }>> {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
-        if atomic::swap(&inner.write_in_progress, true, AcqRel) {
+        if atomic::swap(&inner.hdr.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
         // Writer component. Must never write to `read`,
         // be careful writing to `load`
-        let write = inner.write.load(Acquire);
-        let read = inner.read.load(Acquire);
+        let write = inner.hdr.write.load(Acquire);
+        let read = inner.hdr.read.load(Acquire);
         let max = N;
 
         let already_inverted = write < read;
@@ -469,7 +468,7 @@ impl<'a, const N: usize> Producer<'a, { N }> {
                 write
             } else {
                 // Inverted, no room is available
-                inner.write_in_progress.store(false, Release);
+                inner.hdr.write_in_progress.store(false, Release);
                 return Err(Error::InsufficientSize);
             }
         } else {
@@ -488,14 +487,14 @@ impl<'a, const N: usize> Producer<'a, { N }> {
                     0
                 } else {
                     // Not invertible, no space
-                    inner.write_in_progress.store(false, Release);
+                    inner.hdr.write_in_progress.store(false, Release);
                     return Err(Error::InsufficientSize);
                 }
             }
         };
 
         // Safe write, only viewed by this task
-        inner.reserve.store(start + sz, Release);
+        inner.hdr.reserve.store(start + sz, Release);
 
         // This is sound, as UnsafeCell is `#[repr(Transparent)]
         // Here we are casting a `*mut [u8; N]` to a `*mut u8`
@@ -551,15 +550,15 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
     /// # }
     /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, { N }>> {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
-        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+        if atomic::swap(&inner.hdr.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
-        let write = inner.write.load(Acquire);
-        let last = inner.last.load(Acquire);
-        let mut read = inner.read.load(Acquire);
+        let write = inner.hdr.write.load(Acquire);
+        let last = inner.hdr.last.load(Acquire);
+        let mut read = inner.hdr.read.load(Acquire);
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -572,7 +571,7 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
             //   Commit does not check read, but if Grant has started an inversion,
             //   grant could move Last to the prior write position
             // MOVING READ BACKWARDS!
-            inner.read.store(0, Release);
+            inner.hdr.read.store(0, Release);
         }
 
         let sz = if write < read {
@@ -584,7 +583,7 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
         } - read;
 
         if sz == 0 {
-            inner.read_in_progress.store(false, Release);
+            inner.hdr.read_in_progress.store(false, Release);
             return Err(Error::InsufficientSize);
         }
 
@@ -603,15 +602,15 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
     /// Obtains two disjoint slices, which are each contiguous of committed bytes.
     /// Combined these contain all previously commited data.
     pub fn split_read(&mut self) -> Result<SplitGrantR<'a, { N }>> {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
-        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+        if atomic::swap(&inner.hdr.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
-        let write = inner.write.load(Acquire);
-        let last = inner.last.load(Acquire);
-        let mut read = inner.read.load(Acquire);
+        let write = inner.hdr.write.load(Acquire);
+        let last = inner.hdr.last.load(Acquire);
+        let mut read = inner.hdr.read.load(Acquire);
 
         // Resolve the inverted case or end of read
         if (read == last) && (write < read) {
@@ -624,7 +623,7 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
             //   Commit does not check read, but if Grant has started an inversion,
             //   grant could move Last to the prior write position
             // MOVING READ BACKWARDS!
-            inner.read.store(0, Release);
+            inner.hdr.read.store(0, Release);
         }
 
         let (sz1, sz2) = if write < read {
@@ -636,7 +635,7 @@ impl<'a, const N: usize> Consumer<'a, { N }> {
         };
 
         if sz1 == 0 {
-            inner.read_in_progress.store(false, Release);
+            inner.hdr.read_in_progress.store(false, Release);
             return Err(Error::InsufficientSize);
         }
 
@@ -779,12 +778,12 @@ impl<'a, const N: usize> GrantW<'a, { N }> {
 
     #[inline(always)]
     pub(crate) fn commit_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
         // wrapper structure
-        if !inner.write_in_progress.load(Acquire) {
+        if !inner.hdr.write_in_progress.load(Acquire) {
             return;
         }
 
@@ -795,17 +794,17 @@ impl<'a, const N: usize> GrantW<'a, { N }> {
         let len = self.buf.len();
         let used = min(len, used);
 
-        let write = inner.write.load(Acquire);
-        atomic::fetch_sub(&inner.reserve, len - used, AcqRel);
+        let write = inner.hdr.write.load(Acquire);
+        atomic::fetch_sub(&inner.hdr.reserve, len - used, AcqRel);
 
         let max = N;
-        let last = inner.last.load(Acquire);
-        let new_write = inner.reserve.load(Acquire);
+        let last = inner.hdr.last.load(Acquire);
+        let new_write = inner.hdr.reserve.load(Acquire);
 
         if (new_write < write) && (write != max) {
             // We have already wrapped, but we are skipping some bytes at the end of the ring.
             // Mark `last` where the write pointer used to be to hold the line here
-            inner.last.store(write, Release);
+            inner.hdr.last.store(write, Release);
         } else if new_write > last {
             // We're about to pass the last pointer, which was previously the artificial
             // end of the ring. Now that we've passed it, we can "unlock" the section
@@ -814,7 +813,7 @@ impl<'a, const N: usize> GrantW<'a, { N }> {
             // Since new_write is strictly larger than last, it is safe to move this as
             // the other thread will still be halted by the (about to be updated) write
             // value
-            inner.last.store(max, Release);
+            inner.hdr.last.store(max, Release);
         }
         // else: If new_write == last, either:
         // * last == max, so no need to write, OR
@@ -824,10 +823,10 @@ impl<'a, const N: usize> GrantW<'a, { N }> {
 
         // Write must be updated AFTER last, otherwise read could think it was
         // time to invert early!
-        inner.write.store(new_write, Release);
+        inner.hdr.write.store(new_write, Release);
 
         // Allow subsequent grants
-        inner.write_in_progress.store(false, Release);
+        inner.hdr.write_in_progress.store(false, Release);
     }
 
     /// Configures the amount of bytes to be commited on drop.
@@ -903,12 +902,12 @@ impl<'a, const N: usize> GrantR<'a, { N }> {
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
         // wrapper structure
-        if !inner.read_in_progress.load(Acquire) {
+        if !inner.hdr.read_in_progress.load(Acquire) {
             return;
         }
 
@@ -916,9 +915,9 @@ impl<'a, const N: usize> GrantR<'a, { N }> {
         debug_assert!(used <= self.buf.len());
 
         // This should be fine, purely incrementing
-        let _ = atomic::fetch_add(&inner.read, used, Release);
+        let _ = atomic::fetch_add(&inner.hdr.read, used, Release);
 
-        inner.read_in_progress.store(false, Release);
+        inner.hdr.read_in_progress.store(false, Release);
     }
 
     /// Configures the amount of bytes to be released on drop.
@@ -987,12 +986,12 @@ impl<'a, const N: usize> SplitGrantR<'a, { N }> {
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref() };
+        let inner = unsafe { self.bbq.as_ref() };
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
         // wrapper structure
-        if !inner.read_in_progress.load(Acquire) {
+        if !inner.hdr.read_in_progress.load(Acquire) {
             return;
         }
 
@@ -1001,13 +1000,13 @@ impl<'a, const N: usize> SplitGrantR<'a, { N }> {
 
         if used <= self.buf1.len() {
             // This should be fine, purely incrementing
-            let _ = atomic::fetch_add(&inner.read, used, Release);
+            let _ = atomic::fetch_add(&inner.hdr.read, used, Release);
         } else {
             // Also release parts of the second buffer
-            inner.read.store(used - self.buf1.len(), Release);
+            inner.hdr.read.store(used - self.buf1.len(), Release);
         }
 
-        inner.read_in_progress.store(false, Release);
+        inner.hdr.read_in_progress.store(false, Release);
     }
 
     /// Configures the amount of bytes to be released on drop.
