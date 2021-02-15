@@ -21,12 +21,12 @@
 //!
 //! ```rust, no_run
 //! # #[cfg(feature = "atomic")]
-//! # use bbqueue::atomic::{BBBuffer, consts::*};
+//! # use bbqueue::atomic::{ArrayStorage, BBBuffer, consts::*};
 //! # #[cfg(not(feature = "atomic"))]
-//! # use bbqueue::cm_mutex::{BBBuffer, consts::*};
-//! #
+//! # use bbqueue::cm_mutex::{ArrayStorage, BBBuffer, consts::*};
+//! # use bbqueue::GenericArray;
 //! // Create a buffer with six elements
-//! let bb: BBBuffer<U6> = BBBuffer::new();
+//! let bb: BBBuffer<ArrayStorage<GenericArray<u8, U6>>> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split().unwrap();
 //!
 //! // Request space for one byte
@@ -53,12 +53,12 @@
 //!
 //! ```rust, no_run
 //! # #[cfg(feature = "atomic")]
-//! # use bbqueue::atomic::{BBBuffer, ConstBBBuffer, consts::*};
+//! # use bbqueue::atomic::{ArrayStorage, BBBuffer, ConstBBBuffer, consts::*};
 //! # #[cfg(not(feature = "atomic"))]
-//! # use bbqueue::cm_mutex::{BBBuffer, ConstBBBuffer, consts::*};
-//! #
+//! # use bbqueue::cm_mutex::{ArrayStorage, BBBuffer, ConstBBBuffer, consts::*};
+//! # use bbqueue::GenericArray;
 //! // Create a buffer with six elements
-//! static BB: BBBuffer<U6> = BBBuffer( ConstBBBuffer::new() );
+//! static BB: BBBuffer<ArrayStorage<GenericArray<u8, U6>>> = BBBuffer( ConstBBBuffer::new(ArrayStorage::new()) );
 //!
 //! fn main() {
 //!     // Split the bbqueue into producer and consumer halves.
@@ -131,7 +131,7 @@ mod vusize;
 
 use core::result::Result as CoreResult;
 
-pub use generic_array::ArrayLength;
+pub use generic_array::{ArrayLength, GenericArray};
 
 /// Result type used by the `BBQueue` interfaces
 pub type Result<T> = CoreResult<T, Error>;
