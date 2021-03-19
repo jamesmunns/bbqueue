@@ -334,6 +334,17 @@ where
 
 unsafe impl<'a, N> Send for Producer<'a, N> where N: ArrayLength<u8> {}
 
+/// TODO: Documentation for struct
+pub struct AsyncWrite<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    producer: &'a mut Producer<'a, N>,
+    buffer: &'a [u8],
+    remaining: usize,
+    cancelled: bool,
+}
+
 impl<'a, N> Producer<'a, N>
 where
     N: ArrayLength<u8>,
@@ -532,6 +543,84 @@ where
             to_commit: 0,
         })
     }
+
+    /// Asynchronously write data and complete when write is finished. The buffer must outlive the future
+    /// that is returned.
+    pub fn write_async(&'a mut self, buffer: &'a [u8]) -> AsyncWrite<'a, N> {
+        AsyncWrite::new(self, buffer)
+    }
+
+    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Pending
+    }
+}
+
+impl<'a, N> AsyncWrite<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    fn new(producer: &'a mut Producer<'a, N>, buffer: &'a [u8]) -> AsyncWrite<'a, N> {
+        Self {
+            producer,
+            remaining: buffer.len(),
+            buffer,
+            cancelled: false,
+        }
+    }
+
+    /// Signal that this future is cancelled and should no longer poll data
+    pub fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+}
+
+impl<'a, N> Future for AsyncWrite<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Output = Result<usize>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.cancelled {
+            Poll::Ready(Ok(self.buffer.len() - self.remaining))
+        } else {
+            loop {
+                let remaining = self.remaining;
+                match self.producer.grant_max_remaining(remaining) {
+                    Ok(mut grant) => {
+                        let buf = grant.buf();
+
+                        let wp = self.buffer.len() - self.remaining;
+                        let to_copy = core::cmp::min(self.remaining, buf.len());
+
+                        buf[..to_copy].copy_from_slice(&self.buffer[wp..wp + to_copy]);
+
+                        self.remaining -= to_copy;
+                        grant.commit(to_copy);
+
+                        // TODO: notify producer!
+
+                        if self.remaining == 0 {
+                            return Poll::Ready(Ok(self.buffer.len()));
+                        } else {
+                            match self.producer.poll(cx) {
+                                Poll::Pending => {
+                                    return Poll::Pending;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Err(Error::InsufficientSize) => match self.producer.poll(cx) {
+                        Poll::Pending => {
+                            return Poll::Pending;
+                        }
+                        _ => {}
+                    },
+                    Err(e) => return Poll::Ready(Err(e)),
+                }
+            }
+        }
+    }
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
@@ -545,7 +634,7 @@ where
 
 unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
 
-/// Documentation for struct
+/// TODO: Documentation for struct
 pub struct AsyncRead<'a, N>
 where
     N: ArrayLength<u8>,
@@ -624,16 +713,6 @@ impl<'a, N> Consumer<'a, N>
 where
     N: ArrayLength<u8>,
 {
-    /// Asynchronously read data into a provided buffer until the buffer is filled. The buffer must outlive the future
-    /// that is returned.
-    pub fn read_async(&'a mut self, rx_buffer: &'a mut [u8]) -> AsyncRead<'a, N> {
-        AsyncRead::new(self, rx_buffer)
-    }
-
-    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Pending
-    }
-
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
@@ -767,6 +846,16 @@ where
             bbq: self.bbq,
             to_release: 0,
         })
+    }
+
+    /// Asynchronously read data into a provided buffer until the buffer is filled. The buffer must outlive the future
+    /// that is returned.
+    pub fn read_async(&'a mut self, rx_buffer: &'a mut [u8]) -> AsyncRead<'a, N> {
+        AsyncRead::new(self, rx_buffer)
+    }
+
+    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Pending
     }
 }
 
