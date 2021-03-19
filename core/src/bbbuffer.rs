@@ -5,9 +5,11 @@ use crate::{
 use core::{
     cell::UnsafeCell,
     cmp::min,
+    future::Future,
     marker::PhantomData,
     mem::{forget, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
+    pin::Pin,
     ptr::NonNull,
     result::Result as CoreResult,
     slice::from_raw_parts_mut,
@@ -15,6 +17,7 @@ use core::{
         AtomicBool, AtomicUsize,
         Ordering::{AcqRel, Acquire, Release},
     },
+    task::{Context, Poll},
 };
 pub use generic_array::typenum::consts;
 use generic_array::{ArrayLength, GenericArray};
@@ -542,10 +545,86 @@ where
 
 unsafe impl<'a, N> Send for Consumer<'a, N> where N: ArrayLength<u8> {}
 
+pub struct AsyncRead<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    consumer: &'a Consumer<'a, N>,
+    buffer: &'a mut [u8],
+    remaining: usize,
+    cancelled: bool,
+}
+
+impl<'a, N> AsyncRead<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    unsafe fn new(consumer: &'a Consumer<'a, N>, buffer: &'a mut [u8]) -> Self {
+        Self {
+            consumer,
+            cancelled: false,
+            remaining: buffer.len(),
+            buffer,
+        }
+    }
+
+    pub fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+}
+
+impl<'a, N> Future for AsyncRead<'a, N>
+where
+    N: ArrayLength<u8>,
+{
+    type Output = Result<usize, Error>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.cancelled {
+            Poll::Ready(Ok(self.buffer.len() - self.remaining))
+        } else {
+            loop {
+                match consumer.read() {
+                    Ok(grant) => {
+                        let buf = grant.buf();
+                        let rp = self.buffer.len() - self.remaining;
+                        let to_copy = core::cmp::min(self.remaining, buf.len());
+
+                        self.buffer[rp..rp + to_copy].copy_from_slice(&buf[..to_copy]);
+                        self.remaining -= to_copy;
+                        // log::info!("Releasing {} bytes", to_copy);
+                        grant.release(to_copy);
+                        self.inner.notify_producer();
+                        if self.remaining == 0 {
+                            return Poll::Ready(Ok(rp + to_copy));
+                        } else {
+                            match self.inner.poll_consumer(cx) {
+                                Poll::Pending => {
+                                    return Poll::Pending;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    // If there was no data available, but we got signaled in the meantime, try again
+                    Err(BBQueueError::InsufficientSize) => match self.inner.poll_consumer(cx) {
+                        Poll::Pending => {
+                            return Poll::Pending;
+                        }
+                        _ => {}
+                    },
+                    Err(e) => return Poll::Ready(Err(Error::Other)),
+                }
+            }
+        }
+    }
+}
+
 impl<'a, N> Consumer<'a, N>
 where
     N: ArrayLength<u8>,
 {
+    pub fn read_async(&mut self, rx_buffer: &mut [u8]) -> AsyncRead<'a, N> {}
+
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
