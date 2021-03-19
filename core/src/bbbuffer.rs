@@ -1,5 +1,6 @@
 use crate::{
     framed::{FrameConsumer, FrameProducer},
+    signal::Signal,
     Error, Result,
 };
 use core::{
@@ -242,6 +243,12 @@ pub struct ConstBBBuffer<A> {
 
     /// Have we already split?
     already_split: AtomicBool,
+
+    /// Waker for async producer.
+    producer_waker: Signal<()>,
+
+    /// Waker for async consumer.
+    consumer_waker: Signal<()>,
 }
 
 impl<A> ConstBBBuffer<A> {
@@ -296,6 +303,12 @@ impl<A> ConstBBBuffer<A> {
 
             /// We haven't split at the start
             already_split: AtomicBool::new(false),
+
+            /// Consumer waker
+            consumer_waker: Signal::new(),
+
+            /// Producer waker
+            producer_waker: Signal::new(),
         }
     }
 }
@@ -550,8 +563,14 @@ where
         AsyncWrite::new(self, buffer)
     }
 
-    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Pending
+    fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+        inner.producer_waker.poll_wait(cx)
+    }
+
+    fn notify_consumer(&self) {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+        inner.consumer_waker.signal(())
     }
 }
 
@@ -597,7 +616,7 @@ where
                         self.remaining -= to_copy;
                         grant.commit(to_copy);
 
-                        // TODO: notify producer!
+                        self.producer.notify_consumer();
 
                         if self.remaining == 0 {
                             return Poll::Ready(Ok(self.buffer.len()));
@@ -683,7 +702,9 @@ where
                         self.buffer[rp..rp + to_copy].copy_from_slice(&buf[..to_copy]);
                         self.remaining -= to_copy;
                         grant.release(to_copy);
-                        // TODO: Notify producer!
+
+                        self.consumer.notify_producer();
+
                         if self.remaining == 0 {
                             return Poll::Ready(Ok(rp + to_copy));
                         } else {
@@ -854,8 +875,14 @@ where
         AsyncRead::new(self, rx_buffer)
     }
 
-    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
-        Poll::Pending
+    fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+        inner.consumer_waker.poll_wait(cx)
+    }
+
+    fn notify_producer(&self) {
+        let inner = unsafe { &self.bbq.as_ref().0 };
+        inner.producer_waker.signal(())
     }
 }
 

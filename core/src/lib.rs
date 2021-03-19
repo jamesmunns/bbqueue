@@ -106,6 +106,7 @@
 #![deny(warnings)]
 
 mod bbbuffer;
+mod signal;
 pub use bbbuffer::*;
 
 /// There are no longer separate `atomic` and `cm_mutex` modules. You can just use the types at the
