@@ -11,9 +11,9 @@
 //! ```rust
 //! # // bbqueue test shim!
 //! # fn bbqtest() {
-//! use bbqueue_ng::BBBuffer;
+//! use bbqueue_ng::BBQueue;
 //!
-//! let bb: BBBuffer<1000> = BBBuffer::new();
+//! let bb: BBQueue<1000> = BBQueue::new();
 //! let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 //!
 //! // One frame in, one frame out

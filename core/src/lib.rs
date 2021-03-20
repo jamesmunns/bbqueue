@@ -26,10 +26,10 @@
 //! ## Local usage
 //!
 //! ```rust, no_run
-//! # use bbqueue_ng::BBBuffer;
+//! # use bbqueue_ng::BBQueue;
 //! #
 //! // Create a buffer with six elements
-//! let bb: BBBuffer<6> = BBBuffer::new();
+//! let bb: BBQueue<6> = BBQueue::new();
 //! let (mut prod, mut cons) = bb.try_split().unwrap();
 //!
 //! // Request space for one byte
@@ -55,10 +55,10 @@
 //! ## Static usage
 //!
 //! ```rust, no_run
-//! # use bbqueue_ng::BBBuffer;
+//! # use bbqueue_ng::BBQueue;
 //! #
 //! // Create a buffer with six elements
-//! static BB: BBBuffer<6> = BBBuffer::new();
+//! static BB: BBQueue<6> = BBQueue::new();
 //!
 //! fn main() {
 //!     // Split the bbqueue into producer and consumer halves.
@@ -105,6 +105,7 @@
 // AJM: TODO - Restore
 // #![deny(missing_docs)]
 // #![deny(warnings)]
+#![allow(dead_code, unused_imports)]
 
 mod bbbuffer;
 pub use bbbuffer::*;
