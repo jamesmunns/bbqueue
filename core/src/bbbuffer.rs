@@ -67,12 +67,12 @@ pub struct BBHeader {
 pub(crate) mod sealed {
     use crate::bbbuffer::BBHeader;
 
-    pub trait BBGetter: Clone {
+    pub trait BBGetter {
         fn get_header(&self) -> &BBHeader;
         fn get_storage(&self) -> (*mut u8, usize);
     }
 
-    impl<const N: usize> BBGetter for &crate::bbbuffer::OwnedBBBuffer<N> {
+    impl<const N: usize> BBGetter for crate::bbbuffer::OwnedBBBuffer<N> {
         fn get_header(&self) -> &BBHeader {
             &self.hdr
         }
@@ -141,11 +141,11 @@ impl<'a, STO: BBGetter, const N: usize> BBQueue<STO, { N }> {
 
         Ok((
             Producer {
-                bbq: self.sto.clone(),
+                bbq: &self.sto,
                 pd: PhantomData,
             },
             Consumer {
-                bbq: self.sto.clone(),
+                bbq: &self.sto,
                 pd: PhantomData,
             },
         ))
@@ -354,7 +354,8 @@ pub struct Producer<'a, STO, const N: usize>
 where
     STO: BBGetter,
 {
-    bbq: STO,
+    // TODO: Is 'a the right lifetime?
+    bbq: &'a STO,
     pd: PhantomData<&'a [u8; N]>,
 }
 
@@ -570,7 +571,8 @@ where
 
 /// `Consumer` is the primary interface for reading data from a `BBQueue`.
 pub struct Consumer<'a, STO: BBGetter, const N: usize> {
-    bbq: STO,
+    // TODO: Is 'a the right lifetime?
+    bbq: &'a STO,
     pd: PhantomData<&'a [u8; N]>,
 }
 
@@ -708,7 +710,7 @@ impl<'a, STO: BBGetter, const N: usize> Consumer<'a, STO, { N }> {
         Ok(SplitGrantR {
             buf1: grant_slice1,
             buf2: grant_slice2,
-            bbq: self.bbq.clone(),
+            bbq: self.bbq,
             to_release: 0,
             pd: PhantomData,
         })
@@ -757,7 +759,8 @@ where
     STO: BBGetter,
 {
     pub(crate) buf: &'a mut [u8],
-    bbq: STO,
+    // TODO: Is 'a the right lifetime?
+    bbq: &'a STO,
     pub(crate) to_commit: usize,
     pd: PhantomData<&'a [u8; N]>,
 }
@@ -782,7 +785,8 @@ where
     STO: BBGetter,
 {
     pub(crate) buf: &'a mut [u8],
-    bbq: STO,
+    // TODO: Is 'a the right lifetime?
+    bbq: &'a STO,
     pub(crate) to_release: usize,
     pd: PhantomData<&'a [u8; N]>,
 }
@@ -797,7 +801,8 @@ where
 {
     pub(crate) buf1: &'a mut [u8],
     pub(crate) buf2: &'a mut [u8],
-    bbq: STO,
+    // TODO: Is 'a the right lifetime?
+    bbq: &'a STO,
     pub(crate) to_release: usize,
     pd: PhantomData<&'a [u8; N]>,
 }
