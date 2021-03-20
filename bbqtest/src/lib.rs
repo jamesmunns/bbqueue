@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn deref_deref_mut() {
-        let bb: BBQueue<Obbb<6>, 6> = BBQueue::new(Obbb::new());
+        let bb: BBQueue<Obbb<6>> = BBQueue::new(Obbb::new());
 
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
@@ -36,8 +36,8 @@ mod tests {
     #[test]
     fn static_allocator() {
         // Check we can make multiple static items...
-        static BBQ1: BBQueue<Obbb<6>, 6> = BBQueue::new(Obbb::new());
-        static BBQ2: BBQueue<Obbb<6>, 6> = BBQueue::new(Obbb::new());
+        static BBQ1: BBQueue<Obbb<6>> = BBQueue::new(Obbb::new());
+        static BBQ2: BBQueue<Obbb<6>> = BBQueue::new(Obbb::new());
         let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
         let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
 
