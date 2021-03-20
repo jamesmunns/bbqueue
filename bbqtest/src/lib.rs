@@ -1,11 +1,11 @@
 //! NOTE: this crate is really just a shim for testing
 //! the other no-std crate.
 
+mod async_usage;
 mod framed;
 mod multi_thread;
 mod ring_around_the_senders;
 mod single_thread;
-mod async_usage;
 
 #[cfg(test)]
 mod tests {
