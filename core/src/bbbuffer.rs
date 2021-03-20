@@ -66,13 +66,19 @@ pub struct BBHeader {
 // would be wildly unsafe
 pub(crate) mod sealed {
     use crate::bbbuffer::BBHeader;
+    use crate::bbbuffer::OwnedBBBuffer;
 
-    pub trait BBGetter {
+    pub trait BBGetter<'a> {
+        type Duplicate: BBGetter<'a>;
+
         fn get_header(&self) -> &BBHeader;
         fn get_storage(&self) -> (*mut u8, usize);
+        fn duplicate(&self) -> Self::Duplicate;
     }
 
-    impl<const N: usize> BBGetter for crate::bbbuffer::OwnedBBBuffer<N> {
+    impl<'a, const N: usize> BBGetter<'a> for OwnedBBBuffer<N> {
+        type Duplicate = &'a OwnedBBBuffer<N>;
+
         fn get_header(&self) -> &BBHeader {
             &self.hdr
         }
@@ -80,6 +86,27 @@ pub(crate) mod sealed {
         fn get_storage(&self) -> (*mut u8, usize) {
             let ptr = self.storage.get().cast();
             (ptr, N)
+        }
+
+        fn duplicate(&self) -> Self::Duplicate {
+            todo!()
+        }
+    }
+
+    impl<'a, const N: usize> BBGetter<'a> for &'a OwnedBBBuffer<N> {
+        type Duplicate = &'a OwnedBBBuffer<N>;
+
+        fn get_header(&self) -> &BBHeader {
+            &self.hdr
+        }
+
+        fn get_storage(&self) -> (*mut u8, usize) {
+            let ptr = self.storage.get().cast();
+            (ptr, N)
+        }
+
+        fn duplicate(&self) -> Self::Duplicate {
+            todo!()
         }
     }
 }
@@ -102,7 +129,7 @@ impl<'a, STO> BBQueue<STO> {
     }
 }
 
-impl<'a, STO: BBGetter> BBQueue<STO> {
+impl<'a, STO: BBGetter<'a>> BBQueue<STO> {
     /// Attempt to split the `BBQueue` into `Consumer` and `Producer` halves to gain access to the
     /// buffer. If buffer has already been split, an error will be returned.
     ///
@@ -134,18 +161,18 @@ impl<'a, STO: BBGetter> BBQueue<STO> {
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn try_split(&'a self) -> Result<(Producer<'a, STO>, Consumer<'a, STO>)> {
+    pub fn try_split(&'a self) -> Result<(Producer<'a, STO::Duplicate>, Consumer<'a, STO::Duplicate>)> {
         if atomic::swap(&self.sto.get_header().already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
 
         Ok((
             Producer {
-                bbq: &self.sto,
+                bbq: self.sto.duplicate(),
                 pd: PhantomData,
             },
             Consumer {
-                bbq: &self.sto,
+                bbq: self.sto.duplicate(),
                 pd: PhantomData,
             },
         ))
@@ -165,7 +192,7 @@ impl<'a, STO: BBGetter> BBQueue<STO> {
     /// section while splitting.
     pub fn try_split_framed(
         &'a self,
-    ) -> Result<(FrameProducer<'a, STO>, FrameConsumer<'a, STO>)> {
+    ) -> Result<(FrameProducer<'a, STO::Duplicate>, FrameConsumer<'a, STO::Duplicate>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
@@ -352,21 +379,21 @@ impl<const N: usize> OwnedBBBuffer<{ N }> {
 /// discussion of grant methods that could be added in the future.
 pub struct Producer<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     // TODO: Is 'a the right lifetime?
-    bbq: &'a STO,
+    bbq: STO,
     pd: PhantomData<&'a ()>,
 }
 
 unsafe impl<'a, STO> Send for Producer<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {}
 
 impl<'a, STO> Producer<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
@@ -400,7 +427,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, STO>> {
+    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, STO::Duplicate>> {
         let hdr = self.bbq.get_header();
         let sto = self.bbq.get_storage();
 
@@ -457,7 +484,7 @@ where
 
         Ok(GrantW {
             buf: grant_slice,
-            bbq: self.bbq.clone(),
+            bbq: self.bbq.duplicate(),
             to_commit: 0,
             pd: PhantomData,
         })
@@ -501,7 +528,7 @@ where
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, STO>> {
+    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, STO::Duplicate>> {
         let hdr = self.bbq.get_header();
         let sto = self.bbq.get_storage();
 
@@ -562,7 +589,7 @@ where
 
         Ok(GrantW {
             buf: grant_slice,
-            bbq: self.bbq.clone(),
+            bbq: self.bbq.duplicate(),
             to_commit: 0,
             pd: PhantomData,
         })
@@ -570,15 +597,15 @@ where
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBQueue`.
-pub struct Consumer<'a, STO: BBGetter> {
+pub struct Consumer<'a, STO: BBGetter<'a>> {
     // TODO: Is 'a the right lifetime?
-    bbq: &'a STO,
+    bbq: STO,
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, STO: BBGetter> Send for Consumer<'a, STO> {}
+unsafe impl<'a, STO: BBGetter<'a>> Send for Consumer<'a, STO> {}
 
-impl<'a, STO: BBGetter> Consumer<'a, STO> {
+impl<'a, STO: BBGetter<'a>> Consumer<'a, STO> {
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
@@ -609,7 +636,7 @@ impl<'a, STO: BBGetter> Consumer<'a, STO> {
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn read(&mut self) -> Result<GrantR<'a, STO>> {
+    pub fn read(&mut self) -> Result<GrantR<'a, STO::Duplicate>> {
         let hdr = self.bbq.get_header();
         let sto = self.bbq.get_storage();
 
@@ -653,7 +680,7 @@ impl<'a, STO: BBGetter> Consumer<'a, STO> {
 
         Ok(GrantR {
             buf: grant_slice,
-            bbq: self.bbq.clone(),
+            bbq: self.bbq.duplicate(),
             to_release: 0,
             pd: PhantomData,
         })
@@ -661,7 +688,7 @@ impl<'a, STO: BBGetter> Consumer<'a, STO> {
 
     /// Obtains two disjoint slices, which are each contiguous of committed bytes.
     /// Combined these contain all previously commited data.
-    pub fn split_read(&mut self) -> Result<SplitGrantR<'a, STO>> {
+    pub fn split_read(&mut self) -> Result<SplitGrantR<'a, STO::Duplicate>> {
         let hdr = self.bbq.get_header();
         let sto = self.bbq.get_storage();
 
@@ -710,14 +737,14 @@ impl<'a, STO: BBGetter> Consumer<'a, STO> {
         Ok(SplitGrantR {
             buf1: grant_slice1,
             buf2: grant_slice2,
-            bbq: self.bbq,
+            bbq: self.bbq.duplicate(),
             to_release: 0,
             pd: PhantomData,
         })
     }
 }
 
-impl<STO: BBGetter> BBQueue<STO> {
+impl<'a, STO: BBGetter<'a>> BBQueue<STO> {
     /// Returns the size of the backing storage.
     ///
     /// This is the maximum number of bytes that can be stored in this queue.
@@ -756,16 +783,16 @@ impl<STO: BBGetter> BBQueue<STO> {
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     pub(crate) buf: &'a mut [u8],
     // TODO: Is 'a the right lifetime?
-    bbq: &'a STO,
+    bbq: STO,
     pub(crate) to_commit: usize,
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, STO: BBGetter> Send for GrantW<'a, STO> {}
+unsafe impl<'a, STO: BBGetter<'a>> Send for GrantW<'a, STO> {}
 
 /// A structure representing a contiguous region of memory that
 /// may be read from, and potentially "released" (or cleared)
@@ -782,11 +809,11 @@ unsafe impl<'a, STO: BBGetter> Send for GrantW<'a, STO> {}
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     pub(crate) buf: &'a mut [u8],
     // TODO: Is 'a the right lifetime?
-    bbq: &'a STO,
+    bbq: STO,
     pub(crate) to_release: usize,
     pd: PhantomData<&'a ()>,
 }
@@ -797,21 +824,21 @@ where
 #[derive(Debug, PartialEq)]
 pub struct SplitGrantR<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     pub(crate) buf1: &'a mut [u8],
     pub(crate) buf2: &'a mut [u8],
     // TODO: Is 'a the right lifetime?
-    bbq: &'a STO,
+    bbq: STO,
     pub(crate) to_release: usize,
     pd: PhantomData<&'a ()>,
 }
 
-unsafe impl<'a, STO: BBGetter> Send for GrantR<'a, STO> {}
+unsafe impl<'a, STO: BBGetter<'a>> Send for GrantR<'a, STO> {}
 
-unsafe impl<'a, STO: BBGetter> Send for SplitGrantR<'a, STO> {}
+unsafe impl<'a, STO: BBGetter<'a>> Send for SplitGrantR<'a, STO> {}
 
-impl<'a, STO: BBGetter> GrantW<'a, STO> {
+impl<'a, STO: BBGetter<'a>> GrantW<'a, STO> {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
     /// This makes the data available to be read via `read()`. This consumes
     /// the grant.
@@ -913,7 +940,7 @@ impl<'a, STO: BBGetter> GrantW<'a, STO> {
     }
 }
 
-impl<'a, STO: BBGetter> GrantR<'a, STO> {
+impl<'a, STO: BBGetter<'a>> GrantR<'a, STO> {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes. This consumes the grant.
     ///
@@ -1004,7 +1031,7 @@ impl<'a, STO: BBGetter> GrantR<'a, STO> {
     }
 }
 
-impl<'a, STO: BBGetter> SplitGrantR<'a, STO> {
+impl<'a, STO: BBGetter<'a>> SplitGrantR<'a, STO> {
     /// Release a sequence of bytes from the buffer, allowing the space
     /// to be used by later writes. This consumes the grant.
     ///
@@ -1100,7 +1127,7 @@ impl<'a, STO: BBGetter> SplitGrantR<'a, STO> {
 
 impl<'a, STO> Drop for GrantW<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     fn drop(&mut self) {
         self.commit_inner(self.to_commit)
@@ -1109,7 +1136,7 @@ where
 
 impl<'a, STO> Drop for GrantR<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     fn drop(&mut self) {
         self.release_inner(self.to_release)
@@ -1118,7 +1145,7 @@ where
 
 impl<'a, STO> Deref for GrantW<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     type Target = [u8];
 
@@ -1129,7 +1156,7 @@ where
 
 impl<'a, STO> DerefMut for GrantW<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
@@ -1138,7 +1165,7 @@ where
 
 impl<'a, STO> Deref for GrantR<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     type Target = [u8];
 
@@ -1149,7 +1176,7 @@ where
 
 impl<'a, STO> DerefMut for GrantR<'a, STO>
 where
-    STO: BBGetter,
+    STO: BBGetter<'a>,
 {
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
