@@ -47,10 +47,18 @@ struct BBHeader {
     already_split: AtomicBool,
 }
 
+trait BBGetter: Clone {
+    fn get_header(&self) -> &BBHeader;
+    fn get_storage(&self) -> (*mut u8, usize);
+}
+
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<const N: usize> {
-    buf: UnsafeCell<[u8; N]>,
+pub struct BBBuffer<const N: usize, STO>
+where
+    STO: BBGetter<N>,
+{
+    buf: STO,
     hdr: BBHeader,
 }
 
