@@ -21,7 +21,8 @@ Future:
 ### Static Buffer
 
 ```rust
-static BB_QUEUE: BBQueue<BBBuffer<1024>> = BBQueue::new(BBBuffer::new());
+
+static BB_QUEUE: BBQueue<OwnedBBBuffer<1024>> = BBQueue::new(OwnedBBBuffer::new());
 
 fn main() {
     let (prod, cons) = BB_QUEUE.try_split().unwrap();
@@ -54,6 +55,8 @@ fn main() {
     let (prod, cons) = arc_queue.try_split().unwrap();
 }
 ```
+
+NOTE: This is not yet possible as of the current state of the repo. I do intent do support it.
 
 ### User provided storage
 
@@ -114,3 +117,5 @@ fn main() {
     let (prod, cons) = bbqueue.try_split().unwrap();
 }
 ```
+
+NOTE: This is not yet possible as of the current state of the repo. I do intent do support it.
