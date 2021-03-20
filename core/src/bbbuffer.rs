@@ -17,10 +17,13 @@ use core::{
     },
 };
 
-struct OwnedBBBuffer<const N: usize> {
+
+pub struct OwnedBBBuffer<const N: usize> {
     hdr: BBHeader,
     storage: UnsafeCell<[u8; N]>
 }
+
+unsafe impl<const A: usize> Sync for OwnedBBBuffer<{ A }> {}
 
 pub struct BBHeader {
     /// Where the next byte will be written
@@ -61,21 +64,43 @@ pub struct BBHeader {
 // Maybe the BBGetter trait can be replaced with AsRef<BBStorage> or something?
 // Also, this would probably let anyone get access to the header of bbqueue, which
 // would be wildly unsafe
-pub trait BBGetter: Clone {
-    fn get_header(&self) -> &BBHeader;
-    fn get_storage(&self) -> (*mut u8, usize);
+pub(crate) mod sealed {
+    use crate::bbbuffer::BBHeader;
+
+    pub trait BBGetter: Clone {
+        fn get_header(&self) -> &BBHeader;
+        fn get_storage(&self) -> (*mut u8, usize);
+    }
+
+    impl<const N: usize> BBGetter for &crate::bbbuffer::OwnedBBBuffer<N> {
+        fn get_header(&self) -> &BBHeader {
+            &self.hdr
+        }
+
+        fn get_storage(&self) -> (*mut u8, usize) {
+            let ptr = self.storage.get().cast();
+            (ptr, N)
+        }
+    }
 }
+use crate::sealed::BBGetter;
 
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
+//
+// NOTE: The BBQueue is generic over ANY type,
 pub struct BBQueue<STO, const N: usize>
-where
-    STO: BBGetter,
 {
     sto: STO
 }
 
-unsafe impl<STO: BBGetter, const A: usize> Sync for BBQueue<STO, { A }> {}
+impl<'a, STO, const N: usize> BBQueue<STO, { N }> {
+    pub const fn new(storage: STO) -> Self {
+        Self {
+            sto: storage,
+        }
+    }
+}
 
 impl<'a, STO: BBGetter, const N: usize> BBQueue<STO, { N }> {
     /// Attempt to split the `BBQueue` into `Consumer` and `Producer` halves to gain access to the
@@ -114,21 +139,16 @@ impl<'a, STO: BBGetter, const N: usize> BBQueue<STO, { N }> {
             return Err(Error::AlreadySplit);
         }
 
-        unsafe {
-            let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
-            let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
-
-            Ok((
-                Producer {
-                    bbq: nn1,
-                    pd: PhantomData,
-                },
-                Consumer {
-                    bbq: nn2,
-                    pd: PhantomData,
-                },
-            ))
-        }
+        Ok((
+            Producer {
+                bbq: self.sto.clone(),
+                pd: PhantomData,
+            },
+            Consumer {
+                bbq: self.sto.clone(),
+                pd: PhantomData,
+            },
+        ))
     }
 
     /// Attempt to split the `BBQueue` into `FrameConsumer` and `FrameProducer` halves
@@ -193,8 +213,9 @@ impl<'a, STO: BBGetter, const N: usize> BBQueue<STO, { N }> {
         // can assume the buffer has been split, because
 
         // Are these our producers and consumers?
-        let our_prod = prod.bbq.as_ptr() as *const Self == self;
-        let our_cons = cons.bbq.as_ptr() as *const Self == self;
+        // NOTE: Check the header rather than the data
+        let our_prod = prod.bbq.get_header() as *const BBHeader == self.sto.get_header() as *const BBHeader;
+        let our_cons = cons.bbq.get_header() as *const BBHeader == self.sto.get_header() as *const BBHeader;
 
         if !(our_prod && our_cons) {
             // Can't release, not our producer and consumer
@@ -247,70 +268,63 @@ impl<'a, STO: BBGetter, const N: usize> BBQueue<STO, { N }> {
     }
 }
 
+impl<const N: usize> OwnedBBBuffer<{ N }> {
+    /// Create a new constant inner portion of a `BBQueue`.
+    ///
+    /// NOTE: This is only necessary to use when creating a `BBQueue` at static
+    /// scope, and is generally never used directly. This process is necessary to
+    /// work around current limitations in `const fn`, and will be replaced in
+    /// the future.
+    ///
+    /// ```rust,no_run
+    /// use bbqueue_ng::BBQueue;
+    ///
+    /// static BUF: BBQueue<6> = BBQueue::new();
+    ///
+    /// fn main() {
+    ///    let (prod, cons) = BUF.try_split().unwrap();
+    /// }
+    /// ```
+    pub const fn new() -> Self {
+        Self {
+            // This will not be initialized until we split the buffer
+            storage: UnsafeCell::new([0u8; N]),
 
-// TODO(AJM): Move this to BBBuffer's constructor
-//
-//
-// impl<STO, const N: usize> BBQueue<STO, { N }>
-// where
-//     STO: BBGetter,
-// {
-//     /// Create a new constant inner portion of a `BBQueue`.
-//     ///
-//     /// NOTE: This is only necessary to use when creating a `BBQueue` at static
-//     /// scope, and is generally never used directly. This process is necessary to
-//     /// work around current limitations in `const fn`, and will be replaced in
-//     /// the future.
-//     ///
-//     /// ```rust,no_run
-//     /// use bbqueue_ng::BBQueue;
-//     ///
-//     /// static BUF: BBQueue<6> = BBQueue::new();
-//     ///
-//     /// fn main() {
-//     ///    let (prod, cons) = BUF.try_split().unwrap();
-//     /// }
-//     /// ```
-//     pub const fn new() -> Self {
-//         Self {
-//             // This will not be initialized until we split the buffer
-//             buf: UnsafeCell::new([0u8; N]),
+            hdr: BBHeader {
+                /// Owned by the writer
+                write: AtomicUsize::new(0),
 
-//             hdr: BBHeader {
-//                 /// Owned by the writer
-//                 write: AtomicUsize::new(0),
+                /// Owned by the reader
+                read: AtomicUsize::new(0),
 
-//                 /// Owned by the reader
-//                 read: AtomicUsize::new(0),
+                /// Cooperatively owned
+                ///
+                /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
+                /// this would prevent the structure from being entirely zero-initialized,
+                /// and can cause the .data section to be much larger than necessary. By
+                /// forcing the `last` pointer to be zero initially, we place the structure
+                /// in an "inverted" condition, which will be resolved on the first commited
+                /// bytes that are written to the structure.
+                ///
+                /// When read == last == write, no bytes will be allowed to be read (good), but
+                /// write grants can be given out (also good).
+                last: AtomicUsize::new(0),
 
-//                 /// Cooperatively owned
-//                 ///
-//                 /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
-//                 /// this would prevent the structure from being entirely zero-initialized,
-//                 /// and can cause the .data section to be much larger than necessary. By
-//                 /// forcing the `last` pointer to be zero initially, we place the structure
-//                 /// in an "inverted" condition, which will be resolved on the first commited
-//                 /// bytes that are written to the structure.
-//                 ///
-//                 /// When read == last == write, no bytes will be allowed to be read (good), but
-//                 /// write grants can be given out (also good).
-//                 last: AtomicUsize::new(0),
+                /// Owned by the Writer, "private"
+                reserve: AtomicUsize::new(0),
 
-//                 /// Owned by the Writer, "private"
-//                 reserve: AtomicUsize::new(0),
+                /// Owned by the Reader, "private"
+                read_in_progress: AtomicBool::new(false),
 
-//                 /// Owned by the Reader, "private"
-//                 read_in_progress: AtomicBool::new(false),
+                /// Owned by the Writer, "private"
+                write_in_progress: AtomicBool::new(false),
 
-//                 /// Owned by the Writer, "private"
-//                 write_in_progress: AtomicBool::new(false),
-
-//                 /// We haven't split at the start
-//                 already_split: AtomicBool::new(false),
-//             }
-//         }
-//     }
-// }
+                /// We haven't split at the start
+                already_split: AtomicBool::new(false),
+            }
+        }
+    }
+}
 
 /// `Producer` is the primary interface for pushing data into a `BBQueue`.
 /// There are various methods for obtaining a grant to write to the buffer, with
@@ -340,8 +354,8 @@ pub struct Producer<'a, STO, const N: usize>
 where
     STO: BBGetter,
 {
-    bbq: NonNull<BBQueue<STO, { N }>>,
-    pd: PhantomData<&'a ()>,
+    bbq: STO,
+    pd: PhantomData<&'a [u8; N]>,
 }
 
 unsafe impl<'a, STO, const N: usize> Send for Producer<'a, STO, { N }>
@@ -386,12 +400,8 @@ where
     /// # }
     /// ```
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, STO, { N }>> {
-        let (hdr, sto) = unsafe {
-            let bbq = self.bbq.as_ref();
-            let hdr = bbq.sto.get_header();
-            let sto = bbq.sto.get_storage();
-            (hdr, sto)
-        };
+        let hdr = self.bbq.get_header();
+        let sto = self.bbq.get_storage();
 
 
         if atomic::swap(&hdr.write_in_progress, true, AcqRel) {
@@ -446,8 +456,9 @@ where
 
         Ok(GrantW {
             buf: grant_slice,
-            bbq: self.bbq,
+            bbq: self.bbq.clone(),
             to_commit: 0,
+            pd: PhantomData,
         })
     }
 
@@ -490,12 +501,8 @@ where
     /// # }
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, STO, { N }>> {
-        let (hdr, sto) = unsafe {
-            let bbq = self.bbq.as_ref();
-            let hdr = bbq.sto.get_header();
-            let sto = bbq.sto.get_storage();
-            (hdr, sto)
-        };
+        let hdr = self.bbq.get_header();
+        let sto = self.bbq.get_storage();
 
         if atomic::swap(&hdr.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -554,16 +561,17 @@ where
 
         Ok(GrantW {
             buf: grant_slice,
-            bbq: self.bbq,
+            bbq: self.bbq.clone(),
             to_commit: 0,
+            pd: PhantomData,
         })
     }
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBQueue`.
 pub struct Consumer<'a, STO: BBGetter, const N: usize> {
-    bbq: NonNull<BBQueue<STO, { N }>>,
-    pd: PhantomData<&'a ()>,
+    bbq: STO,
+    pd: PhantomData<&'a [u8; N]>,
 }
 
 unsafe impl<'a, STO: BBGetter, const N: usize> Send for Consumer<'a, STO, { N }> {}
@@ -600,12 +608,8 @@ impl<'a, STO: BBGetter, const N: usize> Consumer<'a, STO, { N }> {
     /// # }
     /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, STO, { N }>> {
-        let (hdr, sto) = unsafe {
-            let bbq = self.bbq.as_ref();
-            let hdr = bbq.sto.get_header();
-            let sto = bbq.sto.get_storage();
-            (hdr, sto)
-        };
+        let hdr = self.bbq.get_header();
+        let sto = self.bbq.get_storage();
 
         if atomic::swap(&hdr.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -647,20 +651,17 @@ impl<'a, STO: BBGetter, const N: usize> Consumer<'a, STO, { N }> {
 
         Ok(GrantR {
             buf: grant_slice,
-            bbq: self.bbq,
+            bbq: self.bbq.clone(),
             to_release: 0,
+            pd: PhantomData,
         })
     }
 
     /// Obtains two disjoint slices, which are each contiguous of committed bytes.
     /// Combined these contain all previously commited data.
     pub fn split_read(&mut self) -> Result<SplitGrantR<'a, STO, { N }>> {
-        let (hdr, sto) = unsafe {
-            let bbq = self.bbq.as_ref();
-            let hdr = bbq.sto.get_header();
-            let sto = bbq.sto.get_storage();
-            (hdr, sto)
-        };
+        let hdr = self.bbq.get_header();
+        let sto = self.bbq.get_storage();
 
         if atomic::swap(&hdr.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -707,8 +708,9 @@ impl<'a, STO: BBGetter, const N: usize> Consumer<'a, STO, { N }> {
         Ok(SplitGrantR {
             buf1: grant_slice1,
             buf2: grant_slice2,
-            bbq: self.bbq,
+            bbq: self.bbq.clone(),
             to_release: 0,
+            pd: PhantomData,
         })
     }
 }
@@ -755,8 +757,9 @@ where
     STO: BBGetter,
 {
     pub(crate) buf: &'a mut [u8],
-    bbq: NonNull<BBQueue<STO, N>>,
+    bbq: STO,
     pub(crate) to_commit: usize,
+    pd: PhantomData<&'a [u8; N]>,
 }
 
 unsafe impl<'a, STO: BBGetter, const N: usize> Send for GrantW<'a, STO, { N }> {}
@@ -779,8 +782,9 @@ where
     STO: BBGetter,
 {
     pub(crate) buf: &'a mut [u8],
-    bbq: NonNull<BBQueue<STO, N>>,
+    bbq: STO,
     pub(crate) to_release: usize,
+    pd: PhantomData<&'a [u8; N]>,
 }
 
 /// A structure representing up to two contiguous regions of memory that
@@ -793,8 +797,9 @@ where
 {
     pub(crate) buf1: &'a mut [u8],
     pub(crate) buf2: &'a mut [u8],
-    bbq: NonNull<BBQueue<STO, N>>,
+    bbq: STO,
     pub(crate) to_release: usize,
+    pd: PhantomData<&'a [u8; N]>,
 }
 
 unsafe impl<'a, STO: BBGetter, const N: usize> Send for GrantR<'a, STO, { N }> {}
@@ -845,10 +850,7 @@ impl<'a, STO: BBGetter, const N: usize> GrantW<'a, STO, { N }> {
 
     #[inline(always)]
     pub(crate) fn commit_inner(&mut self, used: usize) {
-        let hdr = unsafe {
-            let bbq = self.bbq.as_ref();
-            bbq.sto.get_header()
-        };
+        let hdr = self.bbq.get_header();
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
@@ -972,10 +974,7 @@ impl<'a, STO: BBGetter, const N: usize> GrantR<'a, STO, { N }> {
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let hdr = unsafe {
-            let bbq = self.bbq.as_ref();
-            bbq.sto.get_header()
-        };
+        let hdr = self.bbq.get_header();
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
@@ -1059,10 +1058,7 @@ impl<'a, STO: BBGetter, const N: usize> SplitGrantR<'a, STO, { N }> {
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let hdr = unsafe {
-            let bbq = self.bbq.as_ref();
-            bbq.sto.get_header()
-        };
+        let hdr = self.bbq.get_header();
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a

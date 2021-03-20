@@ -74,7 +74,7 @@ use crate::{Consumer, GrantR, GrantW, Producer};
 
 use crate::{
     vusize::{decode_usize, decoded_len, encode_usize_to_slice, encoded_len},
-    bbbuffer::BBGetter,
+    bbbuffer::sealed::BBGetter,
     Result,
 };
 
