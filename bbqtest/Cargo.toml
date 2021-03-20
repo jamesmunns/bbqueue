@@ -22,6 +22,7 @@ crossbeam-utils = "0.7"
 crossbeam = "0.7"
 heapless = "0.5"
 cfg-if = "0.1"
+futures = "0.3"
 
 [[bench]]
 name = "benches"
