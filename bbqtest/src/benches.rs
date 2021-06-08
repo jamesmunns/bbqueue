@@ -1,4 +1,4 @@
-use bbqueue::{consts::*, BBBuffer};
+use bbqueue::BBBuffer;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::cmp::min;
 
@@ -17,7 +17,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("bbq 2048/4096", |bench| bench.iter(|| chunky(&data, 2048)));
 
-    let buffy: BBBuffer<U65536> = BBBuffer::new();
+    let buffy: BBBuffer<65536> = BBBuffer::new();
     let (mut prod, mut cons) = buffy.try_split().unwrap();
 
     c.bench_function("bbq 8192/65536", |bench| {
@@ -154,7 +154,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     use heapless::spsc::Queue;
 
-    let mut queue: Queue<[u8; 8192], U8> = Queue::new();
+    let mut queue: Queue<[u8; 8192], 8> = Queue::new();
     let (mut prod, mut cons) = queue.split();
 
     c.bench_function("heapless spsc::Queue 8192/65536", |bench| {
@@ -196,7 +196,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
 use crossbeam_utils::thread;
 fn chunky(data: &[u8], chunksz: usize) {
-    let buffy: BBBuffer<U4096> = BBBuffer::new();
+    let buffy: BBBuffer<4096> = BBBuffer::new();
     let (mut prod, mut cons) = buffy.try_split().unwrap();
 
     thread::scope(|sc| {
