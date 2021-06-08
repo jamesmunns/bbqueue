@@ -11,9 +11,9 @@
 //! ```rust
 //! # // bbqueue test shim!
 //! # fn bbqtest() {
-//! use bbqueue::{BBBuffer, consts::*};
+//! use bbqueue::BBBuffer;
 //!
-//! let bb: BBBuffer<U1000> = BBBuffer::new();
+//! let bb: BBBuffer<1000> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split_framed().unwrap();
 //!
 //! // One frame in, one frame out
@@ -81,20 +81,12 @@ use core::{
     cmp::min,
     ops::{Deref, DerefMut},
 };
-use generic_array::ArrayLength;
-
 /// A producer of Framed data
-pub struct FrameProducer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+pub struct FrameProducer<'a, const N: usize> {
     pub(crate) producer: Producer<'a, N>,
 }
 
-impl<'a, N> FrameProducer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> FrameProducer<'a, N> {
     /// Receive a grant for a frame with a maximum size of `max_sz` in bytes.
     ///
     /// This size does not include the size of the frame header. The exact size
@@ -109,17 +101,11 @@ where
 }
 
 /// A consumer of Framed data
-pub struct FrameConsumer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+pub struct FrameConsumer<'a, const N: usize> {
     pub(crate) consumer: Consumer<'a, N>,
 }
 
-impl<'a, N> FrameConsumer<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> FrameConsumer<'a, N> {
     /// Obtain the next available frame, if any
     pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
         // Get all available bytes. We never wrap a frame around,
@@ -153,10 +139,7 @@ where
 /// the contents without first calling `to_commit()`, then no
 /// frame will be comitted for writing.
 #[derive(Debug, PartialEq)]
-pub struct FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+pub struct FrameGrantW<'a, const N: usize> {
     grant_w: GrantW<'a, N>,
     hdr_len: u8,
 }
@@ -166,18 +149,12 @@ where
 /// NOTE: If the grant is dropped without explicitly releasing
 /// the contents, then no frame will be released.
 #[derive(Debug, PartialEq)]
-pub struct FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+pub struct FrameGrantR<'a, const N: usize> {
     grant_r: GrantR<'a, N>,
     hdr_len: u8,
 }
 
-impl<'a, N> Deref for FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> Deref for FrameGrantW<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -185,19 +162,13 @@ where
     }
 }
 
-impl<'a, N> DerefMut for FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> DerefMut for FrameGrantW<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.grant_w.buf[self.hdr_len.into()..]
     }
 }
 
-impl<'a, N> Deref for FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> Deref for FrameGrantR<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -205,10 +176,7 @@ where
     }
 }
 
-impl<'a, N> DerefMut for FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> DerefMut for FrameGrantR<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.grant_r.buf[self.hdr_len.into()..]
     }
@@ -216,16 +184,13 @@ where
 
 /// You can now use the to_commit method on grants to have them auto-commit
 #[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoReleaseFrameGrantR<'a, N> = FrameGrantR<'a, N>;
+pub type AutoReleaseFrameGrantR<'a, const N: usize> = FrameGrantR<'a, N>;
 
 /// You can now use the to_release method on grants to have them auto-commit
 #[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoCommitFrameGrantW<'a, N> = FrameGrantW<'a, N>;
+pub type AutoCommitFrameGrantW<'a, const N: usize> = FrameGrantW<'a, N>;
 
-impl<'a, N> FrameGrantW<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> FrameGrantW<'a, N> {
     /// Commit a frame to make it available to the Consumer half.
     ///
     /// `used` is the size of the payload, in bytes, not
@@ -280,10 +245,7 @@ where
     }
 }
 
-impl<'a, N> FrameGrantR<'a, N>
-where
-    N: ArrayLength<u8>,
-{
+impl<'a, const N: usize> FrameGrantR<'a, N> {
     /// Release a frame to make the space available for future writing
     ///
     /// Note: The full frame is always released

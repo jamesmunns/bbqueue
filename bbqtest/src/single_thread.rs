@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use bbqueue::{consts::*, BBBuffer};
+    use bbqueue::BBBuffer;
 
     #[test]
     fn sanity_check() {
-        let bb: BBBuffer<U6> = BBBuffer::new();
+        let bb: BBBuffer<6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
         const ITERS: usize = 100000;
