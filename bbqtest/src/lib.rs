@@ -8,7 +8,7 @@ mod single_thread;
 
 #[cfg(test)]
 mod tests {
-    use bbqueue::{BBBuffer, ConstBBBuffer, Error as BBQError};
+    use bbqueue::{BBBuffer, Error as BBQError};
 
     #[test]
     fn deref_deref_mut() {
@@ -35,8 +35,8 @@ mod tests {
     #[test]
     fn static_allocator() {
         // Check we can make multiple static items...
-        static BBQ1: BBBuffer<6> = BBBuffer(ConstBBBuffer::new());
-        static BBQ2: BBBuffer<6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ1: BBBuffer<6> = BBBuffer::new();
+        static BBQ2: BBBuffer<6> = BBBuffer::new();
         let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
         let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
 
@@ -56,8 +56,8 @@ mod tests {
     #[test]
     fn release() {
         // Check we can make multiple static items...
-        static BBQ1: BBBuffer<6> = BBBuffer(ConstBBBuffer::new());
-        static BBQ2: BBBuffer<6> = BBBuffer(ConstBBBuffer::new());
+        static BBQ1: BBBuffer<6> = BBBuffer::new();
+        static BBQ2: BBBuffer<6> = BBBuffer::new();
         let (prod1, cons1) = BBQ1.try_split().unwrap();
         let (prod2, cons2) = BBQ2.try_split().unwrap();
 

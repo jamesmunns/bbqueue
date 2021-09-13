@@ -48,9 +48,11 @@ rgr.release(1);
 
 ## Static usage
 
-```rust
+```rust, no_run
+use bbqueue::BBBuffer;
+
 // Create a buffer with six elements
-static BB: BBBuffer<6> = BBBuffer( ConstBBBuffer::new() );
+static BB: BBBuffer<6> = BBBuffer::new();
 
 fn main() {
     // Split the bbqueue into producer and consumer halves.
@@ -90,10 +92,6 @@ By default BBQueue uses atomic operations which are available on most platforms.
 (mostly embedded) platforms atomic support is limited and with the default features you will get
 a compiler error about missing atomic methods.
 
-This crate contains special support for Cortex-M0(+) targets with the `thumbv6` feature. By
-enabling the feature, unsupported atomic operations will be replaced with critical sections
-implemented by disabling interrupts. The critical sections are very short, a few instructions at
-most, so they should make no difference to most applications.
 
 # License
 

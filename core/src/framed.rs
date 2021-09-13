@@ -81,6 +81,7 @@ use core::{
     cmp::min,
     ops::{Deref, DerefMut},
 };
+
 /// A producer of Framed data
 pub struct FrameProducer<'a, const N: usize> {
     pub(crate) producer: Producer<'a, N>,
@@ -182,14 +183,6 @@ impl<'a, const N: usize> DerefMut for FrameGrantR<'a, N> {
     }
 }
 
-/// You can now use the to_commit method on grants to have them auto-commit
-#[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoReleaseFrameGrantR<'a, const N: usize> = FrameGrantR<'a, N>;
-
-/// You can now use the to_release method on grants to have them auto-commit
-#[deprecated(note = "Use `to_commit()` instead")]
-pub type AutoCommitFrameGrantW<'a, const N: usize> = FrameGrantW<'a, N>;
-
 impl<'a, const N: usize> FrameGrantW<'a, N> {
     /// Commit a frame to make it available to the Consumer half.
     ///
@@ -225,24 +218,6 @@ impl<'a, const N: usize> FrameGrantW<'a, N> {
             self.grant_w.to_commit(size);
         }
     }
-
-    /// Convert the grant into a grant that automatically commits
-    ///
-    /// NOTE: by default, the full grant will be committed. This can
-    /// be changed by calling `AutoCommitFrameGrantW::to_commit()`.
-    #[deprecated(note = "Use `to_commit()` instead")]
-    #[allow(deprecated)]
-    pub fn into_auto_commit(mut self) -> AutoCommitFrameGrantW<'a, N> {
-        let grant_len = self.grant_w.len();
-        let hdr_len: usize = self.hdr_len.into();
-        let frame_len = grant_len - hdr_len;
-
-        // Write the actual frame length to the header
-        encode_usize_to_slice(frame_len, hdr_len, &mut self.grant_w[..hdr_len]);
-
-        self.grant_w.to_commit(self.grant_w.len());
-        self
-    }
 }
 
 impl<'a, const N: usize> FrameGrantR<'a, N> {
@@ -260,15 +235,5 @@ impl<'a, const N: usize> FrameGrantR<'a, N> {
     pub fn auto_release(&mut self, is_auto: bool) {
         self.grant_r
             .to_release(if is_auto { self.grant_r.len() } else { 0 });
-    }
-
-    /// Convert the grant into a grant that automatically releases
-    ///
-    /// NOTE: Framed Read Grants always release the entire contents.
-    #[deprecated(note = "Use `auto_release()` instead")]
-    #[allow(deprecated)]
-    pub fn into_auto_release(mut self) -> AutoReleaseFrameGrantR<'a, N> {
-        self.grant_r.to_release(self.grant_r.len());
-        self
     }
 }

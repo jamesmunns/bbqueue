@@ -19,12 +19,39 @@ use core::{
 #[derive(Debug)]
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
-pub struct BBBuffer<const N: usize>(
-    // Underlying data storage
-    #[doc(hidden)] pub ConstBBBuffer<[u8; N]>,
-);
+pub struct BBBuffer<const N: usize> {
+    buf: UnsafeCell<MaybeUninit<[u8; N]>>,
 
-unsafe impl<A> Sync for ConstBBBuffer<A> {}
+    /// Where the next byte will be written
+    write: AtomicUsize,
+
+    /// Where the next byte will be read from
+    read: AtomicUsize,
+
+    /// Used in the inverted case to mark the end of the
+    /// readable streak. Otherwise will == sizeof::<self.buf>().
+    /// Writer is responsible for placing this at the correct
+    /// place when entering an inverted condition, and Reader
+    /// is responsible for moving it back to sizeof::<self.buf>()
+    /// when exiting the inverted condition
+    last: AtomicUsize,
+
+    /// Used by the Writer to remember what bytes are currently
+    /// allowed to be written to, but are not yet ready to be
+    /// read from
+    reserve: AtomicUsize,
+
+    /// Is there an active read grant?
+    read_in_progress: AtomicBool,
+
+    /// Is there an active write grant?
+    write_in_progress: AtomicBool,
+
+    /// Have we already split?
+    already_split: AtomicBool,
+}
+
+unsafe impl<const A: usize> Sync for BBBuffer<A> {}
 
 impl<'a, const N: usize> BBBuffer<N> {
     /// Attempt to split the `BBBuffer` into `Consumer` and `Producer` halves to gain access to the
@@ -59,7 +86,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// # }
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
-        if atomic::swap(&self.0.already_split, true, AcqRel) {
+        if atomic::swap(&self.already_split, true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
 
@@ -67,7 +94,7 @@ impl<'a, const N: usize> BBBuffer<N> {
             // Explicitly zero the data to avoid undefined behavior.
             // This is required, because we hand out references to the buffers,
             // which mean that creating them as references is technically UB for now
-            let mu_ptr = self.0.buf.get();
+            let mu_ptr = self.buf.get();
             (*mu_ptr).as_mut_ptr().write_bytes(0u8, 1);
 
             let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
@@ -98,7 +125,9 @@ impl<'a, const N: usize> BBBuffer<N> {
     ///
     /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
     /// section while splitting.
-    pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
+    pub fn try_split_framed(
+        &'a self,
+    ) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
     }
@@ -154,8 +183,8 @@ impl<'a, const N: usize> BBBuffer<N> {
             return Err((prod, cons));
         }
 
-        let wr_in_progress = self.0.write_in_progress.load(Acquire);
-        let rd_in_progress = self.0.read_in_progress.load(Acquire);
+        let wr_in_progress = self.write_in_progress.load(Acquire);
+        let rd_in_progress = self.read_in_progress.load(Acquire);
 
         if wr_in_progress || rd_in_progress {
             // Can't release, active grant(s) in progress
@@ -167,13 +196,13 @@ impl<'a, const N: usize> BBBuffer<N> {
         drop(cons);
 
         // Re-initialize the buffer (not totally needed, but nice to do)
-        self.0.write.store(0, Release);
-        self.0.read.store(0, Release);
-        self.0.reserve.store(0, Release);
-        self.0.last.store(0, Release);
+        self.write.store(0, Release);
+        self.read.store(0, Release);
+        self.reserve.store(0, Release);
+        self.last.store(0, Release);
 
         // Mark the buffer as ready to be split
-        self.0.already_split.store(false, Release);
+        self.already_split.store(false, Release);
 
         Ok(())
     }
@@ -198,46 +227,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     }
 }
 
-/// `const-fn` version BBBuffer
-///
-/// NOTE: This is only necessary to use when creating a `BBBuffer` at static
-/// scope, and is generally never used directly. This process is necessary to
-/// work around current limitations in `const fn`, and will be replaced in
-/// the future.
-#[derive(Debug)]
-pub struct ConstBBBuffer<A> {
-    buf: UnsafeCell<MaybeUninit<A>>,
-
-    /// Where the next byte will be written
-    write: AtomicUsize,
-
-    /// Where the next byte will be read from
-    read: AtomicUsize,
-
-    /// Used in the inverted case to mark the end of the
-    /// readable streak. Otherwise will == sizeof::<self.buf>().
-    /// Writer is responsible for placing this at the correct
-    /// place when entering an inverted condition, and Reader
-    /// is responsible for moving it back to sizeof::<self.buf>()
-    /// when exiting the inverted condition
-    last: AtomicUsize,
-
-    /// Used by the Writer to remember what bytes are currently
-    /// allowed to be written to, but are not yet ready to be
-    /// read from
-    reserve: AtomicUsize,
-
-    /// Is there an active read grant?
-    read_in_progress: AtomicBool,
-
-    /// Is there an active write grant?
-    write_in_progress: AtomicBool,
-
-    /// Have we already split?
-    already_split: AtomicBool,
-}
-
-impl<A> ConstBBBuffer<A> {
+impl<const A: usize> BBBuffer<A> {
     /// Create a new constant inner portion of a `BBBuffer`.
     ///
     /// NOTE: This is only necessary to use when creating a `BBBuffer` at static
@@ -246,9 +236,9 @@ impl<A> ConstBBBuffer<A> {
     /// the future.
     ///
     /// ```rust,no_run
-    /// use bbqueue::{BBBuffer, ConstBBBuffer};
+    /// use bbqueue::BBBuffer;
     ///
-    /// static BUF: BBBuffer<6> = BBBuffer( ConstBBBuffer::new() );
+    /// static BUF: BBBuffer<6> = BBBuffer::new();
     ///
     /// fn main() {
     ///    let (prod, cons) = BUF.try_split().unwrap();
@@ -358,7 +348,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # }
     /// ```
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -368,6 +358,7 @@ impl<'a, const N: usize> Producer<'a, N> {
         // be careful writing to `load`
         let write = inner.write.load(Acquire);
         let read = inner.read.load(Acquire);
+        let max = N;
         let already_inverted = write < read;
 
         let start = if already_inverted {
@@ -380,7 +371,7 @@ impl<'a, const N: usize> Producer<'a, N> {
                 return Err(Error::InsufficientSize);
             }
         } else {
-            if write + sz <= N {
+            if write + sz <= max {
                 // Non inverted condition
                 write
             } else {
@@ -455,7 +446,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # }
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -465,6 +456,7 @@ impl<'a, const N: usize> Producer<'a, N> {
         // be careful writing to `load`
         let write = inner.write.load(Acquire);
         let read = inner.read.load(Acquire);
+        let max = N;
 
         let already_inverted = write < read;
 
@@ -481,9 +473,9 @@ impl<'a, const N: usize> Producer<'a, N> {
                 return Err(Error::InsufficientSize);
             }
         } else {
-            if write != N {
+            if write != max {
                 // Some (or all) room remaining in un-inverted case
-                sz = min(N - write, sz);
+                sz = min(max - write, sz);
                 write
             } else {
                 // Not inverted, but need to go inverted
@@ -559,7 +551,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// # }
     /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -611,7 +603,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// Obtains two disjoint slices, which are each contiguous of committed bytes.
     /// Combined these contain all previously commited data.
     pub fn split_read(&mut self) -> Result<SplitGrantR<'a, N>> {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.read_in_progress, true, AcqRel) {
             return Err(Error::GrantInProgress);
@@ -690,31 +682,6 @@ impl<const N: usize> BBBuffer<N> {
     }
 }
 
-impl<const N: usize> BBBuffer<N> {
-    /// Create a new bbqueue
-    ///
-    /// NOTE: For creating a bbqueue in static context, see `ConstBBBuffer::new()`.
-    ///
-    /// ```rust
-    /// # // bbqueue test shim!
-    /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
-    ///
-    /// // Create a new buffer of 6 elements
-    /// let buffer: BBBuffer<6> = BBBuffer::new();
-    /// # // bbqueue test shim!
-    /// # }
-    /// #
-    /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
-    /// # bbqtest();
-    /// # }
-    /// ```
-    pub fn new() -> Self {
-        Self(ConstBBBuffer::new())
-    }
-}
-
 /// A structure representing a contiguous region of memory that
 /// may be written to, and potentially "committed" to the queue.
 ///
@@ -767,14 +734,6 @@ pub struct SplitGrantR<'a, const N: usize> {
 unsafe impl<'a, const N: usize> Send for GrantR<'a, N> {}
 
 unsafe impl<'a, const N: usize> Send for SplitGrantR<'a, N> {}
-
-/// You can now use the to_commit method on grants to have them auto-commit
-#[deprecated(note = "You can now use the to_commit method on grants to have them auto-commit")]
-pub type AutoCommitGrantW<'a, const N: usize> = GrantW<'a, N>;
-
-/// You can now use the to_release method on grants to have them auto-release
-#[deprecated(note = "You can now use the to_release method on grants to have them auto-release")]
-pub type AutoReleaseGrantR<'a, const N: usize> = GrantR<'a, N>;
 
 impl<'a, const N: usize> GrantW<'a, N> {
     /// Finalizes a writable grant given by `grant()` or `grant_max()`.
@@ -835,7 +794,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
 
     #[inline(always)]
     pub(crate) fn commit_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
@@ -854,10 +813,11 @@ impl<'a, const N: usize> GrantW<'a, N> {
         let write = inner.write.load(Acquire);
         atomic::fetch_sub(&inner.reserve, len - used, AcqRel);
 
+        let max = N;
         let last = inner.last.load(Acquire);
         let new_write = inner.reserve.load(Acquire);
 
-        if (new_write < write) && (write != N) {
+        if (new_write < write) && (write != max) {
             // We have already wrapped, but we are skipping some bytes at the end of the ring.
             // Mark `last` where the write pointer used to be to hold the line here
             inner.last.store(write, Release);
@@ -869,7 +829,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
             // Since new_write is strictly larger than last, it is safe to move this as
             // the other thread will still be halted by the (about to be updated) write
             // value
-            inner.last.store(N, Release);
+            inner.last.store(max, Release);
         }
         // else: If new_write == last, either:
         // * last == max, so no need to write, OR
@@ -883,15 +843,6 @@ impl<'a, const N: usize> GrantW<'a, N> {
 
         // Allow subsequent grants
         inner.write_in_progress.store(false, Release);
-    }
-
-    /// Transforms this into a write grant that automatically commits all bytes on drop.
-    /// To configure the amount of bytes to be committed on drop, use `GrantW::to_commit()`.
-    #[deprecated(note = "Use `to_commit()` instead")]
-    #[allow(deprecated)]
-    pub fn into_auto_commit(mut self) -> AutoCommitGrantW<'a, N> {
-        self.to_commit = self.buf.len();
-        self
     }
 
     /// Configures the amount of bytes to be commited on drop.
@@ -982,7 +933,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a
@@ -998,15 +949,6 @@ impl<'a, const N: usize> GrantR<'a, N> {
         let _ = atomic::fetch_add(&inner.read, used, Release);
 
         inner.read_in_progress.store(false, Release);
-    }
-
-    /// Transforms this into a read grant that automatically releases all bytes on drop.
-    /// To configure the amount of bytes to be released on drop, use `GrantR::to_release()`.
-    #[deprecated(note = "Use `to_release()` instead")]
-    #[allow(deprecated)]
-    pub fn into_auto_release(mut self) -> AutoReleaseGrantR<'a, N> {
-        self.to_release = self.len();
-        self
     }
 
     /// Configures the amount of bytes to be released on drop.
@@ -1075,7 +1017,7 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
 
     #[inline(always)]
     pub(crate) fn release_inner(&mut self, used: usize) {
-        let inner = unsafe { &self.bbq.as_ref().0 };
+        let inner = unsafe { &self.bbq.as_ref() };
 
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a

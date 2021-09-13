@@ -1,6 +1,6 @@
 [package]
 name = "bbqueue"
-version = "0.4.12"
+version = "0.5.0"
 description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"
 authors = ["James Munns <james.munns@ferrous-systems.com>"]
@@ -19,11 +19,6 @@ cortex-m = { version = "0.6.0", optional = true }
 
 [features]
 thumbv6 = ["cortex-m"]
-
-# TODO: These don't really do anything anymore
-atomic = []
-std = []
-
 
 [package.metadata.docs.rs]
 all-features = true

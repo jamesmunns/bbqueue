@@ -137,7 +137,8 @@ mod tests {
 
         for _ in 0..100 {
             {
-                let mut wgr = prod.grant(64).unwrap().into_auto_commit();
+                let mut wgr = prod.grant(64).unwrap();
+                wgr.to_commit(64);
                 for (i, by) in wgr.iter_mut().enumerate() {
                     *by = i as u8;
                 }
@@ -145,7 +146,10 @@ mod tests {
             }
 
             {
-                let rgr = cons.read().unwrap().into_auto_release();
+                let mut rgr = cons.read().unwrap();
+                rgr.auto_release(true);
+                let rgr = rgr;
+
                 for (i, by) in rgr.iter().enumerate() {
                     assert_eq!(*by, i as u8);
                 }
