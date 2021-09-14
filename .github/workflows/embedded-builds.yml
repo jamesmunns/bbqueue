@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - feature: atomic
+          - features: ""
             target: thumbv7em-none-eabihf
             rust: stable
           - feature: thumbv6

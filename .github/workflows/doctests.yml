@@ -13,9 +13,6 @@ jobs:
       matrix:
         include:
           - rust: stable
-            features: atomic
-            nodefault: "--no-default-features"
-          - rust: stable
             features: thumbv6
             nodefault: "--no-default-features"
           - rust: stable
