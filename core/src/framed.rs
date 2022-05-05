@@ -92,7 +92,7 @@ impl<'a, const N: usize> FrameProducer<'a, N> {
     ///
     /// This size does not include the size of the frame header. The exact size
     /// of the frame can be set on `commit`.
-    pub fn grant(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
+    pub fn grant(&self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
         let hdr_len = encoded_len(max_sz);
         Ok(FrameGrantW {
             grant_w: self.producer.grant_exact(max_sz + hdr_len)?,
@@ -108,7 +108,7 @@ pub struct FrameConsumer<'a, const N: usize> {
 
 impl<'a, const N: usize> FrameConsumer<'a, N> {
     /// Obtain the next available frame, if any
-    pub fn read(&mut self) -> Option<FrameGrantR<'a, N>> {
+    pub fn read(&self) -> Option<FrameGrantR<'a, N>> {
         // Get all available bytes. We never wrap a frame around,
         // so if a header is available, the whole frame will be.
         let mut grant_r = self.consumer.read().ok()?;

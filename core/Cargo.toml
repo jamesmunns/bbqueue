@@ -1,5 +1,5 @@
 [package]
-name = "bbqueue"
+name = "bbqueue-sync"
 version = "0.5.1"
 description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"

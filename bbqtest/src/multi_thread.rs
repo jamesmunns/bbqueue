@@ -49,7 +49,7 @@ mod tests {
         println!("RTX: Running test...");
 
         static BB: BBBuffer<QUEUE_SIZE> = BBBuffer::new();
-        let (mut tx, mut rx) = BB.try_split().unwrap();
+        let (tx, rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn sanity_check() {
         static BB: BBBuffer<QUEUE_SIZE> = BBBuffer::new();
-        let (mut tx, mut rx) = BB.try_split().unwrap();
+        let (tx, rx) = BB.try_split().unwrap();
 
         let mut last_tx = Instant::now();
         let mut last_rx = last_tx.clone();
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn sanity_check_grant_max() {
         static BB: BBBuffer<QUEUE_SIZE> = BBBuffer::new();
-        let (mut tx, mut rx) = BB.try_split().unwrap();
+        let (tx, rx) = BB.try_split().unwrap();
 
         #[cfg(feature = "verbose")]
         println!("SCGM: Generating Test Data...");

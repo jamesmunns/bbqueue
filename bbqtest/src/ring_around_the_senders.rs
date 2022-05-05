@@ -26,7 +26,7 @@ mod tests {
     impl<'a, const N: usize> Potato<'a, N> {
         fn work(self) -> (Self, Self) {
             match self {
-                Self::Tx((mut prod, ct)) => {
+                Self::Tx((prod, ct)) => {
                     // If we are holding a producer, try to send three things before passing it on.
                     if ct == 0 {
                         // If we have exhausted our counts, pass on the sender.
@@ -40,7 +40,7 @@ mod tests {
                         }
                     }
                 }
-                Self::Rx((mut cons, ct)) => {
+                Self::Rx((cons, ct)) => {
                     // If we are holding a consumer, try to send three things before passing it on.
                     if ct == 0 {
                         // If we have exhausted our counts, pass on the sender.

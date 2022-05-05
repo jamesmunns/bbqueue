@@ -13,7 +13,7 @@ mod tests {
     #[test]
     fn deref_deref_mut() {
         let bb: BBBuffer<6> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split().unwrap();
+        let (prod, cons) = bb.try_split().unwrap();
 
         let mut wgr = prod.grant_exact(1).unwrap();
 
@@ -37,8 +37,8 @@ mod tests {
         // Check we can make multiple static items...
         static BBQ1: BBBuffer<6> = BBBuffer::new();
         static BBQ2: BBBuffer<6> = BBBuffer::new();
-        let (mut prod1, mut cons1) = BBQ1.try_split().unwrap();
-        let (mut _prod2, mut cons2) = BBQ2.try_split().unwrap();
+        let (prod1, cons1) = BBQ1.try_split().unwrap();
+        let (_prod2, cons2) = BBQ2.try_split().unwrap();
 
         // ... and they aren't the same
         let mut wgr1 = prod1.grant_exact(3).unwrap();
@@ -72,9 +72,8 @@ mod tests {
         let (prod2, cons1) = BBQ1.try_release(prod2, cons1).unwrap_err();
 
         // We cannot release with a write grant in progress
-        let mut prod1 = prod1;
         let wgr1 = prod1.grant_exact(3).unwrap();
-        let (prod1, mut cons1) = BBQ1.try_release(prod1, cons1).unwrap_err();
+        let (prod1, cons1) = BBQ1.try_release(prod1, cons1).unwrap_err();
 
         // We cannot release with a read grant in progress
         wgr1.commit(3);
@@ -95,7 +94,7 @@ mod tests {
     fn direct_usage_sanity() {
         // Initialize
         let bb: BBBuffer<6> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split().unwrap();
+        let (prod, cons) = bb.try_split().unwrap();
         assert_eq!(cons.read(), Err(BBQError::InsufficientSize));
 
         // Initial grant, shouldn't roll over
@@ -180,7 +179,7 @@ mod tests {
     #[test]
     fn zero_sized_grant() {
         let bb: BBBuffer<1000> = BBBuffer::new();
-        let (mut prod, mut _cons) = bb.try_split().unwrap();
+        let (prod, _cons) = bb.try_split().unwrap();
 
         let size = 1000;
         let grant = prod.grant_exact(size).unwrap();
@@ -193,7 +192,7 @@ mod tests {
     #[test]
     fn frame_sanity() {
         let bb: BBBuffer<1000> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+        let (prod, cons) = bb.try_split_framed().unwrap();
 
         // One frame in, one frame out
         let mut wgrant = prod.grant(128).unwrap();
@@ -240,7 +239,7 @@ mod tests {
     #[test]
     fn frame_wrap() {
         let bb: BBBuffer<22> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+        let (prod, cons) = bb.try_split_framed().unwrap();
 
         // 10 + 1 used
         let mut wgrant = prod.grant(10).unwrap();
@@ -306,7 +305,7 @@ mod tests {
     #[test]
     fn frame_big_little() {
         let bb: BBBuffer<65536> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split_framed().unwrap();
+        let (prod, cons) = bb.try_split_framed().unwrap();
 
         // Create a frame that should take 3 bytes for the header
         assert!(prod.grant(65534).is_err());
@@ -330,7 +329,7 @@ mod tests {
     #[test]
     fn split_sanity_check() {
         let bb: BBBuffer<10> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split().unwrap();
+        let (prod, cons) = bb.try_split().unwrap();
 
         // Fill buffer
         let mut wgrant = prod.grant_exact(10).unwrap();
@@ -399,7 +398,7 @@ mod tests {
     #[test]
     fn split_read_sanity_check() {
         let bb: BBBuffer<6> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split().unwrap();
+        let (prod, cons) = bb.try_split().unwrap();
 
         const ITERS: usize = 100000;
 

@@ -5,7 +5,7 @@ mod tests {
     #[test]
     fn sanity_check() {
         let bb: BBBuffer<6> = BBBuffer::new();
-        let (mut prod, mut cons) = bb.try_split().unwrap();
+        let (prod, cons) = bb.try_split().unwrap();
 
         const ITERS: usize = 100000;
 

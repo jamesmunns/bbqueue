@@ -311,6 +311,7 @@ pub struct Producer<'a, const N: usize> {
 }
 
 unsafe impl<'a, const N: usize> Send for Producer<'a, N> {}
+unsafe impl<'a, const N: usize> Sync for Producer<'a, N> {}
 
 impl<'a, const N: usize> Producer<'a, N> {
     /// Request a writable, contiguous section of memory of exactly
@@ -345,7 +346,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_exact(&self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
@@ -443,7 +444,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
+    pub fn grant_max_remaining(&self, mut sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.write_in_progress, true, AcqRel) {
@@ -516,6 +517,7 @@ pub struct Consumer<'a, const N: usize> {
 }
 
 unsafe impl<'a, const N: usize> Send for Consumer<'a, N> {}
+unsafe impl<'a, const N: usize> Sync for Consumer<'a, N> {}
 
 impl<'a, const N: usize> Consumer<'a, N> {
     /// Obtains a contiguous slice of committed bytes. This slice may not
@@ -548,7 +550,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// # bbqtest();
     /// # }
     /// ```
-    pub fn read(&mut self) -> Result<GrantR<'a, N>> {
+    pub fn read(&self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.read_in_progress, true, AcqRel) {
@@ -600,7 +602,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
 
     /// Obtains two disjoint slices, which are each contiguous of committed bytes.
     /// Combined these contain all previously commited data.
-    pub fn split_read(&mut self) -> Result<SplitGrantR<'a, N>> {
+    pub fn split_read(&self) -> Result<SplitGrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
         if atomic::swap(&inner.read_in_progress, true, AcqRel) {
