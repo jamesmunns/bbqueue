@@ -3,8 +3,6 @@ mod tests {
     use bbqueue::BBBuffer;
     use futures::{executor::block_on, future::join};
 
-    use crate::async_usage;
-
     #[test]
     fn test_read() {
         let bb: BBBuffer<6> = BBBuffer::new();
