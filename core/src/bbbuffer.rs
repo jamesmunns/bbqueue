@@ -16,6 +16,8 @@ use core::{
         Ordering::{AcqRel, Acquire, Release},
     },
 };
+use embassy_sync::waitqueue::WakerRegistration;
+
 #[derive(Debug)]
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
@@ -46,6 +48,12 @@ pub struct BBBuffer<const N: usize> {
 
     /// Is there an active write grant?
     write_in_progress: AtomicBool,
+
+    /// Read waker for async support
+    read_waker: WakerRegistration,
+
+    /// Write waker for async support
+    write_waker: WakerRegistration,
 
     /// Have we already split?
     already_split: AtomicBool,
