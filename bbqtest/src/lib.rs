@@ -1,6 +1,7 @@
 //! NOTE: this crate is really just a shim for testing
 //! the other no-std crate.
 
+mod async_framed;
 mod async_usage;
 mod framed;
 mod multi_thread;

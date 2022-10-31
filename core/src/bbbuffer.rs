@@ -17,9 +17,26 @@ use core::{
         AtomicBool, AtomicUsize,
         Ordering::{AcqRel, Acquire, Release},
     },
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
-use embassy_sync::waitqueue::WakerRegistration;
+
+fn replace_waker(opt_w: &mut Option<Waker>, new: &Waker) {
+    match opt_w.take() {
+        Some(prev) => {
+            // No need to clone if they wake the same task.
+            if prev.will_wake(&new) {
+            }
+            // Wake the previous waker and replace it
+            else {
+                prev.wake();
+                opt_w.replace(new.clone());
+            }
+        }
+        None => {
+            opt_w.replace(new.clone());
+        }
+    }
+}
 
 #[derive(Debug)]
 /// A backing structure for a BBQueue. Can be used to create either
@@ -56,10 +73,10 @@ pub struct BBBuffer<const N: usize> {
     already_split: AtomicBool,
 
     /// Read waker for async support
-    read_waker: WakerRegistration,
+    read_waker: Option<Waker>,
 
     /// Write waker for async support
-    write_waker: WakerRegistration,
+    write_waker: Option<Waker>,
 }
 
 unsafe impl<const A: usize> Sync for BBBuffer<A> {}
@@ -290,10 +307,10 @@ impl<const A: usize> BBBuffer<A> {
             already_split: AtomicBool::new(false),
 
             /// Shared between reader and writer
-            read_waker: WakerRegistration::new(),
+            read_waker: None,
 
             /// Shared between reader and writer
-            write_waker: WakerRegistration::new(),
+            write_waker: None,
         }
     }
 }
@@ -881,7 +898,12 @@ impl<'a, const N: usize> GrantW<'a, N> {
 
         // Allow subsequent grants
         inner.write_in_progress.store(false, Release);
-        unsafe { self.bbq.as_mut().read_waker.wake() };
+
+        unsafe {
+            if let Some(waker) = self.bbq.as_mut().read_waker.take() {
+                waker.wake()
+            }
+        };
     }
 
     /// Configures the amount of bytes to be commited on drop.
@@ -988,7 +1010,11 @@ impl<'a, const N: usize> GrantR<'a, N> {
         let _ = atomic::fetch_add(&inner.read, used, Release);
 
         inner.read_in_progress.store(false, Release);
-        unsafe { self.bbq.as_mut().write_waker.wake() };
+        unsafe {
+            if let Some(waker) = self.bbq.as_mut().write_waker.take() {
+                waker.wake()
+            }
+        };
     }
 
     /// Configures the amount of bytes to be released on drop.
@@ -1157,7 +1183,7 @@ impl<'a, 'b, const N: usize> Future for GrantExactFuture<'a, 'b, N> {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
                 Error::GrantInProgress => {
-                    unsafe { self.prod.bbq.as_mut().write_waker.register(cx.waker()) };
+                    unsafe { replace_waker(&mut self.prod.bbq.as_mut().write_waker, cx.waker()) };
                     Poll::Pending
                 }
                 _ => Poll::Ready(Err(e)),
@@ -1182,7 +1208,7 @@ impl<'a, 'b, const N: usize> Future for GrantMaxRemainingFuture<'a, 'b, N> {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
                 Error::GrantInProgress | Error::InsufficientSize => {
-                    unsafe { self.prod.bbq.as_mut().write_waker.register(cx.waker()) };
+                    unsafe { replace_waker(&mut self.prod.bbq.as_mut().write_waker, cx.waker()) };
                     Poll::Pending
                 }
                 _ => Poll::Ready(Err(e)),
@@ -1204,7 +1230,7 @@ impl<'a, 'b, const N: usize> Future for GrantReadFuture<'a, 'b, N> {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
                 Error::InsufficientSize | Error::GrantInProgress => {
-                    unsafe { self.cons.bbq.as_mut().read_waker.register(cx.waker()) };
+                    unsafe { replace_waker(&mut self.cons.bbq.as_mut().write_waker, cx.waker()) };
                     Poll::Pending
                 }
                 _ => Poll::Ready(Err(e)),
@@ -1226,7 +1252,7 @@ impl<'a, 'b, const N: usize> Future for GrantSplitReadFuture<'a, 'b, N> {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
                 Error::InsufficientSize | Error::GrantInProgress => {
-                    unsafe { self.cons.bbq.as_mut().read_waker.register(cx.waker()) };
+                    unsafe { replace_waker(&mut self.cons.bbq.as_mut().read_waker, cx.waker()) };
                     Poll::Pending
                 }
                 _ => Poll::Ready(Err(e)),
