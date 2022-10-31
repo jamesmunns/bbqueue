@@ -525,6 +525,11 @@ impl<'a, const N: usize> Producer<'a, N> {
         })
     }
 
+    /// Async version of [Self::grant_exact]
+    pub fn grant_exact_async(&'_ mut self, sz: usize) -> GrantExactFuture<'a, '_, N> {
+        GrantExactFuture { prod: self, sz }
+    }
+
     /// Async version of [Self::grant_max_remaining]
     pub fn grant_max_remaining_async(
         &'_ mut self,
@@ -876,9 +881,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
 
         // Allow subsequent grants
         inner.write_in_progress.store(false, Release);
-        unsafe {
-            self.bbq.as_mut().read_waker.wake(); // Notify new data
-        };
+        unsafe { self.bbq.as_mut().read_waker.wake() };
     }
 
     /// Configures the amount of bytes to be commited on drop.
@@ -985,9 +988,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
         let _ = atomic::fetch_add(&inner.read, used, Release);
 
         inner.read_in_progress.store(false, Release);
-        unsafe {
-            self.bbq.as_mut().write_waker.wake(); // Notify new free space
-        };
+        unsafe { self.bbq.as_mut().write_waker.wake() };
     }
 
     /// Configures the amount of bytes to be released on drop.
@@ -1136,6 +1137,31 @@ impl<'a, const N: usize> DerefMut for GrantR<'a, N> {
     }
 }
 
+/// Future returned [Producer::grant_exact_async]
+pub struct GrantExactFuture<'a, 'b, const N: usize> {
+    prod: &'b mut Producer<'a, N>,
+    sz: usize,
+}
+
+impl<'a, 'b, const N: usize> Future for GrantExactFuture<'a, 'b, N> {
+    type Output = Result<GrantW<'a, N>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let sz = self.sz;
+
+        match self.prod.grant_exact(sz) {
+            Ok(grant) => Poll::Ready(Ok(grant)),
+            Err(e) => match e {
+                Error::GrantInProgress => {
+                    unsafe { self.prod.bbq.as_mut().write_waker.register(cx.waker()) };
+                    Poll::Pending
+                }
+                _ => Poll::Ready(Err(e)),
+            },
+        }
+    }
+}
+
 /// Future returned [Producer::grant_max_remaining_async]
 pub struct GrantMaxRemainingFuture<'a, 'b, const N: usize> {
     prod: &'b mut Producer<'a, N>,
@@ -1151,7 +1177,7 @@ impl<'a, 'b, const N: usize> Future for GrantMaxRemainingFuture<'a, 'b, N> {
         match self.prod.grant_max_remaining(sz) {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
-                Error::InsufficientSize => {
+                Error::GrantInProgress | Error::InsufficientSize => {
                     unsafe { self.prod.bbq.as_mut().write_waker.register(cx.waker()) };
                     Poll::Pending
                 }
@@ -1173,7 +1199,7 @@ impl<'a, 'b, const N: usize> Future for GrantReadFuture<'a, 'b, N> {
         match self.cons.read() {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
-                Error::InsufficientSize => {
+                Error::InsufficientSize | Error::GrantInProgress => {
                     unsafe { self.cons.bbq.as_mut().read_waker.register(cx.waker()) };
                     Poll::Pending
                 }
@@ -1195,7 +1221,7 @@ impl<'a, 'b, const N: usize> Future for GrantSplitReadFuture<'a, 'b, N> {
         match self.cons.split_read() {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
-                Error::InsufficientSize => {
+                Error::InsufficientSize | Error::GrantInProgress => {
                     unsafe { self.cons.bbq.as_mut().read_waker.register(cx.waker()) };
                     Poll::Pending
                 }
