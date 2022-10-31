@@ -1147,6 +1147,10 @@ impl<'a, 'b, const N: usize> Future for GrantExactFuture<'a, 'b, N> {
     type Output = Result<GrantW<'a, N>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.sz > N {
+            return Poll::Ready(Err(Error::InsufficientSize));
+        }
+
         let sz = self.sz;
 
         match self.prod.grant_exact(sz) {
@@ -1187,7 +1191,7 @@ impl<'a, 'b, const N: usize> Future for GrantMaxRemainingFuture<'a, 'b, N> {
     }
 }
 
-/// Future returned [Consumer::read]
+/// Future returned [Consumer::read_async]
 pub struct GrantReadFuture<'a, 'b, const N: usize> {
     cons: &'b mut Consumer<'a, N>,
 }
@@ -1209,7 +1213,7 @@ impl<'a, 'b, const N: usize> Future for GrantReadFuture<'a, 'b, N> {
     }
 }
 
-/// Future returned [Consumer::split_read]
+/// Future returned [Consumer::split_read_async]
 pub struct GrantSplitReadFuture<'a, 'b, const N: usize> {
     cons: &'b mut Consumer<'a, N>,
 }

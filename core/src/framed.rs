@@ -99,6 +99,15 @@ impl<'a, const N: usize> FrameProducer<'a, N> {
             hdr_len: hdr_len as u8,
         })
     }
+
+    /// Async version of [Self::grant]
+    pub async fn grant_async(&mut self, max_sz: usize) -> Result<FrameGrantW<'a, N>> {
+        let hdr_len = encoded_len(max_sz);
+        Ok(FrameGrantW {
+            grant_w: self.producer.grant_exact_async(max_sz + hdr_len).await?,
+            hdr_len: hdr_len as u8,
+        })
+    }
 }
 
 /// A consumer of Framed data
@@ -131,6 +140,32 @@ impl<'a, const N: usize> FrameConsumer<'a, N> {
         grant_r.shrink(total_len);
 
         Some(FrameGrantR { grant_r, hdr_len })
+    }
+
+    /// Async version of [Self::read]
+    pub async fn read_async(&mut self) -> Result<FrameGrantR<'a, N>> {
+        // Get all available bytes. We never wrap a frame around,
+        // so if a header is available, the whole frame will be.
+        let mut grant_r = self.consumer.read_async().await?;
+
+        // Additionally, we never commit less than a full frame with
+        // a header, so if we have ANY data, we'll have a full header
+        // and frame. `Consumer::read` will return an Error when
+        // there are 0 bytes available.
+
+        // The header consists of a single usize, encoded in native
+        // endianess order
+        let frame_len = decode_usize(&grant_r);
+        let hdr_len = decoded_len(grant_r[0]);
+        let total_len = frame_len + hdr_len;
+        let hdr_len = hdr_len as u8;
+
+        debug_assert!(grant_r.len() >= total_len);
+
+        // Reduce the grant down to the size of the frame with a header
+        grant_r.shrink(total_len);
+
+        Ok(FrameGrantR { grant_r, hdr_len })
     }
 }
 
