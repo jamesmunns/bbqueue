@@ -9,7 +9,7 @@ mod tests {
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
         {
-            let mut grant = prod.grant_exact(4).unwrap();
+            let mut grant = prod.grant_max_remaining(4).unwrap();
             let buf = grant.buf();
             buf[0] = 0xDE;
             buf[1] = 0xAD;
@@ -32,7 +32,7 @@ mod tests {
         let bb: BBBuffer<6> = BBBuffer::new();
         let (mut prod, mut cons) = bb.try_split().unwrap();
 
-        let mut w_grant = block_on(prod.grant_exact_async(4)).unwrap();
+        let mut w_grant = block_on(prod.grant_max_remaining_async(4)).unwrap();
         assert_eq!(4, w_grant.len());
         w_grant[0] = 0xDE;
         w_grant[1] = 0xAD;
@@ -64,7 +64,7 @@ mod tests {
         };
 
         let write_fut = async {
-            let mut w_grant = prod.grant_exact_async(4).await.unwrap();
+            let mut w_grant = prod.grant_max_remaining_async(4).await.unwrap();
             w_grant[0] = 0xDE;
             w_grant[1] = 0xAD;
             w_grant[2] = 0xC0;
