@@ -542,12 +542,23 @@ impl<'a, const N: usize> Producer<'a, N> {
         })
     }
 
-    /// Async version of [Self::grant_exact]
+    /// Async version of [Self::grant_exact].
+    /// If the buffer can enventually provide a buffer of the requested size, the future
+    /// will wait for the buffer to be read so the exact buffer can be requested.
+    ///
+    /// If it's not possible to request it, an error is returned.
+    /// For example, given a buffer
+    /// [0|1|2|3|4|5|6|7|8]
+    ///              ^
+    ///              Write pointer
+    /// We cannot request a size of size 7, since we would loop over the read pointer
+    /// even if the buffer is empty. In this case, an error is returned
     pub fn grant_exact_async(&'_ mut self, sz: usize) -> GrantExactFuture<'a, '_, N> {
         GrantExactFuture { prod: self, sz }
     }
 
-    /// Async version of [Self::grant_max_remaining]
+    /// Async version of [Self::grant_max_remaining].
+    /// Will wait for the buffer to at least 1 byte available, as soon as it does, return the grant.
     pub fn grant_max_remaining_async(
         &'_ mut self,
         sz: usize,
@@ -700,12 +711,14 @@ impl<'a, const N: usize> Consumer<'a, N> {
         })
     }
 
-    /// Async version of [Self::read]
+    /// Async version of [Self::read].
+    /// Will wait for the buffer to have data to read. When data is available, the grant is returned.
     pub fn read_async<'b>(&'b mut self) -> GrantReadFuture<'a, 'b, N> {
         GrantReadFuture { cons: self }
     }
 
-    /// Async version of [Self::split_read]
+    /// Async version of [Self::split_read].
+    /// Will wait just like [Self::read_async], but returns the split grant to obtain all the available data.
     pub fn split_read_async<'b>(&'b mut self) -> GrantSplitReadFuture<'a, 'b, N> {
         GrantSplitReadFuture { cons: self }
     }
@@ -1173,7 +1186,16 @@ impl<'a, 'b, const N: usize> Future for GrantExactFuture<'a, 'b, N> {
     type Output = Result<GrantW<'a, N>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.sz > N {
+        // Check if it's event  possible to get the requested size
+        // Ex:
+        // [0|1|2|3|4|5|6|7|8]
+        //              ^
+        //              Write pointer
+        // Check if the buffer from 6 to 8 satisfies or if the buffer from 0 to 5 does.
+        // If so, create the future, if not, we need the return since the future will never resolve.
+        // Ideally, we could just wait for all the read to complete and reset the read and write to 0, but that is currently not supported
+        let write = unsafe { self.prod.bbq.as_ref().write.load(Acquire) };
+        if self.sz > N || (self.sz > N - write && self.sz >= write) {
             return Poll::Ready(Err(Error::InsufficientSize));
         }
 
@@ -1182,7 +1204,7 @@ impl<'a, 'b, const N: usize> Future for GrantExactFuture<'a, 'b, N> {
         match self.prod.grant_exact(sz) {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
-                Error::GrantInProgress => {
+                Error::GrantInProgress | Error::InsufficientSize => {
                     unsafe { replace_waker(&mut self.prod.bbq.as_mut().write_waker, cx.waker()) };
                     Poll::Pending
                 }
@@ -1230,7 +1252,7 @@ impl<'a, 'b, const N: usize> Future for GrantReadFuture<'a, 'b, N> {
             Ok(grant) => Poll::Ready(Ok(grant)),
             Err(e) => match e {
                 Error::InsufficientSize | Error::GrantInProgress => {
-                    unsafe { replace_waker(&mut self.cons.bbq.as_mut().write_waker, cx.waker()) };
+                    unsafe { replace_waker(&mut self.cons.bbq.as_mut().read_waker, cx.waker()) };
                     Poll::Pending
                 }
                 _ => Poll::Ready(Err(e)),
