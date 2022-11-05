@@ -104,6 +104,7 @@ pub use bbbuffer::*;
 
 pub mod framed;
 mod vusize;
+mod waker;
 
 use core::result::Result as CoreResult;
 
