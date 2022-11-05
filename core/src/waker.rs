@@ -18,6 +18,7 @@ impl WakerStorage {
             Some(prev) => {
                 // No need to clone if they wake the same task.
                 if prev.will_wake(new) {
+                    return;
                 }
                 // Wake the previous waker and replace it
                 else {
