@@ -1101,11 +1101,11 @@ mod atomic {
         AtomicBool, AtomicUsize,
         Ordering::{self, Acquire, Release},
     };
-    use cortex_m::interrupt::free;
+    use critical_section::with;
 
     #[inline(always)]
     pub fn fetch_add(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
-        free(|_| {
+        with(|_| {
             let prev = atomic.load(Acquire);
             atomic.store(prev.wrapping_add(val), Release);
             prev
@@ -1114,7 +1114,7 @@ mod atomic {
 
     #[inline(always)]
     pub fn fetch_sub(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
-        free(|_| {
+        with(|_| {
             let prev = atomic.load(Acquire);
             atomic.store(prev.wrapping_sub(val), Release);
             prev
@@ -1123,7 +1123,7 @@ mod atomic {
 
     #[inline(always)]
     pub fn swap(atomic: &AtomicBool, val: bool, _order: Ordering) -> bool {
-        free(|_| {
+        with(|_| {
             let prev = atomic.load(Acquire);
             atomic.store(val, Release);
             prev
