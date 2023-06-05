@@ -88,6 +88,21 @@ pub struct FrameProducer<'a, const N: usize> {
 }
 
 impl<'a, const N: usize> FrameProducer<'a, N> {
+    /// Create a `FrameProducer` from a non null pointer to a [`BBBuffer`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the [`BBBuffer`] was previously initialized. See
+    /// [`BBBUffer::try_split_framed`]
+    ///
+    /// [`BBBuffer`]: crate::BBBuffer
+    /// [`BBBuffer::try_split_framed`]: crate::BBBuffer::try_split_framed
+    pub unsafe fn new_unchecked(producer: Producer<'a, N>) -> Self {
+        Self { producer }
+    }
+}
+
+impl<'a, const N: usize> FrameProducer<'a, N> {
     /// Receive a grant for a frame with a maximum size of `max_sz` in bytes.
     ///
     /// This size does not include the size of the frame header. The exact size
@@ -104,6 +119,21 @@ impl<'a, const N: usize> FrameProducer<'a, N> {
 /// A consumer of Framed data
 pub struct FrameConsumer<'a, const N: usize> {
     pub(crate) consumer: Consumer<'a, N>,
+}
+
+impl<'a, const N: usize> FrameConsumer<'a, N> {
+    /// Create a `FrameConsumer` from a non null pointer to a [`BBBuffer`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the [`BBBuffer`] was previously initialized. See
+    /// [`BBBUffer::try_split_framed`]
+    ///
+    /// [`BBBuffer`]: crate::BBBuffer
+    /// [`BBBuffer::try_split_framed`]: crate::BBBuffer::try_split_framed
+    pub unsafe fn new_unchecked(consumer: Consumer<'a, N>) -> Self {
+        Self { consumer }
+    }
 }
 
 impl<'a, const N: usize> FrameConsumer<'a, N> {

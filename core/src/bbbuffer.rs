@@ -100,16 +100,7 @@ impl<'a, const N: usize> BBBuffer<N> {
             let nn1 = NonNull::new_unchecked(self as *const _ as *mut _);
             let nn2 = NonNull::new_unchecked(self as *const _ as *mut _);
 
-            Ok((
-                Producer {
-                    bbq: nn1,
-                    pd: PhantomData,
-                },
-                Consumer {
-                    bbq: nn2,
-                    pd: PhantomData,
-                },
-            ))
+            Ok((Producer::new_unchecked(nn1), Consumer::new_unchecked(nn2)))
         }
     }
 
@@ -127,7 +118,12 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// section while splitting.
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
-        Ok((FrameProducer { producer }, FrameConsumer { consumer }))
+        unsafe {
+            Ok((
+                FrameProducer::new_unchecked(producer),
+                FrameConsumer::new_unchecked(consumer),
+            ))
+        }
     }
 
     /// Attempt to release the Producer and Consumer
@@ -308,6 +304,24 @@ impl<const A: usize> BBBuffer<A> {
 pub struct Producer<'a, const N: usize> {
     bbq: NonNull<BBBuffer<N>>,
     pd: PhantomData<&'a ()>,
+}
+
+impl<'a, const N: usize> Producer<'a, N> {
+    /// Create a `Producer` from a non null pointer to a [`BBBuffer`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the [`BBBuffer`] was previously initialized. See
+    /// [`BBBUffer::try_split`]
+    ///
+    /// [`BBBuffer`]: crate::BBBuffer
+    /// [`BBBuffer::try_split`]: crate::BBBuffer::try_split
+    pub unsafe fn new_unchecked(bbq: NonNull<BBBuffer<N>>) -> Self {
+        Self {
+            bbq,
+            pd: PhantomData,
+        }
+    }
 }
 
 unsafe impl<'a, const N: usize> Send for Producer<'a, N> {}
@@ -513,6 +527,24 @@ impl<'a, const N: usize> Producer<'a, N> {
 pub struct Consumer<'a, const N: usize> {
     bbq: NonNull<BBBuffer<N>>,
     pd: PhantomData<&'a ()>,
+}
+
+impl<'a, const N: usize> Consumer<'a, N> {
+    /// Create a `Consumer` from a non null pointer to a [`BBBuffer`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the [`BBBuffer`] was previously initialized. See
+    /// [`BBBUffer::try_split`]
+    ///
+    /// [`BBBuffer`]: crate::BBBuffer
+    /// [`BBBuffer::try_split`]: crate::BBBuffer::try_split
+    pub unsafe fn new_unchecked(bbq: NonNull<BBBuffer<N>>) -> Self {
+        Self {
+            bbq,
+            pd: PhantomData,
+        }
+    }
 }
 
 unsafe impl<'a, const N: usize> Send for Consumer<'a, N> {}
