@@ -306,6 +306,8 @@ pub struct Producer<'a, const N: usize> {
     pd: PhantomData<&'a ()>,
 }
 
+unsafe impl<'a, const N: usize> Send for Producer<'a, N> {}
+
 impl<'a, const N: usize> Producer<'a, N> {
     /// Create a `Producer` from a non null pointer to a [`BBBuffer`].
     ///
@@ -322,11 +324,6 @@ impl<'a, const N: usize> Producer<'a, N> {
             pd: PhantomData,
         }
     }
-}
-
-unsafe impl<'a, const N: usize> Send for Producer<'a, N> {}
-
-impl<'a, const N: usize> Producer<'a, N> {
     /// Request a writable, contiguous section of memory of exactly
     /// `sz` bytes. If the buffer size requested is not available,
     /// an error will be returned.
@@ -529,6 +526,8 @@ pub struct Consumer<'a, const N: usize> {
     pd: PhantomData<&'a ()>,
 }
 
+unsafe impl<'a, const N: usize> Send for Consumer<'a, N> {}
+
 impl<'a, const N: usize> Consumer<'a, N> {
     /// Create a `Consumer` from a non null pointer to a [`BBBuffer`].
     ///
@@ -545,11 +544,6 @@ impl<'a, const N: usize> Consumer<'a, N> {
             pd: PhantomData,
         }
     }
-}
-
-unsafe impl<'a, const N: usize> Send for Consumer<'a, N> {}
-
-impl<'a, const N: usize> Consumer<'a, N> {
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
