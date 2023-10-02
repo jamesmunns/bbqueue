@@ -10,7 +10,7 @@ use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
     result::Result as CoreResult,
-    slice::from_raw_parts_mut,
+    slice::{from_raw_parts, from_raw_parts_mut},
     sync::atomic::{
         AtomicBool, AtomicUsize,
         Ordering::{AcqRel, Acquire, Release},
@@ -399,9 +399,10 @@ impl<'a, const N: usize> Producer<'a, N> {
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
         Ok(GrantW {
-            buf: grant_slice,
+            buf: grant_slice.into(),
             bbq: self.bbq,
             to_commit: 0,
+            phatom: PhantomData,
         })
     }
 
@@ -502,9 +503,10 @@ impl<'a, const N: usize> Producer<'a, N> {
             unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
 
         Ok(GrantW {
-            buf: grant_slice,
+            buf: grant_slice.into(),
             bbq: self.bbq,
             to_commit: 0,
+            phatom: PhantomData,
         })
     }
 }
@@ -592,9 +594,10 @@ impl<'a, const N: usize> Consumer<'a, N> {
         let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
 
         Ok(GrantR {
-            buf: grant_slice,
+            buf: grant_slice.into(),
             bbq: self.bbq,
             to_release: 0,
+            phatom: PhantomData,
         })
     }
 
@@ -646,10 +649,11 @@ impl<'a, const N: usize> Consumer<'a, N> {
         let grant_slice2 = unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) };
 
         Ok(SplitGrantR {
-            buf1: grant_slice1,
-            buf2: grant_slice2,
+            buf1: grant_slice1.into(),
+            buf2: grant_slice2.into(),
             bbq: self.bbq,
             to_release: 0,
+            phatom: PhantomData,
         })
     }
 }
@@ -692,9 +696,10 @@ impl<const N: usize> BBBuffer<N> {
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, const N: usize> {
-    pub(crate) buf: &'a mut [u8],
+    pub(crate) buf: NonNull<[u8]>,
     bbq: NonNull<BBBuffer<N>>,
     pub(crate) to_commit: usize,
+    phatom: PhantomData<&'a mut [u8]>,
 }
 
 unsafe impl<'a, const N: usize> Send for GrantW<'a, N> {}
@@ -713,9 +718,10 @@ unsafe impl<'a, const N: usize> Send for GrantW<'a, N> {}
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, const N: usize> {
-    pub(crate) buf: &'a mut [u8],
+    pub(crate) buf: NonNull<[u8]>,
     bbq: NonNull<BBBuffer<N>>,
     pub(crate) to_release: usize,
+    phatom: PhantomData<&'a mut [u8]>,
 }
 
 /// A structure representing up to two contiguous regions of memory that
@@ -723,10 +729,11 @@ pub struct GrantR<'a, const N: usize> {
 /// from the queue
 #[derive(Debug, PartialEq)]
 pub struct SplitGrantR<'a, const N: usize> {
-    pub(crate) buf1: &'a mut [u8],
-    pub(crate) buf2: &'a mut [u8],
+    pub(crate) buf1: NonNull<[u8]>,
+    pub(crate) buf2: NonNull<[u8]>,
     bbq: NonNull<BBBuffer<N>>,
     pub(crate) to_release: usize,
+    phatom: PhantomData<&'a mut [u8]>,
 }
 
 unsafe impl<'a, const N: usize> Send for GrantR<'a, N> {}
@@ -772,7 +779,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// # }
     /// ```
     pub fn buf(&mut self) -> &mut [u8] {
-        self.buf
+        unsafe { from_raw_parts_mut(self.buf.as_ptr() as *mut u8, self.buf.len()) }
     }
 
     /// Sometimes, it's not possible for the lifetimes to check out. For example,
@@ -787,7 +794,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// Additionally, you must ensure that a separate reference to this data is not created
     /// to this data, e.g. using `DerefMut` or the `buf()` method of this grant.
     pub unsafe fn as_static_mut_buf(&mut self) -> &'static mut [u8] {
-        transmute::<&mut [u8], &'static mut [u8]>(self.buf)
+        transmute::<&mut [u8], &'static mut [u8]>(self.buf())
     }
 
     #[inline(always)]
@@ -868,9 +875,9 @@ impl<'a, const N: usize> GrantR<'a, N> {
 
     pub(crate) fn shrink(&mut self, len: usize) {
         let mut new_buf: &mut [u8] = &mut [];
-        core::mem::swap(&mut self.buf, &mut new_buf);
+        core::mem::swap(&mut self.buf_mut(), &mut new_buf);
         let (new, _) = new_buf.split_at_mut(len);
-        self.buf = new;
+        self.buf = new.into();
     }
 
     /// Obtain access to the inner buffer for reading
@@ -903,7 +910,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// # }
     /// ```
     pub fn buf(&self) -> &[u8] {
-        self.buf
+        unsafe { from_raw_parts(self.buf.as_ptr() as *const u8, self.buf.len()) }
     }
 
     /// Obtain mutable access to the read grant
@@ -911,7 +918,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// This is useful if you are performing in-place operations
     /// on an incoming packet, such as decryption
     pub fn buf_mut(&mut self) -> &mut [u8] {
-        self.buf
+        unsafe { from_raw_parts_mut(self.buf.as_ptr() as *mut u8, self.buf.len()) }
     }
 
     /// Sometimes, it's not possible for the lifetimes to check out. For example,
@@ -926,7 +933,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// Additionally, you must ensure that a separate reference to this data is not created
     /// to this data, e.g. using `Deref` or the `buf()` method of this grant.
     pub unsafe fn as_static_buf(&self) -> &'static [u8] {
-        transmute::<&[u8], &'static [u8]>(self.buf)
+        transmute::<&[u8], &'static [u8]>(self.buf())
     }
 
     #[inline(always)]
@@ -1002,7 +1009,9 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// # }
     /// ```
     pub fn bufs(&self) -> (&[u8], &[u8]) {
-        (self.buf1, self.buf2)
+        let buf1 = unsafe { from_raw_parts(self.buf1.as_ptr() as *const u8, self.buf1.len()) };
+        let buf2 = unsafe { from_raw_parts(self.buf2.as_ptr() as *const u8, self.buf2.len()) };
+        (buf1, buf2)
     }
 
     /// Obtain mutable access to both parts of the read grant
@@ -1010,7 +1019,9 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// This is useful if you are performing in-place operations
     /// on an incoming packet, such as decryption
     pub fn bufs_mut(&mut self) -> (&mut [u8], &mut [u8]) {
-        (self.buf1, self.buf2)
+        let buf1 = unsafe { from_raw_parts_mut(self.buf1.as_ptr() as *mut u8, self.buf1.len()) };
+        let buf2 = unsafe { from_raw_parts_mut(self.buf2.as_ptr() as *mut u8, self.buf2.len()) };
+        (buf1, buf2)
     }
 
     #[inline(always)]
@@ -1071,13 +1082,13 @@ impl<'a, const N: usize> Deref for GrantW<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        self.buf
+        unsafe { from_raw_parts_mut(self.buf.as_ptr() as *mut u8, self.buf.len()) }
     }
 }
 
 impl<'a, const N: usize> DerefMut for GrantW<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        self.buf
+        self.buf()
     }
 }
 
@@ -1085,13 +1096,13 @@ impl<'a, const N: usize> Deref for GrantR<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        self.buf
+        self.buf()
     }
 }
 
 impl<'a, const N: usize> DerefMut for GrantR<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        self.buf
+        self.buf_mut()
     }
 }
 
