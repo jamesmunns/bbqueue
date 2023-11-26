@@ -12,19 +12,14 @@ jobs:
     strategy:
       matrix:
         include:
-          - rust: stable
-            features: thumbv6
+          - features: thumbv6
             nodefault: "--no-default-features"
-          - rust: stable
-            features: ""
+          - features: ""
             nodefault: ""
 
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions-rs/cargo@v1
         with:
           command: test

@@ -14,20 +14,13 @@ jobs:
         include:
           - features: ""
             target: thumbv7em-none-eabihf
-            rust: stable
           - feature: thumbv6
             target: thumbv6m-none-eabi
-            rust: stable
 
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-      - run: rustup target add thumbv7em-none-eabihf thumbv6m-none-eabi
+          targets: thumbv6m-none-eabi, thumbv7em-none-eabihf
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --manifest-path core/Cargo.toml --no-default-features --features=${{ matrix.feature }} --target=${{ matrix.target }}
+      - run: cargo build --manifest-path core/Cargo.toml --no-default-features --features=${{ matrix.feature }} --target=${{ matrix.target }}
