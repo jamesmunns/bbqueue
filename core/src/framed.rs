@@ -34,7 +34,6 @@
 //! # }
 //! #
 //! # fn main() {
-//! # #[cfg(not(feature = "cortex-m"))]
 //! # bbqtest();
 //! # }
 //! ```

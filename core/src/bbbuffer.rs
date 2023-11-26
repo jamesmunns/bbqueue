@@ -11,11 +11,10 @@ use core::{
     ptr::NonNull,
     result::Result as CoreResult,
     slice::from_raw_parts_mut,
-    sync::atomic::{
-        AtomicBool, AtomicUsize,
-        Ordering::{AcqRel, Acquire, Release},
-    },
+    sync::atomic::Ordering::{AcqRel, Acquire, Release},
 };
+use portable_atomic::{AtomicBool, AtomicUsize};
+
 #[derive(Debug)]
 /// A backing structure for a BBQueue. Can be used to create either
 /// a BBQueue or a split Producer/Consumer pair
@@ -63,9 +62,6 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
     ///
-    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical section
-    /// while splitting.
-    ///
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
@@ -81,12 +77,11 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
     pub fn try_split(&'a self) -> Result<(Producer<'a, N>, Consumer<'a, N>)> {
-        if atomic::swap(&self.already_split, true, AcqRel) {
+        if self.already_split.swap(true, AcqRel) {
             return Err(Error::AlreadySplit);
         }
 
@@ -122,9 +117,6 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// of the buffer. This is necessary to prevent undefined behavior. If the buffer
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
-    ///
-    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
-    /// section while splitting.
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
         Ok((FrameProducer { producer }, FrameConsumer { consumer }))
@@ -159,7 +151,6 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -345,14 +336,13 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
     pub fn grant_exact(&mut self, sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
-        if atomic::swap(&inner.write_in_progress, true, AcqRel) {
+        if inner.write_in_progress.swap(true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
@@ -443,14 +433,13 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
     pub fn grant_max_remaining(&mut self, mut sz: usize) -> Result<GrantW<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
-        if atomic::swap(&inner.write_in_progress, true, AcqRel) {
+        if inner.write_in_progress.swap(true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
@@ -548,14 +537,13 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
     pub fn read(&mut self) -> Result<GrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
-        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+        if inner.read_in_progress.swap(true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
@@ -607,7 +595,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     pub fn split_read(&mut self) -> Result<SplitGrantR<'a, N>> {
         let inner = unsafe { &self.bbq.as_ref() };
 
-        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+        if inner.read_in_progress.swap(true, AcqRel) {
             return Err(Error::GrantInProgress);
         }
 
@@ -674,7 +662,6 @@ impl<const N: usize> BBBuffer<N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -690,9 +677,6 @@ impl<const N: usize> BBBuffer<N> {
 /// the contents, or by setting a the number of bytes to
 /// automatically be committed with `to_commit()`, then no bytes
 /// will be comitted for writing.
-///
-/// If the `cortex-m` feature is selected, dropping the grant
-/// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, const N: usize> {
     pub(crate) buf: &'a mut [u8],
@@ -710,10 +694,6 @@ unsafe impl<'a, const N: usize> Send for GrantW<'a, N> {}
 /// the contents, or by setting the number of bytes to automatically
 /// be released with `to_release()`, then no bytes will be released
 /// as read.
-///
-///
-/// If the `cortex-m` feature is selected, dropping the grant
-/// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, const N: usize> {
     pub(crate) buf: &'a mut [u8],
@@ -743,9 +723,6 @@ impl<'a, const N: usize> GrantW<'a, N> {
     ///
     /// If `used` is larger than the given grant, the maximum amount will
     /// be commited
-    ///
-    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
-    /// section while committing.
     pub fn commit(mut self, used: usize) {
         self.commit_inner(used);
         forget(self);
@@ -770,7 +747,6 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -814,7 +790,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
         let used = min(len, used);
 
         let write = inner.write.load(Acquire);
-        atomic::fetch_sub(&inner.reserve, len - used, AcqRel);
+        inner.reserve.fetch_sub(len - used, AcqRel);
 
         let max = N;
         let last = inner.last.load(Acquire);
@@ -860,9 +836,6 @@ impl<'a, const N: usize> GrantR<'a, N> {
     ///
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
-    ///
-    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
-    /// section while releasing.
     pub fn release(mut self, used: usize) {
         // Saturate the grant release
         let used = min(self.buf.len(), used);
@@ -903,7 +876,6 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -951,7 +923,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
         debug_assert!(used <= self.buf.len());
 
         // This should be fine, purely incrementing
-        let _ = atomic::fetch_add(&inner.read, used, Release);
+        let _ = inner.read.fetch_add(used, Release);
 
         inner.read_in_progress.store(false, Release);
     }
@@ -968,9 +940,6 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     ///
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
-    ///
-    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
-    /// section while releasing.
     pub fn release(mut self, used: usize) {
         // Saturate the grant release
         let used = min(self.combined_len(), used);
@@ -1004,7 +973,6 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -1036,7 +1004,7 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
 
         if used <= self.buf1.len() {
             // This should be fine, purely incrementing
-            let _ = atomic::fetch_add(&inner.read, used, Release);
+            let _ = inner.read.fetch_add(used, Release);
         } else {
             // Also release parts of the second buffer
             inner.read.store(used - self.buf1.len(), Release);
@@ -1099,61 +1067,5 @@ impl<'a, const N: usize> Deref for GrantR<'a, N> {
 impl<'a, const N: usize> DerefMut for GrantR<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
         self.buf
-    }
-}
-
-#[cfg(feature = "cortex-m")]
-mod atomic {
-    use core::sync::atomic::{
-        AtomicBool, AtomicUsize,
-        Ordering::{self, Acquire, Release},
-    };
-    use cortex_m::interrupt::free;
-
-    #[inline(always)]
-    pub fn fetch_add(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
-        free(|_| {
-            let prev = atomic.load(Acquire);
-            atomic.store(prev.wrapping_add(val), Release);
-            prev
-        })
-    }
-
-    #[inline(always)]
-    pub fn fetch_sub(atomic: &AtomicUsize, val: usize, _order: Ordering) -> usize {
-        free(|_| {
-            let prev = atomic.load(Acquire);
-            atomic.store(prev.wrapping_sub(val), Release);
-            prev
-        })
-    }
-
-    #[inline(always)]
-    pub fn swap(atomic: &AtomicBool, val: bool, _order: Ordering) -> bool {
-        free(|_| {
-            let prev = atomic.load(Acquire);
-            atomic.store(val, Release);
-            prev
-        })
-    }
-}
-
-#[cfg(not(feature = "cortex-m"))]
-mod atomic {
-    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-    #[inline(always)]
-    pub fn fetch_add(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
-        atomic.fetch_add(val, order)
-    }
-
-    #[inline(always)]
-    pub fn fetch_sub(atomic: &AtomicUsize, val: usize, order: Ordering) -> usize {
-        atomic.fetch_sub(val, order)
-    }
-
-    #[inline(always)]
-    pub fn swap(atomic: &AtomicBool, val: bool, order: Ordering) -> bool {
-        atomic.swap(val, order)
     }
 }
