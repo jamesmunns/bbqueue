@@ -2,7 +2,7 @@
 name = "bbqtest"
 version = "0.1.0"
 authors = ["James Munns <james.munns@ferrous-systems.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
