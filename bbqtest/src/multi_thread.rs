@@ -33,7 +33,7 @@ mod tests {
         let mut trng = thread_rng();
         let mut chunks = vec![];
         while !data.is_empty() {
-            let chunk_sz = trng.gen_range(1, (1024 - 1) / 2);
+            let chunk_sz = trng.gen_range(1..((QUEUE_SIZE / 2) - 1));
             if chunk_sz > data.len() {
                 continue;
             }
@@ -264,9 +264,9 @@ mod tests {
                     if last_tx.elapsed() > TIMEOUT_NODATA {
                         panic!("tx timeout");
                     }
-                    match tx
-                        .grant_max_remaining(trng.gen_range(QUEUE_SIZE / 3, (2 * QUEUE_SIZE) / 3))
-                    {
+                    match tx.grant_max_remaining(
+                        trng.gen_range((QUEUE_SIZE / 3)..((2 * QUEUE_SIZE) / 3)),
+                    ) {
                         Ok(mut gr) => {
                             let sz = ::std::cmp::min(data_tx.len(), gr.len());
                             for i in 0..sz {
