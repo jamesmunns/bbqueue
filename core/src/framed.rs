@@ -34,7 +34,7 @@
 //! # }
 //! #
 //! # fn main() {
-//! # #[cfg(not(feature = "thumbv6"))]
+//! # #[cfg(not(feature = "cortex-m"))]
 //! # bbqtest();
 //! # }
 //! ```

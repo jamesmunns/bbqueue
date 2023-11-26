@@ -63,7 +63,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
     ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical section
+    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical section
     /// while splitting.
     ///
     /// ```rust
@@ -81,7 +81,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -123,7 +123,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// is placed at `static` scope within the `.bss` region, the explicit initialization
     /// will be elided (as it is already performed as part of memory initialization)
     ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
     /// section while splitting.
     pub fn try_split_framed(&'a self) -> Result<(FrameProducer<'a, N>, FrameConsumer<'a, N>)> {
         let (producer, consumer) = self.try_split()?;
@@ -159,7 +159,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -345,7 +345,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -443,7 +443,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -548,7 +548,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -674,7 +674,7 @@ impl<const N: usize> BBBuffer<N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -691,7 +691,7 @@ impl<const N: usize> BBBuffer<N> {
 /// automatically be committed with `to_commit()`, then no bytes
 /// will be comitted for writing.
 ///
-/// If the `thumbv6` feature is selected, dropping the grant
+/// If the `cortex-m` feature is selected, dropping the grant
 /// without committing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantW<'a, const N: usize> {
@@ -712,7 +712,7 @@ unsafe impl<'a, const N: usize> Send for GrantW<'a, N> {}
 /// as read.
 ///
 ///
-/// If the `thumbv6` feature is selected, dropping the grant
+/// If the `cortex-m` feature is selected, dropping the grant
 /// without releasing it takes a short critical section,
 #[derive(Debug, PartialEq)]
 pub struct GrantR<'a, const N: usize> {
@@ -744,7 +744,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// If `used` is larger than the given grant, the maximum amount will
     /// be commited
     ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
     /// section while committing.
     pub fn commit(mut self, used: usize) {
         self.commit_inner(used);
@@ -770,7 +770,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -861,7 +861,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
     ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
     /// section while releasing.
     pub fn release(mut self, used: usize) {
         // Saturate the grant release
@@ -903,7 +903,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -969,7 +969,7 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// If `used` is larger than the given grant, the full grant will
     /// be released.
     ///
-    /// NOTE:  If the `thumbv6` feature is selected, this function takes a short critical
+    /// NOTE:  If the `cortex-m` feature is selected, this function takes a short critical
     /// section while releasing.
     pub fn release(mut self, used: usize) {
         // Saturate the grant release
@@ -1004,7 +1004,7 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// # }
     /// #
     /// # fn main() {
-    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # #[cfg(not(feature = "cortex-m"))]
     /// # bbqtest();
     /// # }
     /// ```
@@ -1102,7 +1102,7 @@ impl<'a, const N: usize> DerefMut for GrantR<'a, N> {
     }
 }
 
-#[cfg(feature = "thumbv6")]
+#[cfg(feature = "cortex-m")]
 mod atomic {
     use core::sync::atomic::{
         AtomicBool, AtomicUsize,
@@ -1138,7 +1138,7 @@ mod atomic {
     }
 }
 
-#[cfg(not(feature = "thumbv6"))]
+#[cfg(not(feature = "cortex-m"))]
 mod atomic {
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

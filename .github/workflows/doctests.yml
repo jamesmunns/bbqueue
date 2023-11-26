@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - features: thumbv6
+          - features: cortex-m
             nodefault: "--no-default-features"
           - features: ""
             nodefault: ""

@@ -90,7 +90,7 @@
 //! (mostly embedded) platforms atomic support is limited and with the default features you will get
 //! a compiler error about missing atomic methods.
 //!
-//! This crate contains special support for Cortex-M0(+) targets with the `thumbv6` feature. By
+//! This crate contains special support for Cortex-M0(+) targets with the `cortex-m` feature. By
 //! enabling the feature, unsupported atomic operations will be replaced with critical sections
 //! implemented by disabling interrupts. The critical sections are very short, a few instructions at
 //! most, so they should make no difference to most applications.
