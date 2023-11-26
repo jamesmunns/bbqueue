@@ -190,7 +190,11 @@ impl<'a, const N: usize> BBBuffer<N> {
         }
 
         // Drop the producer and consumer halves
+        // Clippy's hint are ignored because this is done intentionnaly to prevent any use after
+        // the release fo the lock.
+        #[allow(clippy::drop_non_drop)]
         drop(prod);
+        #[allow(clippy::drop_non_drop)]
         drop(cons);
 
         // Re-initialize the buffer (not totally needed, but nice to do)
@@ -247,35 +251,35 @@ impl<const A: usize> BBBuffer<A> {
             // This will not be initialized until we split the buffer
             buf: UnsafeCell::new(MaybeUninit::uninit()),
 
-            /// Owned by the writer
+            // Owned by the writer
             write: AtomicUsize::new(0),
 
-            /// Owned by the reader
+            // Owned by the reader
             read: AtomicUsize::new(0),
 
-            /// Cooperatively owned
-            ///
-            /// NOTE: This should generally be initialized as size_of::<self.buf>(), however
-            /// this would prevent the structure from being entirely zero-initialized,
-            /// and can cause the .data section to be much larger than necessary. By
-            /// forcing the `last` pointer to be zero initially, we place the structure
-            /// in an "inverted" condition, which will be resolved on the first commited
-            /// bytes that are written to the structure.
-            ///
-            /// When read == last == write, no bytes will be allowed to be read (good), but
-            /// write grants can be given out (also good).
+            // Cooperatively owned
+            //
+            // NOTE: This should generally be initialized as size_of::<self.buf>(), however
+            // this would prevent the structure from being entirely zero-initialized,
+            // and can cause the .data section to be much larger than necessary. By
+            // forcing the `last` pointer to be zero initially, we place the structure
+            // in an "inverted" condition, which will be resolved on the first commited
+            // bytes that are written to the structure.
+            //
+            // When read == last == write, no bytes will be allowed to be read (good), but
+            // write grants can be given out (also good).
             last: AtomicUsize::new(0),
 
-            /// Owned by the Writer, "private"
+            // Owned by the Writer, "private"
             reserve: AtomicUsize::new(0),
 
-            /// Owned by the Reader, "private"
+            // Owned by the Reader, "private"
             read_in_progress: AtomicBool::new(false),
 
-            /// Owned by the Writer, "private"
+            // Owned by the Writer, "private"
             write_in_progress: AtomicBool::new(false),
 
-            /// We haven't split at the start
+            // We haven't split at the start
             already_split: AtomicBool::new(false),
         }
     }
@@ -369,6 +373,7 @@ impl<'a, const N: usize> Producer<'a, N> {
                 return Err(Error::InsufficientSize);
             }
         } else {
+            #[allow(clippy::collapsible_if)]
             if write + sz <= max {
                 // Non inverted condition
                 write
@@ -395,8 +400,7 @@ impl<'a, const N: usize> Producer<'a, N> {
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice =
-            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.add(start), sz) };
 
         Ok(GrantW {
             buf: grant_slice,
@@ -471,6 +475,7 @@ impl<'a, const N: usize> Producer<'a, N> {
                 return Err(Error::InsufficientSize);
             }
         } else {
+            #[allow(clippy::collapsible_if)]
             if write != max {
                 // Some (or all) room remaining in un-inverted case
                 sz = min(max - write, sz);
@@ -498,8 +503,7 @@ impl<'a, const N: usize> Producer<'a, N> {
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice =
-            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(start as isize), sz) };
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.add(start), sz) };
 
         Ok(GrantW {
             buf: grant_slice,
@@ -589,7 +593,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz) };
+        let grant_slice = unsafe { from_raw_parts_mut(start_of_buf_ptr.add(read), sz) };
 
         Ok(GrantR {
             buf: grant_slice,
@@ -641,8 +645,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
         // This is sound, as UnsafeCell, MaybeUninit, and GenericArray
         // are all `#[repr(Transparent)]
         let start_of_buf_ptr = inner.buf.get().cast::<u8>();
-        let grant_slice1 =
-            unsafe { from_raw_parts_mut(start_of_buf_ptr.offset(read as isize), sz1) };
+        let grant_slice1 = unsafe { from_raw_parts_mut(start_of_buf_ptr.add(read), sz1) };
         let grant_slice2 = unsafe { from_raw_parts_mut(start_of_buf_ptr, sz2) };
 
         Ok(SplitGrantR {
@@ -779,6 +782,8 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// if you need to hand this buffer to a function that expects to receive a
     /// `&'static mut [u8]`, it is not possible for the inner reference to outlive the
     /// grant itself.
+    ///
+    /// # Safety
     ///
     /// You MUST guarantee that in no cases, the reference that is returned here outlives
     /// the grant itself. Once the grant has been released, referencing the data contained
@@ -918,6 +923,8 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// if you need to hand this buffer to a function that expects to receive a
     /// `&'static [u8]`, it is not possible for the inner reference to outlive the
     /// grant itself.
+    ///
+    /// # Safety
     ///
     /// You MUST guarantee that in no cases, the reference that is returned here outlives
     /// the grant itself. Once the grant has been released, referencing the data contained
