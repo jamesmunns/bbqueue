@@ -13,12 +13,12 @@ path = "../core"
 
 
 [dev-dependencies]
-rand = "0.6"
-criterion = "0.3"
-crossbeam-utils = "0.7"
-crossbeam = "0.7"
-heapless = "0.7"
-cfg-if = "0.1"
+rand = "0.8"
+criterion = "0.5"
+crossbeam-utils = "0.8"
+crossbeam = "0.8"
+heapless = "0.8"
+cfg-if = "1.0"
 
 [[bench]]
 name = "benches"
