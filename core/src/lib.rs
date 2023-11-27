@@ -92,8 +92,11 @@
 //!
 //! This crate contains special support for Cortex-M0(+) targets with the `thumbv6` feature. By
 //! enabling the feature, unsupported atomic operations will be replaced with critical sections
-//! implemented by disabling interrupts. The critical sections are very short, a few instructions at
-//! most, so they should make no difference to most applications.
+//! using the `critical_section` crate. The critical sections are very short, a few instructions at
+//! most, so they should make no difference to most applications.  When using this feature an
+//! implementation must be provided for the `critical_section` crate.  A single core version that
+//! disables interrupts is available on the `cortex_m` crate by enabling the feature
+//! `critical-section-single-core` on that crate.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
