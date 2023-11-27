@@ -17,8 +17,50 @@ use core::{
     },
 };
 #[derive(Debug)]
+#[repr(C)]
 /// A backing structure for a BBQueue. Can be used to create either
-/// a BBQueue or a split Producer/Consumer pair
+/// a BBQueue or a split Producer/Consumer pair.
+///
+/// `BBBuffer` promises that the address of the object matches the
+/// address of the internal buffer.
+///
+/// ```
+/// use bbqueue::BBBuffer;
+/// # use bbqueue::Error;
+/// # const SIZE: usize = 32;
+/// static BB: BBBuffer<SIZE> = BBBuffer::new();
+///
+/// # || -> Result<(), Error> {
+/// let (mut prod, mut cons) = BB.try_split()?;
+/// let mut grant = prod.grant_exact(SIZE)?;
+///
+/// let bb_addr = &BB as *const _ as *const u8;
+/// assert!(core::ptr::eq(bb_addr, grant.buf().as_ptr()));
+///
+/// grant.commit(SIZE);
+/// let grant = cons.read()?;
+/// assert!(core::ptr::eq(bb_addr, grant.buf().as_ptr()));
+/// # Ok(()) }().unwrap();
+/// ```
+///
+/// This means that an aligned `BBBuffer` has aligned storage.
+///
+/// ```
+/// # use bbqueue::{BBBuffer, Error};
+/// # const SIZE: usize = 32;
+/// /// Guarantees BBBuffer alignment.
+/// #[repr(align(256))]
+/// struct Align256(BBBuffer<SIZE>);
+///
+/// static BB: Align256 = Align256(BBBuffer::new());
+///
+/// # || -> Result<(), Error> {
+/// let (mut prod, mut cons) = BB.0.try_split()?;
+/// let mut grant = prod.grant_exact(SIZE)?;
+///
+/// assert!(grant.buf().as_ptr() as usize % 256 == 0);
+/// # Ok(()) }().unwrap();
+/// ```
 pub struct BBBuffer<const N: usize> {
     buf: UnsafeCell<MaybeUninit<[u8; N]>>,
 
