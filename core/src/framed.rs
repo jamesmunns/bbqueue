@@ -159,13 +159,13 @@ impl<'a, const N: usize> Deref for FrameGrantW<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_w.buf[self.hdr_len.into()..]
+        &self.grant_w[self.hdr_len.into()..]
     }
 }
 
 impl<'a, const N: usize> DerefMut for FrameGrantW<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_w.buf[self.hdr_len.into()..]
+        &mut self.grant_w[self.hdr_len.into()..]
     }
 }
 
@@ -173,13 +173,13 @@ impl<'a, const N: usize> Deref for FrameGrantR<'a, N> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.grant_r.buf[self.hdr_len.into()..]
+        &self.grant_r[self.hdr_len.into()..]
     }
 }
 
 impl<'a, const N: usize> DerefMut for FrameGrantR<'a, N> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.grant_r.buf[self.hdr_len.into()..]
+        &mut self.grant_r[self.hdr_len.into()..]
     }
 }
 
