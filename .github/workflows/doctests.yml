@@ -9,18 +9,10 @@ name: Documentation Tests
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - features: thumbv6
-            nodefault: "--no-default-features"
-          - features: ""
-            nodefault: ""
-
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: ${{ matrix.nodefault }} --features=${{ matrix.features }} --manifest-path core/Cargo.toml
+          args: --manifest-path core/Cargo.toml

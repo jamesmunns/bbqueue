@@ -14,7 +14,7 @@ jobs:
         include:
           - features: ""
             target: thumbv7em-none-eabihf
-          - feature: thumbv6
+          - feature: portable-atomic/critical-section
             target: thumbv6m-none-eabi
 
     steps:

@@ -34,7 +34,6 @@
 //! # }
 //! #
 //! # fn main() {
-//! # #[cfg(not(feature = "thumbv6"))]
 //! # bbqtest();
 //! # }
 //! ```
