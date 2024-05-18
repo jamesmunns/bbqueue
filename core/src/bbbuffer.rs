@@ -309,6 +309,7 @@ impl<const A: usize> BBBuffer<A> {
 ///
 /// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
 /// discussion of grant methods that could be added in the future.
+#[derive(Debug)]
 pub struct Producer<'a, const N: usize> {
     bbq: NonNull<BBBuffer<N>>,
     pd: PhantomData<&'a ()>,
@@ -514,6 +515,7 @@ impl<'a, const N: usize> Producer<'a, N> {
 }
 
 /// `Consumer` is the primary interface for reading data from a `BBBuffer`.
+#[derive(Debug)]
 pub struct Consumer<'a, const N: usize> {
     bbq: NonNull<BBBuffer<N>>,
     pd: PhantomData<&'a ()>,
