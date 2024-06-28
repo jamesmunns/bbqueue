@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 /// Coordination Handler
 ///
 /// The coordination handler is responsible for arbitrating access to the storage
@@ -17,9 +15,9 @@ pub unsafe trait Coord {
 
     // Write Grants
 
-    fn grant_max_remaining(&self, len: usize, sz: usize) -> Result<(usize, usize), ()>;
-    fn grant_exact(&self, len: usize, sz: usize) -> Result<(usize, usize), ()>;
-    fn commit_inner(&self, buf_len: usize, grant_len: usize, used: usize);
+    fn grant_max_remaining(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()>;
+    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()>;
+    fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize);
 
     // Read Grants
 
@@ -96,7 +94,7 @@ pub mod cas {
             self.last.store(0, Ordering::Release);
         }
 
-        fn grant_max_remaining(&self, len: usize, mut sz: usize) -> Result<(usize, usize), ()> {
+        fn grant_max_remaining(&self, capacity: usize, mut sz: usize) -> Result<(usize, usize), ()> {
             if self.write_in_progress.swap(true, Ordering::AcqRel) {
                 // return Err(Error::GrantInProgress);
                 return Err(());
@@ -106,7 +104,7 @@ pub mod cas {
             // be careful writing to `load`
             let write = self.write.load(Ordering::Acquire);
             let read = self.read.load(Ordering::Acquire);
-            let max = len;
+            let max = capacity;
 
             let already_inverted = write < read;
 
@@ -153,7 +151,7 @@ pub mod cas {
             Ok((start, sz))
         }
 
-        fn grant_exact(&self, len: usize, sz: usize) -> Result<(usize, usize), ()> {
+        fn grant_exact(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()> {
             if self.write_in_progress.swap(true, Ordering::AcqRel) {
                 // return Err(Error::GrantInProgress);
                 return Err(());
@@ -163,7 +161,7 @@ pub mod cas {
             // be careful writing to `load`
             let write = self.write.load(Ordering::Acquire);
             let read = self.read.load(Ordering::Acquire);
-            let max = len;
+            let max = capacity;
             let already_inverted = write < read;
 
             let start = if already_inverted {
@@ -246,7 +244,7 @@ pub mod cas {
             Ok((read, sz))
         }
 
-        fn commit_inner(&self, buf_len: usize, grant_len: usize, used: usize) {
+        fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize) {
             // If there is no grant in progress, return early. This
             // generally means we are dropping the grant within a
             // wrapper structure
@@ -264,7 +262,7 @@ pub mod cas {
             let write = self.write.load(Ordering::Acquire);
             self.reserve.fetch_sub(len - used, Ordering::AcqRel);
 
-            let max = buf_len;
+            let max = capacity;
             let last = self.last.load(Ordering::Acquire);
             let new_write = self.reserve.load(Ordering::Acquire);
 
