@@ -1,0 +1,14 @@
+[package]
+name = "bbq2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[features]
+default = [
+    "cas-atomics",
+    "std",
+]
+cas-atomics = []
+std = []
