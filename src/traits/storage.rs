@@ -1,5 +1,4 @@
-use core::ptr::NonNull;
-use std::{cell::UnsafeCell, mem::MaybeUninit};
+use core::{cell::UnsafeCell, mem::MaybeUninit, ptr::NonNull};
 
 pub trait Storage {
     fn ptr_len(&self) -> (NonNull<u8>, usize);
@@ -9,12 +8,33 @@ pub trait ConstStorage: Storage {
     const INIT: Self;
 }
 
-impl<const N: usize> Storage for UnsafeCell<MaybeUninit<[u8; N]>> {
+#[repr(transparent)]
+pub struct Inline<const N: usize> {
+    buf: UnsafeCell<MaybeUninit<[u8; N]>>,
+}
+
+unsafe impl<const N: usize> Sync for Inline<N> {}
+
+impl<const N: usize> Inline<N> {
+    pub const fn new() -> Self {
+        Self {
+            buf: UnsafeCell::new(MaybeUninit::uninit()),
+        }
+    }
+}
+
+impl<const N: usize> Default for Inline<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> Storage for Inline<N> {
     fn ptr_len(&self) -> (NonNull<u8>, usize) {
         if N == 0 {
             return (NonNull::dangling(), N);
         }
-        let ptr: *mut MaybeUninit<[u8; N]> = self.get();
+        let ptr: *mut MaybeUninit<[u8; N]> = self.buf.get();
         let ptr: *mut u8 = ptr.cast();
         // SAFETY: UnsafeCell and MaybeUninit are both repr transparent, cast is
         // sound to get to first byte element
@@ -23,16 +43,15 @@ impl<const N: usize> Storage for UnsafeCell<MaybeUninit<[u8; N]>> {
     }
 }
 
-impl<const N: usize> ConstStorage for UnsafeCell<MaybeUninit<[u8; N]>> {
-    const INIT: Self = UnsafeCell::new(MaybeUninit::uninit());
+impl<const N: usize> ConstStorage for Inline<N> {
+    const INIT: Self = Self::new();
 }
 
-impl<'a> Storage for &'a [UnsafeCell<MaybeUninit<u8>>] {
+impl<'a, const N: usize> Storage for &'a Inline<N> {
     fn ptr_len(&self) -> (NonNull<u8>, usize) {
-        let len = self.len();
+        let len = N;
 
-        let ptr: *const UnsafeCell<MaybeUninit<u8>> = self.as_ptr();
-        let ptr: *mut MaybeUninit<u8> = UnsafeCell::raw_get(ptr);
+        let ptr: *mut MaybeUninit<[u8; N]> = self.buf.get();
         let ptr: *mut u8 = ptr.cast();
         let nn_ptr = unsafe { NonNull::new_unchecked(ptr) };
 
@@ -40,11 +59,35 @@ impl<'a> Storage for &'a [UnsafeCell<MaybeUninit<u8>>] {
     }
 }
 
-impl Storage for Box<[UnsafeCell<MaybeUninit<u8>>]> {
-    fn ptr_len(&self) -> (NonNull<u8>, usize) {
-        let len = self.len();
+#[cfg(feature = "std")]
+pub struct BoxedSlice {
+    buf: Box<[UnsafeCell<MaybeUninit<u8>>]>,
+}
 
-        let ptr: *const UnsafeCell<MaybeUninit<u8>> = self.as_ptr();
+#[cfg(feature = "std")]
+unsafe impl Sync for BoxedSlice {}
+
+#[cfg(feature = "std")]
+impl BoxedSlice {
+    pub fn new(len: usize) -> Self {
+        let buf: Box<[UnsafeCell<MaybeUninit<u8>>]> = {
+            let mut v: Vec<UnsafeCell<MaybeUninit<u8>>> = Vec::with_capacity(len);
+            // Fields are already MaybeUninit, so valid capacity is valid len
+            unsafe {
+                v.set_len(len);
+            }
+            v.into_boxed_slice()
+        };
+        Self { buf }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Storage for BoxedSlice {
+    fn ptr_len(&self) -> (NonNull<u8>, usize) {
+        let len = self.buf.len();
+
+        let ptr: *const UnsafeCell<MaybeUninit<u8>> = self.buf.as_ptr();
         let ptr: *mut MaybeUninit<u8> = UnsafeCell::raw_get(ptr);
         let ptr: *mut u8 = ptr.cast();
         let nn_ptr = unsafe { NonNull::new_unchecked(ptr) };
@@ -55,16 +98,13 @@ impl Storage for Box<[UnsafeCell<MaybeUninit<u8>>]> {
 
 #[cfg(test)]
 mod test {
-    use std::{cell::UnsafeCell, mem::MaybeUninit};
-
-    use super::Storage;
+    use super::{Inline, Storage};
 
     #[test]
     fn provenance_slice() {
-        let sli: [UnsafeCell<MaybeUninit<u8>>; 64] =
-            [const { UnsafeCell::new(MaybeUninit::uninit()) }; 64];
-        let sli = sli.as_slice();
-        let (ptr, len) = sli.ptr_len();
+        let sli = Inline::<64>::new();
+        let sli = &sli;
+        let (ptr, len) = <&Inline<64> as Storage>::ptr_len(&sli);
 
         // This test ensures that obtaining the pointer for ptr_len through a single
         // element is sound

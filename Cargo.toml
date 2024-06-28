@@ -5,10 +5,33 @@ edition = "2021"
 
 [dependencies]
 
+# [dependencies.tokio]
+# version = "1.0"
+# default-features = false
+# features = ["sync"]
+# optional = true
+
+[dependencies.maitake-sync]
+version = "0.1"
+default-features = false
+optional = true
+
+[dev-dependencies.tokio]
+version = "1.0"
+features = ["macros", "rt", "time"]
+
 [features]
 default = [
     "cas-atomics",
     "std",
+    "maitake-sync-0_1",
+    # "tokio-sync",
 ]
 cas-atomics = []
 std = []
+# tokio-sync = [
+#     "dep:tokio",
+# ]
+maitake-sync-0_1 = [
+    "dep:maitake-sync",
+]

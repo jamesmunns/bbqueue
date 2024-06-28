@@ -27,14 +27,11 @@ pub unsafe trait Coord {
 
 #[cfg(feature = "cas-atomics")]
 pub mod cas {
-
-    use core::sync::atomic::AtomicBool;
-    use std::{
-        cmp::min,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
-
     use super::Coord;
+    use core::{
+        cmp::min,
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
 
     pub struct AtomicCoord {
         /// Where the next byte will be written
@@ -66,17 +63,29 @@ pub mod cas {
         already_split: AtomicBool,
     }
 
+    impl AtomicCoord {
+        pub const fn new() -> Self {
+            Self {
+                already_split: AtomicBool::new(false),
+                write: AtomicUsize::new(0),
+                read: AtomicUsize::new(0),
+                last: AtomicUsize::new(0),
+                reserve: AtomicUsize::new(0),
+                read_in_progress: AtomicBool::new(false),
+                write_in_progress: AtomicBool::new(false),
+            }
+        }
+    }
+
+    impl Default for AtomicCoord {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     unsafe impl Coord for AtomicCoord {
         #[allow(clippy::declare_interior_mutable_const)]
-        const INIT: Self = Self {
-            already_split: AtomicBool::new(false),
-            write: AtomicUsize::new(0),
-            read: AtomicUsize::new(0),
-            last: AtomicUsize::new(0),
-            reserve: AtomicUsize::new(0),
-            read_in_progress: AtomicBool::new(false),
-            write_in_progress: AtomicBool::new(false),
-        };
+        const INIT: Self = Self::new();
 
         fn take(&self) -> Result<(), ()> {
             if self.already_split.swap(true, Ordering::AcqRel) {
