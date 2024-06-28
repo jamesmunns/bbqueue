@@ -94,7 +94,11 @@ pub mod cas {
             self.last.store(0, Ordering::Release);
         }
 
-        fn grant_max_remaining(&self, capacity: usize, mut sz: usize) -> Result<(usize, usize), ()> {
+        fn grant_max_remaining(
+            &self,
+            capacity: usize,
+            mut sz: usize,
+        ) -> Result<(usize, usize), ()> {
             if self.write_in_progress.swap(true, Ordering::AcqRel) {
                 // return Err(Error::GrantInProgress);
                 return Err(());

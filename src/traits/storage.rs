@@ -53,7 +53,6 @@ impl Storage for Box<[UnsafeCell<MaybeUninit<u8>>]> {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use std::{cell::UnsafeCell, mem::MaybeUninit};
@@ -62,7 +61,8 @@ mod test {
 
     #[test]
     fn provenance_slice() {
-        let sli: [UnsafeCell<MaybeUninit<u8>>; 64] = [const { UnsafeCell::new(MaybeUninit::uninit())}; 64];
+        let sli: [UnsafeCell<MaybeUninit<u8>>; 64] =
+            [const { UnsafeCell::new(MaybeUninit::uninit()) }; 64];
         let sli = sli.as_slice();
         let (ptr, len) = sli.ptr_len();
 

@@ -256,10 +256,7 @@ mod test {
         wgr.commit(8);
 
         let rgr = cons.read().unwrap();
-        assert_eq!(
-            rgr.deref(),
-            write_once.as_slice(),
-        );
+        assert_eq!(rgr.deref(), write_once.as_slice(),);
         rgr.release(4);
 
         let rgr = cons.read().unwrap();
