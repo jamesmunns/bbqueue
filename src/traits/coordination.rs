@@ -325,3 +325,38 @@ pub mod cas {
         }
     }
 }
+
+pub struct CsCoord;
+
+#[allow(unused_variables)]
+unsafe impl Coord for CsCoord {
+    const INIT: Self = CsCoord;
+
+    fn take(&self) -> Result<(), ()> {
+        todo!()
+    }
+
+    fn reset(&self) {
+        todo!()
+    }
+
+    fn grant_max_remaining(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()> {
+        todo!()
+    }
+
+    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()> {
+        todo!()
+    }
+
+    fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize) {
+        todo!()
+    }
+
+    fn read(&self) -> Result<(usize, usize), ()> {
+        todo!()
+    }
+
+    fn release_inner(&self, used: usize) {
+        todo!()
+    }
+}

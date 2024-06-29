@@ -1,6 +1,6 @@
 use core::ops::Deref;
 
-use crate::BBQueue;
+use crate::queue::BBQueue;
 
 use super::{coordination::Coord, notifier::Notifier, storage::Storage};
 
