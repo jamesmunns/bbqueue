@@ -5,7 +5,7 @@ use core::{
 };
 
 use crate::{
-    queue::{ArcBBQueue, BBQueue},
+    queue::BBQueue,
     traits::{
         bbqhdl::BbqHandle,
         coordination::Coord,
@@ -46,7 +46,7 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
 }
 
 #[cfg(feature = "std")]
-impl<S: Storage, C: Coord, N: Notifier> ArcBBQueue<S, C, N> {
+impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
     #[allow(clippy::type_complexity)]
     pub fn split_arc(
         self,

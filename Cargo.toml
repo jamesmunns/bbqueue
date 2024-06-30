@@ -16,6 +16,11 @@ version = "0.1"
 default-features = false
 optional = true
 
+[dependencies.critical-section]
+version = "1.0"
+default-features = false
+optional = true
+
 [dev-dependencies.tokio]
 version = "1.0"
 features = ["macros", "rt", "time"]
@@ -25,9 +30,13 @@ default = [
     "cas-atomics",
     "std",
     "maitake-sync-0_1",
+    "critical-section",
     # "tokio-sync",
 ]
 cas-atomics = []
+critical-section = [
+    "dep:critical-section",
+]
 std = []
 # tokio-sync = [
 #     "dep:tokio",

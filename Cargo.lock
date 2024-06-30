@@ -45,6 +45,7 @@ dependencies = [
 name = "bbq2"
 version = "0.1.0"
 dependencies = [
+ "critical-section",
  "maitake-sync",
  "tokio",
 ]
@@ -70,6 +71,12 @@ dependencies = [
  "loom 0.5.6",
  "tracing",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7059fff8937831a9ae6f0fe4d658ffabf58f2ca96aa9dec1c889f936f705f216"
 
 [[package]]
 name = "generator"

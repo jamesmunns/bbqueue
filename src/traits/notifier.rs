@@ -1,5 +1,9 @@
-use core::{future::Future, pin};
+use core::future::Future;
 
+#[cfg(feature = "maitake-sync-0_1")]
+use core::pin;
+
+#[cfg(feature = "maitake-sync-0_1")]
 use maitake_sync::{
     wait_cell::{Subscribe, Wait},
     WaitCell,
@@ -39,13 +43,13 @@ impl Notifier for Blocking {
     fn wake_one_producer(&self) {}
 }
 
-#[cfg(all(feature = "std", feature = "maitake-sync-0_1"))]
+#[cfg(feature = "maitake-sync-0_1")]
 pub struct MaiNotSpsc {
     not_empty: WaitCell,
     not_full: WaitCell,
 }
 
-#[cfg(all(feature = "std", feature = "maitake-sync-0_1"))]
+#[cfg(feature = "maitake-sync-0_1")]
 impl Notifier for MaiNotSpsc {
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = Self {
@@ -62,10 +66,12 @@ impl Notifier for MaiNotSpsc {
     }
 }
 
+#[cfg(feature = "maitake-sync-0_1")]
 pub struct SubWrap<'a> {
     s: Subscribe<'a>,
 }
 
+#[cfg(feature = "maitake-sync-0_1")]
 impl<'a> Future for SubWrap<'a> {
     type Output = WaitWrap<'a>;
 
@@ -78,10 +84,12 @@ impl<'a> Future for SubWrap<'a> {
     }
 }
 
+#[cfg(feature = "maitake-sync-0_1")]
 pub struct WaitWrap<'a> {
     w: Wait<'a>,
 }
 
+#[cfg(feature = "maitake-sync-0_1")]
 impl<'a> Future for WaitWrap<'a> {
     type Output = ();
 
@@ -94,7 +102,7 @@ impl<'a> Future for WaitWrap<'a> {
     }
 }
 
-#[cfg(all(feature = "std", feature = "maitake-sync-0_1"))]
+#[cfg(feature = "maitake-sync-0_1")]
 impl AsyncNotifier for MaiNotSpsc {
     type NotEmptyRegisterFut<'a> = SubWrap<'a>;
     type NotFullRegisterFut<'a> = SubWrap<'a>;

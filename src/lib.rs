@@ -1,10 +1,10 @@
 #![allow(clippy::result_unit_err)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
+pub mod nicknames;
 pub mod prod_cons;
 pub mod queue;
 pub mod traits;
-pub mod nicknames;
 
 #[cfg(test)]
 mod test {
