@@ -18,7 +18,7 @@ unsafe impl<const N: usize> Sync for Inline<N> {}
 impl<const N: usize> Inline<N> {
     pub const fn new() -> Self {
         Self {
-            buf: UnsafeCell::new(MaybeUninit::uninit()),
+            buf: UnsafeCell::new(MaybeUninit::zeroed()),
         }
     }
 }
@@ -76,6 +76,10 @@ impl BoxedSlice {
             unsafe {
                 v.set_len(len);
             }
+            // We can zero each field now
+            v.iter_mut().for_each(|val| {
+                *val = UnsafeCell::new(MaybeUninit::zeroed());
+            });
             v.into_boxed_slice()
         };
         Self { buf }

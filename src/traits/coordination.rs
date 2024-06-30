@@ -7,8 +7,6 @@
 /// you must implement these correctly, or UB could happen
 pub unsafe trait Coord {
     const INIT: Self;
-    /// Take once. Returns Ok if never taken before
-    fn take(&self) -> Result<(), ()>;
 
     // Reset all EXCEPT taken values back to the initial empty state
     fn reset(&self);
@@ -58,15 +56,11 @@ pub mod cas {
 
         /// Is there an active write grant?
         write_in_progress: AtomicBool,
-
-        /// Have we already split?
-        already_split: AtomicBool,
     }
 
     impl AtomicCoord {
         pub const fn new() -> Self {
             Self {
-                already_split: AtomicBool::new(false),
                 write: AtomicUsize::new(0),
                 read: AtomicUsize::new(0),
                 last: AtomicUsize::new(0),
@@ -86,14 +80,6 @@ pub mod cas {
     unsafe impl Coord for AtomicCoord {
         #[allow(clippy::declare_interior_mutable_const)]
         const INIT: Self = Self::new();
-
-        fn take(&self) -> Result<(), ()> {
-            if self.already_split.swap(true, Ordering::AcqRel) {
-                Err(())
-            } else {
-                Ok(())
-            }
-        }
 
         fn reset(&self) {
             // Re-initialize the buffer (not totally needed, but nice to do)
@@ -359,15 +345,11 @@ pub mod cs {
 
         /// Is there an active write grant?
         write_in_progress: AtomicBool,
-
-        /// Have we already split?
-        already_split: AtomicBool,
     }
 
     impl CsCoord {
         pub const fn new() -> Self {
             Self {
-                already_split: AtomicBool::new(false),
                 write: AtomicUsize::new(0),
                 read: AtomicUsize::new(0),
                 last: AtomicUsize::new(0),
@@ -387,17 +369,6 @@ pub mod cs {
     unsafe impl Coord for CsCoord {
         #[allow(clippy::declare_interior_mutable_const)]
         const INIT: Self = Self::new();
-
-        fn take(&self) -> Result<(), ()> {
-            critical_section::with(|_s| {
-                if self.already_split.load(Ordering::Relaxed) {
-                    Err(())
-                } else {
-                    self.already_split.store(true, Ordering::Relaxed);
-                    Ok(())
-                }
-            })
-        }
 
         fn reset(&self) {
             // Re-initialize the buffer (not totally needed, but nice to do)

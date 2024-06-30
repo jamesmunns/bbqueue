@@ -15,71 +15,35 @@ use crate::{
 };
 
 impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
-    #[allow(clippy::type_complexity)]
-    pub fn split_borrowed(
-        &self,
-    ) -> Result<(Producer<&'_ Self, S, C, N>, Consumer<&'_ Self, S, C, N>), ()> {
-        self.cor.take()?;
-        // Taken, we now have exclusive access.
-        {
-            let (ptr, len) = self.sto.ptr_len();
-
-            // Ensure that all storage bytes have been initialized at least once
-            unsafe {
-                ptr.as_ptr().write_bytes(0, len);
-            }
+    pub fn producer(&self) -> Producer<&'_ Self, S, C, N> {
+        Producer {
+            bbq: self.bbq_ref(),
+            pd: PhantomData,
         }
-        // Reset/init the tracking variables
-        self.cor.reset();
+    }
 
-        Ok((
-            Producer {
-                bbq: self.bbq_ref(),
-                pd: PhantomData,
-            },
-            Consumer {
-                bbq: self.bbq_ref(),
-                pd: PhantomData,
-            },
-        ))
+    pub fn consumer(&self) -> Consumer<&'_ Self, S, C, N> {
+        Consumer {
+            bbq: self.bbq_ref(),
+            pd: PhantomData,
+        }
     }
 }
 
 #[cfg(feature = "std")]
 impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
-    #[allow(clippy::type_complexity)]
-    pub fn split_arc(
-        self,
-    ) -> Result<
-        (
-            Producer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N>,
-            Consumer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N>,
-        ),
-        (),
-    > {
-        self.0.cor.take()?;
-        // Taken, we now have exclusive access.
-        {
-            let (ptr, len) = self.0.sto.ptr_len();
-
-            // Ensure that all storage bytes have been initialized at least once
-            unsafe {
-                ptr.as_ptr().write_bytes(0, len);
-            }
+    pub fn producer(&self) -> Producer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N> {
+        Producer {
+            bbq: self.0.bbq_ref(),
+            pd: PhantomData,
         }
-        // Reset/init the tracking variables
-        self.0.cor.reset();
+    }
 
-        Ok((
-            Producer {
-                bbq: self.0.bbq_ref(),
-                pd: PhantomData,
-            },
-            Consumer {
-                bbq: self.0.bbq_ref(),
-                pd: PhantomData,
-            },
-        ))
+    pub fn consumer(&self) -> Consumer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N> {
+        Consumer {
+            bbq: self.0.bbq_ref(),
+            pd: PhantomData,
+        }
     }
 }
 

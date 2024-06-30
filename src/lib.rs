@@ -25,19 +25,18 @@ mod test {
         use crate::traits::{notifier::Blocking, storage::BoxedSlice};
 
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
-        let _ = BBQ.split_borrowed().unwrap();
+        let _ = BBQ.producer();
+        let _ = BBQ.consumer();
 
         let buf2 = Inline::<64>::new();
         let bbq2: BBQueue<_, AtomicCoord, Blocking> = BBQueue::new_with_storage(&buf2);
-        let _ = bbq2.split_borrowed().unwrap();
+        let _ = bbq2.producer();
+        let _ = bbq2.consumer();
 
         let buf3 = BoxedSlice::new(64);
         let bbq3: BBQueue<_, AtomicCoord, Blocking> = BBQueue::new_with_storage(buf3);
-        let _ = bbq3.split_borrowed().unwrap();
-
-        assert!(BBQ.split_borrowed().is_err());
-        assert!(bbq2.split_borrowed().is_err());
-        assert!(bbq3.split_borrowed().is_err());
+        let _ = bbq3.producer();
+        let _ = bbq3.consumer();
     }
 
     #[cfg(feature = "cas-atomics")]
@@ -47,7 +46,8 @@ mod test {
         use core::ops::Deref;
 
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
-        let (prod, cons) = BBQ.split_borrowed().unwrap();
+        let prod = BBQ.producer();
+        let cons = BBQ.consumer();
 
         let write_once = &[0x01, 0x02, 0x03, 0x04, 0x11, 0x12, 0x13, 0x14];
         let mut wgr = prod.grant_exact(8).unwrap();
@@ -68,7 +68,8 @@ mod test {
     #[tokio::test]
     async fn asink() {
         static BBQ: BBQueue<Inline<64>, AtomicCoord, MaiNotSpsc> = BBQueue::new();
-        let (prod, cons) = BBQ.split_borrowed().unwrap();
+        let prod = BBQ.producer();
+        let cons = BBQ.consumer();
 
         let rxfut = tokio::task::spawn(async move {
             let rgr = cons.wait_read().await;
@@ -91,7 +92,8 @@ mod test {
     async fn arc1() {
         let bbq: ArcBBQueue<Inline<64>, AtomicCoord, MaiNotSpsc> =
             ArcBBQueue::new_with_storage(Inline::new());
-        let (prod, cons) = bbq.split_arc().unwrap();
+        let prod = bbq.producer();
+        let cons = bbq.consumer();
 
         let rxfut = tokio::task::spawn(async move {
             let rgr = cons.wait_read().await;
@@ -114,7 +116,8 @@ mod test {
     async fn arc2() {
         let bbq: ArcBBQueue<BoxedSlice, AtomicCoord, MaiNotSpsc> =
             ArcBBQueue::new_with_storage(BoxedSlice::new(64));
-        let (prod, cons) = bbq.split_arc().unwrap();
+        let prod = bbq.producer();
+        let cons = bbq.consumer();
 
         let rxfut = tokio::task::spawn(async move {
             let rgr = cons.wait_read().await;
