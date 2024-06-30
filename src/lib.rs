@@ -14,7 +14,7 @@ mod test {
         queue::{ArcBBQueue, BBQueue},
         traits::{
             coordination::cas::AtomicCoord,
-            notifier::MaiNotSpsc,
+            notifier::maitake::MaiNotSpsc,
             storage::{BoxedSlice, Inline},
         },
     };
@@ -22,7 +22,7 @@ mod test {
     #[cfg(all(feature = "cas-atomics", feature = "std"))]
     #[test]
     fn ux() {
-        use crate::traits::{notifier::Blocking, storage::BoxedSlice};
+        use crate::traits::{notifier::blocking::Blocking, storage::BoxedSlice};
 
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
         let _ = BBQ.producer();
@@ -42,7 +42,7 @@ mod test {
     #[cfg(feature = "cas-atomics")]
     #[test]
     fn smoke() {
-        use crate::traits::notifier::Blocking;
+        use crate::traits::notifier::blocking::Blocking;
         use core::ops::Deref;
 
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();

@@ -1,55 +1,29 @@
-use core::future::Future;
+use core::{future::Future, pin};
 
-#[cfg(feature = "maitake-sync-0_1")]
-use core::pin;
-
-#[cfg(feature = "maitake-sync-0_1")]
 use maitake_sync::{
     wait_cell::{Subscribe, Wait},
     WaitCell,
 };
 
-pub trait Notifier {
-    const INIT: Self;
+use super::{AsyncNotifier, Notifier};
 
-    fn wake_one_consumer(&self);
-    fn wake_one_producer(&self);
-}
-
-pub trait AsyncNotifier: Notifier {
-    type NotEmptyRegisterFut<'a>: Future<Output = Self::NotEmptyWaiterFut<'a>>
-    where
-        Self: 'a;
-    type NotFullRegisterFut<'a>: Future<Output = Self::NotFullWaiterFut<'a>>
-    where
-        Self: 'a;
-    type NotEmptyWaiterFut<'a>: Future<Output = ()>
-    where
-        Self: 'a;
-    type NotFullWaiterFut<'a>: Future<Output = ()>
-    where
-        Self: 'a;
-
-    fn register_wait_not_empty(&self) -> Self::NotEmptyRegisterFut<'_>;
-    fn register_wait_not_full(&self) -> Self::NotFullRegisterFut<'_>;
-}
-
-pub struct Blocking;
-
-// Blocking performs no notification
-impl Notifier for Blocking {
-    const INIT: Self = Blocking;
-    fn wake_one_consumer(&self) {}
-    fn wake_one_producer(&self) {}
-}
-
-#[cfg(feature = "maitake-sync-0_1")]
 pub struct MaiNotSpsc {
     not_empty: WaitCell,
     not_full: WaitCell,
 }
 
-#[cfg(feature = "maitake-sync-0_1")]
+impl MaiNotSpsc {
+    pub fn new() -> Self {
+        Self::INIT
+    }
+}
+
+impl Default for MaiNotSpsc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Notifier for MaiNotSpsc {
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = Self {
@@ -66,12 +40,10 @@ impl Notifier for MaiNotSpsc {
     }
 }
 
-#[cfg(feature = "maitake-sync-0_1")]
 pub struct SubWrap<'a> {
     s: Subscribe<'a>,
 }
 
-#[cfg(feature = "maitake-sync-0_1")]
 impl<'a> Future for SubWrap<'a> {
     type Output = WaitWrap<'a>;
 
@@ -84,12 +56,10 @@ impl<'a> Future for SubWrap<'a> {
     }
 }
 
-#[cfg(feature = "maitake-sync-0_1")]
 pub struct WaitWrap<'a> {
     w: Wait<'a>,
 }
 
-#[cfg(feature = "maitake-sync-0_1")]
 impl<'a> Future for WaitWrap<'a> {
     type Output = ();
 
@@ -102,7 +72,6 @@ impl<'a> Future for WaitWrap<'a> {
     }
 }
 
-#[cfg(feature = "maitake-sync-0_1")]
 impl AsyncNotifier for MaiNotSpsc {
     type NotEmptyRegisterFut<'a> = SubWrap<'a>;
     type NotFullRegisterFut<'a> = SubWrap<'a>;

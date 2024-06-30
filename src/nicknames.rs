@@ -29,7 +29,7 @@ use crate::traits::coordination::cs::CsCoord;
 use crate::traits::storage::BoxedSlice;
 use crate::{
     queue::BBQueue,
-    traits::{notifier::Blocking, storage::Inline},
+    traits::{notifier::blocking::Blocking, storage::Inline},
 };
 
 /// Inline Storage, Critical Section, Blocking, Borrowed
