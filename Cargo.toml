@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pin-project = "1.1.5"
 
 # [dependencies.tokio]
 # version = "1.0"
@@ -44,3 +45,7 @@ std = []
 maitake-sync-0_1 = [
     "dep:maitake-sync",
 ]
+
+[patch.crates-io.maitake-sync]
+git = "https://github.com/jamesmunns/mycelium/"
+rev = "5999d07f12f90ea69cfd2ea354193cd5a6588b8d"

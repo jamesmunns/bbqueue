@@ -138,13 +138,7 @@ where
     Q: BbqHandle<S, C, N>,
 {
     pub async fn wait_read(&self) -> GrantR<Q, S, C, N> {
-        loop {
-            let wait_fut = self.bbq.not.register_wait_not_empty().await;
-            if let Ok(g) = self.read() {
-                return g;
-            }
-            wait_fut.await;
-        }
+        self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
     }
 }
 

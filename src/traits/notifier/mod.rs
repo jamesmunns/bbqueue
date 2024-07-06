@@ -1,5 +1,3 @@
-use core::future::Future;
-
 #[cfg(feature = "maitake-sync-0_1")]
 pub mod maitake;
 
@@ -12,20 +10,8 @@ pub trait Notifier {
     fn wake_one_producer(&self);
 }
 
+#[allow(async_fn_in_trait)]
 pub trait AsyncNotifier: Notifier {
-    type NotEmptyRegisterFut<'a>: Future<Output = Self::NotEmptyWaiterFut<'a>>
-    where
-        Self: 'a;
-    type NotFullRegisterFut<'a>: Future<Output = Self::NotFullWaiterFut<'a>>
-    where
-        Self: 'a;
-    type NotEmptyWaiterFut<'a>: Future<Output = ()>
-    where
-        Self: 'a;
-    type NotFullWaiterFut<'a>: Future<Output = ()>
-    where
-        Self: 'a;
-
-    fn register_wait_not_empty(&self) -> Self::NotEmptyRegisterFut<'_>;
-    fn register_wait_not_full(&self) -> Self::NotFullRegisterFut<'_>;
+    async fn wait_for_not_empty<T, F: FnMut() -> Option<T>>(&self, f: F) -> T;
+    async fn wait_for_not_full<T, F: FnMut() -> Option<T>>(&self, f: F) -> T;
 }
