@@ -20,7 +20,7 @@ pub unsafe trait Coord {
     // Write Grants
 
     fn grant_max_remaining(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()>;
-    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()>;
+    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<usize, ()>;
     fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize);
 
     // Read Grants

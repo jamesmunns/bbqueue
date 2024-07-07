@@ -47,7 +47,6 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "maitake-sync",
- "pin-project",
  "tokio",
 ]
 
@@ -66,7 +65,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "cordyceps"
 version = "0.3.2"
-source = "git+https://github.com/jamesmunns/mycelium/?rev=5999d07f12f90ea69cfd2ea354193cd5a6588b8d#5999d07f12f90ea69cfd2ea354193cd5a6588b8d"
+source = "git+https://github.com/jamesmunns/mycelium/?rev=3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201#3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201"
 dependencies = [
  "loom",
  "tracing",
@@ -132,7 +131,7 @@ dependencies = [
 [[package]]
 name = "maitake-sync"
 version = "0.1.1"
-source = "git+https://github.com/jamesmunns/mycelium/?rev=5999d07f12f90ea69cfd2ea354193cd5a6588b8d#5999d07f12f90ea69cfd2ea354193cd5a6588b8d"
+source = "git+https://github.com/jamesmunns/mycelium/?rev=3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201#3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201"
 dependencies = [
  "cordyceps",
  "loom",
@@ -168,7 +167,7 @@ dependencies = [
 [[package]]
 name = "mycelium-bitfield"
 version = "0.1.5"
-source = "git+https://github.com/jamesmunns/mycelium/?rev=5999d07f12f90ea69cfd2ea354193cd5a6588b8d#5999d07f12f90ea69cfd2ea354193cd5a6588b8d"
+source = "git+https://github.com/jamesmunns/mycelium/?rev=3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201#3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201"
 
 [[package]]
 name = "nu-ansi-term"

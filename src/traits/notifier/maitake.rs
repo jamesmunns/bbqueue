@@ -1,7 +1,4 @@
-
-use maitake_sync::{
-    WaitCell, WaitQueue,
-};
+use maitake_sync::{WaitCell, WaitQueue};
 
 use super::{AsyncNotifier, Notifier};
 

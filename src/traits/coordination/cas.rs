@@ -119,7 +119,7 @@ unsafe impl Coord for AtomicCoord {
         Ok((start, sz))
     }
 
-    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()> {
+    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<usize, ()> {
         if self.write_in_progress.swap(true, Ordering::AcqRel) {
             // return Err(Error::GrantInProgress);
             return Err(());
@@ -168,7 +168,7 @@ unsafe impl Coord for AtomicCoord {
         // Safe write, only viewed by this task
         self.reserve.store(start + sz, Ordering::Release);
 
-        Ok((start, sz))
+        Ok(start)
     }
 
     fn read(&self) -> Result<(usize, usize), ()> {

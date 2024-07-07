@@ -121,7 +121,7 @@ unsafe impl Coord for CsCoord {
         })
     }
 
-    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<(usize, usize), ()> {
+    fn grant_exact(&self, capacity: usize, sz: usize) -> Result<usize, ()> {
         critical_section::with(|_cs| {
             if self.write_in_progress.load(Ordering::Relaxed) {
                 // return Err(Error::GrantInProgress);
@@ -171,7 +171,7 @@ unsafe impl Coord for CsCoord {
             // Safe write, only viewed by this task
             self.reserve.store(start + sz, Ordering::Relaxed);
 
-            Ok((start, sz))
+            Ok(start)
         })
     }
 
