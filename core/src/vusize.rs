@@ -154,19 +154,6 @@ pub fn encoded_len(value: usize) -> usize {
     }
 }
 
-/// Get the length of an encoded `usize` for the given value in bytes.
-#[cfg(target_pointer_width = "8")]
-pub fn encoded_len(value: usize) -> usize {
-    // I don't think you can have targets with 8 bit pointers in rust,
-    // but just in case, 0..=127 would fit in one byte, and 128..=255
-    // would fit in two.
-    if (value & 0x80) == 0x80 {
-        2
-    } else {
-        1
-    }
-}
-
 /// Encode the given usize to the `slice`, using `length` bytes for encoding.
 ///
 /// ## Safety
