@@ -992,16 +992,27 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// let buffer: BBBuffer<6> = BBBuffer::new();
     /// let (mut prod, mut cons) = buffer.try_split().unwrap();
     ///
-    /// // Successfully obtain and commit a grant of four bytes
-    /// let mut grant = prod.grant_max_remaining(4).unwrap();
-    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
-    /// grant.commit(4);
+    /// // Successfully obtain and commit a grant of six bytes filling the buffer
+    /// let mut grant = prod.grant_max_remaining(6).unwrap();
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4, 5, 6]);
+    /// grant.commit(6);
     ///
-    /// // Obtain a read grant, and copy to a buffer
+    /// // Obtain a read grant of all six bytes, but only release four bytes
     /// let mut grant = cons.read().unwrap();
-    /// let mut buf = [0u8; 4];
-    /// buf.copy_from_slice(grant.buf());
-    /// assert_eq!(&buf, &[1, 2, 3, 4]);
+    /// assert_eq!(grant.buf(), &[1, 2, 3, 4, 5, 6]);
+    /// grant.release(4);
+    ///
+    /// // Successfully obtain and commit a grant of two bytes again at the start
+    /// // of the buffer creating a split buffer
+    /// let mut grant = prod.grant_max_remaining(2).unwrap();
+    /// grant.buf().copy_from_slice(&[7, 8]);
+    /// grant.commit(2);
+    ///
+    /// // Obtain a split read grant and release the buffer
+    /// let mut grant = cons.split_read().unwrap();
+    /// assert_eq!(grant.bufs(), ([5, 6].as_ref(), [7, 8].as_ref()));
+    /// grant.release(4);
+    ///
     /// # // bbqueue test shim!
     /// # }
     /// #
