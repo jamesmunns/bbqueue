@@ -95,7 +95,7 @@
 //! implemented by disabling interrupts. The critical sections are very short, a few instructions at
 //! most, so they should make no difference to most applications.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![deny(missing_docs)]
 #![deny(warnings)]
 
