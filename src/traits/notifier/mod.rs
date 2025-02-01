@@ -1,4 +1,4 @@
-#[cfg(feature = "maitake-sync-0_1")]
+#[cfg(feature = "maitake-sync-0_2")]
 pub mod maitake;
 
 pub mod blocking;

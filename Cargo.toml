@@ -1,12 +1,23 @@
 [package]
 name = "bbq2"
 version = "0.1.0"
+description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
+repository = "https://github.com/jamesmunns/bbq2"
+authors = ["James Munns <james@onevariable.com>"]
 edition = "2021"
+readme = "README.md"
+
+categories = [
+    "embedded",
+    "no-std",
+    "memory-management",
+]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 
 [dependencies.maitake-sync]
-version = "0.1"
+version = "0.2"
 default-features = false
 optional = true
 
@@ -23,7 +34,7 @@ features = ["macros", "rt", "time"]
 default = [
     "cas-atomics",
     "std",
-    "maitake-sync-0_1",
+    "maitake-sync-0_2",
     "critical-section",
     # "tokio-sync",
 ]
@@ -35,10 +46,6 @@ std = []
 # tokio-sync = [
 #     "dep:tokio",
 # ]
-maitake-sync-0_1 = [
+maitake-sync-0_2 = [
     "dep:maitake-sync",
 ]
-
-[patch.crates-io.maitake-sync]
-git = "https://github.com/jamesmunns/mycelium/"
-rev = "3d70f02bcc0de0e0cc0602ddc2b4aee7a34c5201"
