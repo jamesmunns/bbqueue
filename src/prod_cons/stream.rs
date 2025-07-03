@@ -104,6 +104,8 @@ where
     }
 }
 
+unsafe impl<Q: BbqHandle + Send> Send for StreamProducer<Q> {}
+
 pub struct StreamConsumer<Q>
 where
     Q: BbqHandle,
@@ -141,6 +143,8 @@ where
     }
 }
 
+unsafe impl<Q: BbqHandle + Send> Send for StreamConsumer<Q> {}
+
 pub struct StreamGrantW<Q>
 where
     Q: BbqHandle,
@@ -170,6 +174,8 @@ where
         unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 }
+
+unsafe impl<Q: BbqHandle + Send> Send for StreamGrantW<Q> {}
 
 impl<Q> Drop for StreamGrantW<Q>
 where
@@ -236,6 +242,8 @@ where
         unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 }
+
+unsafe impl<Q: BbqHandle + Send> Send for StreamGrantR<Q> {}
 
 impl<Q> Drop for StreamGrantR<Q>
 where
