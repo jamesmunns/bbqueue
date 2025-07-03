@@ -51,14 +51,14 @@ unsafe impl LenHeader for usize {
 }
 
 impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
-    pub fn framed_producer(&self) -> FramedProducer<&'_ Self, S, C, N> {
+    pub fn framed_producer(&self) -> FramedProducer<&'_ Self> {
         FramedProducer {
             bbq: self.bbq_ref(),
             pd: PhantomData,
         }
     }
 
-    pub fn framed_consumer(&self) -> FramedConsumer<&'_ Self, S, C, N> {
+    pub fn framed_consumer(&self) -> FramedConsumer<&'_ Self> {
         FramedConsumer {
             bbq: self.bbq_ref(),
             pd: PhantomData,
@@ -68,14 +68,14 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
 
 #[cfg(feature = "std")]
 impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
-    pub fn framed_producer(&self) -> FramedProducer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N> {
+    pub fn framed_producer(&self) -> FramedProducer<std::sync::Arc<BBQueue<S, C, N>>> {
         FramedProducer {
             bbq: self.0.bbq_ref(),
             pd: PhantomData,
         }
     }
 
-    pub fn framed_consumer(&self) -> FramedConsumer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N> {
+    pub fn framed_consumer(&self) -> FramedConsumer<std::sync::Arc<BBQueue<S, C, N>>> {
         FramedConsumer {
             bbq: self.0.bbq_ref(),
             pd: PhantomData,
@@ -83,27 +83,21 @@ impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
     }
 }
 
-pub struct FramedProducer<Q, S, C, N, H = u16>
+pub struct FramedProducer<Q, H = u16>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     bbq: Q::Target,
-    pd: PhantomData<(S, C, N, H)>,
+    pd: PhantomData<H>,
 }
 
-impl<Q, S, C, N, H> FramedProducer<Q, S, C, N, H>
+impl<Q, H> FramedProducer<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
-    pub fn grant(&self, sz: H) -> Result<FramedGrantW<Q, S, C, N, H>, ()> {
+    pub fn grant(&self, sz: H) -> Result<FramedGrantW<Q, H>, ()> {
         let (ptr, cap) = self.bbq.sto.ptr_len();
         let needed = sz.into() + core::mem::size_of::<H>();
 
@@ -121,40 +115,32 @@ where
     }
 }
 
-impl<Q, S, C, N, H> FramedProducer<Q, S, C, N, H>
+impl<Q, H> FramedProducer<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: AsyncNotifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
+    Q::Notifier: AsyncNotifier,
     H: LenHeader,
 {
-    pub async fn wait_grant(&self, sz: H) -> FramedGrantW<Q, S, C, N, H> {
+    pub async fn wait_grant(&self, sz: H) -> FramedGrantW<Q, H> {
         self.bbq.not.wait_for_not_full(|| self.grant(sz).ok()).await
     }
 }
 
-pub struct FramedConsumer<Q, S, C, N, H = u16>
+pub struct FramedConsumer<Q, H = u16>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     bbq: Q::Target,
-    pd: PhantomData<(S, C, N, H)>,
+    pd: PhantomData<H>,
 }
 
-impl<Q, S, C, N, H> FramedConsumer<Q, S, C, N, H>
+impl<Q, H> FramedConsumer<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
-    pub fn read(&self) -> Result<FramedGrantR<Q, S, C, N, H>, ()> {
+    pub fn read(&self) -> Result<FramedGrantR<Q, H>, ()> {
         let (ptr, _cap) = self.bbq.sto.ptr_len();
         let (offset, grant_len) = self.bbq.cor.read()?;
 
@@ -197,25 +183,20 @@ where
     }
 }
 
-impl<Q, S, C, N, H> FramedConsumer<Q, S, C, N, H>
+impl<Q, H> FramedConsumer<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: AsyncNotifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
+    Q::Notifier: AsyncNotifier,
     H: LenHeader,
 {
-    pub async fn wait_read(&self) -> FramedGrantR<Q, S, C, N, H> {
+    pub async fn wait_read(&self) -> FramedGrantR<Q, H> {
         self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
     }
 }
 
-pub struct FramedGrantW<Q, S, C, N, H = u16>
+pub struct FramedGrantW<Q, H = u16>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     bbq: Q::Target,
@@ -223,24 +204,18 @@ where
     hdr: H,
 }
 
-unsafe impl<Q, S, C, N, H> Send for FramedGrantW<Q, S, C, N, H>
+unsafe impl<Q, H> Send for FramedGrantW<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     Q::Target: Send,
     H: LenHeader + Send
 {
 
 }
 
-impl<Q, S, C, N, H> Deref for FramedGrantW<Q, S, C, N, H>
+impl<Q, H> Deref for FramedGrantW<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     type Target = [u8];
@@ -255,12 +230,9 @@ where
     }
 }
 
-impl<Q, S, C, N, H> DerefMut for FramedGrantW<Q, S, C, N, H>
+impl<Q, H> DerefMut for FramedGrantW<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -273,12 +245,9 @@ where
     }
 }
 
-impl<Q, S, C, N, H> Drop for FramedGrantW<Q, S, C, N, H>
+impl<Q, H> Drop for FramedGrantW<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     fn drop(&mut self) {
@@ -290,12 +259,9 @@ where
     }
 }
 
-impl<Q, S, C, N, H> FramedGrantW<Q, S, C, N, H>
+impl<Q, H> FramedGrantW<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     pub fn commit(self, used: H) {
@@ -323,12 +289,9 @@ where
     }
 }
 
-pub struct FramedGrantR<Q, S, C, N, H = u16>
+pub struct FramedGrantR<Q, H = u16>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     bbq: Q::Target,
@@ -336,24 +299,18 @@ where
     hdr: H,
 }
 
-unsafe impl<Q, S, C, N, H> Send for FramedGrantR<Q, S, C, N, H>
+unsafe impl<Q, H> Send for FramedGrantR<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     Q::Target: Send,
     H: LenHeader + Send
 {
 
 }
 
-impl<Q, S, C, N, H> Deref for FramedGrantR<Q, S, C, N, H>
+impl<Q, H> Deref for FramedGrantR<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     type Target = [u8];
@@ -364,12 +321,9 @@ where
     }
 }
 
-impl<Q, S, C, N, H> DerefMut for FramedGrantR<Q, S, C, N, H>
+impl<Q, H> DerefMut for FramedGrantR<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -378,12 +332,9 @@ where
     }
 }
 
-impl<Q, S, C, N, H> Drop for FramedGrantR<Q, S, C, N, H>
+impl<Q, H> Drop for FramedGrantR<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     fn drop(&mut self) {
@@ -392,12 +343,9 @@ where
     }
 }
 
-impl<Q, S, C, N, H> FramedGrantR<Q, S, C, N, H>
+impl<Q, H> FramedGrantR<Q, H>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
     H: LenHeader,
 {
     pub fn release(self) {
