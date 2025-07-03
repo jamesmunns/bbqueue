@@ -1,5 +1,4 @@
 use core::{
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
@@ -15,57 +14,46 @@ use crate::{
 };
 
 impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
-    pub fn stream_producer(&self) -> StreamProducer<&'_ Self, S, C, N> {
+    pub fn stream_producer(&self) -> StreamProducer<&'_ Self> {
         StreamProducer {
             bbq: self.bbq_ref(),
-            pd: PhantomData,
         }
     }
 
-    pub fn stream_consumer(&self) -> StreamConsumer<&'_ Self, S, C, N> {
+    pub fn stream_consumer(&self) -> StreamConsumer<&'_ Self> {
         StreamConsumer {
             bbq: self.bbq_ref(),
-            pd: PhantomData,
         }
     }
 }
 
 #[cfg(feature = "std")]
 impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
-    pub fn stream_producer(&self) -> StreamProducer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N> {
+    pub fn stream_producer(&self) -> StreamProducer<std::sync::Arc<BBQueue<S, C, N>>> {
         StreamProducer {
             bbq: self.0.bbq_ref(),
-            pd: PhantomData,
         }
     }
 
-    pub fn stream_consumer(&self) -> StreamConsumer<std::sync::Arc<BBQueue<S, C, N>>, S, C, N> {
+    pub fn stream_consumer(&self) -> StreamConsumer<std::sync::Arc<BBQueue<S, C, N>>> {
         StreamConsumer {
             bbq: self.0.bbq_ref(),
-            pd: PhantomData,
         }
     }
 }
 
-pub struct StreamProducer<Q, S, C, N>
+pub struct StreamProducer<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     bbq: Q::Target,
-    pd: PhantomData<(S, C, N)>,
 }
 
-impl<Q, S, C, N> StreamProducer<Q, S, C, N>
+impl<Q> StreamProducer<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
-    pub fn grant_max_remaining(&self, max: usize) -> Result<StreamGrantW<Q, S, C, N>, ()> {
+    pub fn grant_max_remaining(&self, max: usize) -> Result<StreamGrantW<Q>, ()> {
         let (ptr, cap) = self.bbq.sto.ptr_len();
         let (offset, len) = self.bbq.cor.grant_max_remaining(cap, max)?;
         let ptr = unsafe {
@@ -80,7 +68,7 @@ where
         })
     }
 
-    pub fn grant_exact(&self, sz: usize) -> Result<StreamGrantW<Q, S, C, N>, ()> {
+    pub fn grant_exact(&self, sz: usize) -> Result<StreamGrantW<Q>, ()> {
         let (ptr, cap) = self.bbq.sto.ptr_len();
         let offset = self.bbq.cor.grant_exact(cap, sz)?;
         let ptr = unsafe {
@@ -96,21 +84,19 @@ where
     }
 }
 
-impl<Q, S, C, N> StreamProducer<Q, S, C, N>
+impl<Q> StreamProducer<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: AsyncNotifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
+    Q::Notifier: AsyncNotifier,
 {
-    pub async fn wait_grant_max_remaining(&self, max: usize) -> StreamGrantW<Q, S, C, N> {
+    pub async fn wait_grant_max_remaining(&self, max: usize) -> StreamGrantW<Q> {
         self.bbq
             .not
             .wait_for_not_full(|| self.grant_max_remaining(max).ok())
             .await
     }
 
-    pub async fn wait_grant_exact(&self, sz: usize) -> StreamGrantW<Q, S, C, N> {
+    pub async fn wait_grant_exact(&self, sz: usize) -> StreamGrantW<Q> {
         self.bbq
             .not
             .wait_for_not_full(|| self.grant_exact(sz).ok())
@@ -118,25 +104,18 @@ where
     }
 }
 
-pub struct StreamConsumer<Q, S, C, N>
+pub struct StreamConsumer<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     bbq: Q::Target,
-    pd: PhantomData<(S, C, N)>,
 }
 
-impl<Q, S, C, N> StreamConsumer<Q, S, C, N>
+impl<Q> StreamConsumer<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
-    pub fn read(&self) -> Result<StreamGrantR<Q, S, C, N>, ()> {
+    pub fn read(&self) -> Result<StreamGrantR<Q>, ()> {
         let (ptr, _cap) = self.bbq.sto.ptr_len();
         let (offset, len) = self.bbq.cor.read()?;
         let ptr = unsafe {
@@ -152,24 +131,19 @@ where
     }
 }
 
-impl<Q, S, C, N> StreamConsumer<Q, S, C, N>
+impl<Q> StreamConsumer<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: AsyncNotifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
+    Q::Notifier: AsyncNotifier,
 {
-    pub async fn wait_read(&self) -> StreamGrantR<Q, S, C, N> {
+    pub async fn wait_read(&self) -> StreamGrantR<Q> {
         self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
     }
 }
 
-pub struct StreamGrantW<Q, S, C, N>
+pub struct StreamGrantW<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     bbq: Q::Target,
     ptr: NonNull<u8>,
@@ -177,12 +151,9 @@ where
     to_commit: usize,
 }
 
-impl<Q, S, C, N> Deref for StreamGrantW<Q, S, C, N>
+impl<Q> Deref for StreamGrantW<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     type Target = [u8];
 
@@ -191,24 +162,18 @@ where
     }
 }
 
-impl<Q, S, C, N> DerefMut for StreamGrantW<Q, S, C, N>
+impl<Q> DerefMut for StreamGrantW<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 }
 
-impl<Q, S, C, N> Drop for StreamGrantW<Q, S, C, N>
+impl<Q> Drop for StreamGrantW<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     fn drop(&mut self) {
         let StreamGrantW {
@@ -227,12 +192,9 @@ where
     }
 }
 
-impl<Q, S, C, N> StreamGrantW<Q, S, C, N>
+impl<Q> StreamGrantW<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     pub fn commit(self, used: usize) {
         let (_, cap) = self.bbq.sto.ptr_len();
@@ -245,12 +207,9 @@ where
     }
 }
 
-pub struct StreamGrantR<Q, S, C, N>
+pub struct StreamGrantR<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     bbq: Q::Target,
     ptr: NonNull<u8>,
@@ -258,12 +217,9 @@ where
     to_release: usize,
 }
 
-impl<Q, S, C, N> Deref for StreamGrantR<Q, S, C, N>
+impl<Q> Deref for StreamGrantR<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     type Target = [u8];
 
@@ -272,24 +228,18 @@ where
     }
 }
 
-impl<Q, S, C, N> DerefMut for StreamGrantR<Q, S, C, N>
+impl<Q> DerefMut for StreamGrantR<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 }
 
-impl<Q, S, C, N> Drop for StreamGrantR<Q, S, C, N>
+impl<Q> Drop for StreamGrantR<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     fn drop(&mut self) {
         let StreamGrantR {
@@ -307,12 +257,9 @@ where
     }
 }
 
-impl<Q, S, C, N> StreamGrantR<Q, S, C, N>
+impl<Q> StreamGrantR<Q>
 where
-    S: Storage,
-    C: Coord,
-    N: Notifier,
-    Q: BbqHandle<S, C, N>,
+    Q: BbqHandle,
 {
     pub fn release(self, used: usize) {
         let used = used.min(self.len);
