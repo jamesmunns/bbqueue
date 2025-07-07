@@ -1,12 +1,32 @@
-#![allow(clippy::result_unit_err)]
+//! bbq2
+//!
+//! A new and improved bipbuffer queue.
+
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
+/// Type aliases for different generic configurations
+///
 pub mod nicknames;
+
+/// Producer and consumer interfaces
+///
 pub mod prod_cons;
+
+/// Queue storage
+///
 pub mod queue;
+
+/// Generic traits
+///
 pub mod traits;
 
-#[cfg(test)]
+/// Re-export of external types/traits
+///
+pub mod export {
+    pub use const_init::ConstInit;
+}
+
+#[cfg(all(test, feature = "std"))]
 mod test {
     use core::{ops::Deref, time::Duration};
 
@@ -212,5 +232,7 @@ mod test {
         // todo: timeouts
         rxfut.await.unwrap();
         txfut.await.unwrap();
+
+        drop(bbq);
     }
 }

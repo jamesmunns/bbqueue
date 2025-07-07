@@ -1,13 +1,32 @@
+//! "Storage" functionality
+//!
+//! This trait defines how the "data" part of the ring buffer is stored.
+//!
+//! This is typically "inline", e.g. stored as an owned `[u8; N]` array,
+//! or heap allocated, e.g. as a `Box<[u8]>`.
+//!
+//! Inline storage is useful for static allocation, or cases where a fixed
+//! buffer is useful. Heap storage is useful when you need dynamically sized
+//! storage, e.g. of a size provided from CLI args or a configuration file
+//! at runtime.
+
+use const_init::ConstInit;
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr::NonNull};
 
+/// Trait for providing access to the storage
+///
+/// Must always return the same ptr/len forever.
 pub trait Storage {
     fn ptr_len(&self) -> (NonNull<u8>, usize);
 }
 
-pub trait ConstStorage: Storage {
-    const INIT: Self;
-}
+/// A marker trait that the item is BOTH storage and can be initialized as a constant
+///
+/// This allows for making `static` versions of the bbqueue.
+pub trait ConstStorage: Storage + ConstInit {}
+impl<T> ConstStorage for T where T: Storage + ConstInit {}
 
+/// Inline/array-ful storage
 #[repr(transparent)]
 pub struct Inline<const N: usize> {
     buf: UnsafeCell<MaybeUninit<[u8; N]>>,
@@ -43,11 +62,12 @@ impl<const N: usize> Storage for Inline<N> {
     }
 }
 
-impl<const N: usize> ConstStorage for Inline<N> {
+#[allow(clippy::declare_interior_mutable_const)]
+impl<const N: usize> ConstInit for Inline<N> {
     const INIT: Self = Self::new();
 }
 
-impl<'a, const N: usize> Storage for &'a Inline<N> {
+impl<const N: usize> Storage for &'_ Inline<N> {
     fn ptr_len(&self) -> (NonNull<u8>, usize) {
         let len = N;
 
@@ -59,6 +79,7 @@ impl<'a, const N: usize> Storage for &'a Inline<N> {
     }
 }
 
+/// Boxed/heap-ful storage
 #[cfg(feature = "std")]
 pub struct BoxedSlice {
     buf: Box<[UnsafeCell<MaybeUninit<u8>>]>,
@@ -69,6 +90,7 @@ unsafe impl Sync for BoxedSlice {}
 
 #[cfg(feature = "std")]
 impl BoxedSlice {
+    /// Create a new BoxedSlice with capacity `len`.
     pub fn new(len: usize) -> Self {
         let buf: Box<[UnsafeCell<MaybeUninit<u8>>]> = {
             let mut v: Vec<UnsafeCell<MaybeUninit<u8>>> = Vec::with_capacity(len);

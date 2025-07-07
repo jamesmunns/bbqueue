@@ -1,59 +1,92 @@
+//! Stream byte queue interfaces
+//!
+//! Useful for sending stream-oriented data where the consumer doesn't care
+//! about how the data was pushed, e.g. a serial port stream where multiple
+//! writes from the software may be transferred out over DMA in a single
+//! transfer.
+
 use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 
-use crate::{
-    queue::BBQueue,
-    traits::{
-        bbqhdl::BbqHandle,
-        coordination::Coord,
-        notifier::{AsyncNotifier, Notifier},
-        storage::Storage,
-    },
+use crate::traits::{
+    bbqhdl::BbqHandle,
+    coordination::{Coord, ReadGrantError, WriteGrantError},
+    notifier::{AsyncNotifier, Notifier},
+    storage::Storage,
 };
 
-impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
-    pub fn stream_producer(&self) -> StreamProducer<&'_ Self> {
-        StreamProducer {
-            bbq: self.bbq_ref(),
-        }
-    }
-
-    pub fn stream_consumer(&self) -> StreamConsumer<&'_ Self> {
-        StreamConsumer {
-            bbq: self.bbq_ref(),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
-    pub fn stream_producer(&self) -> StreamProducer<std::sync::Arc<BBQueue<S, C, N>>> {
-        StreamProducer {
-            bbq: self.0.bbq_ref(),
-        }
-    }
-
-    pub fn stream_consumer(&self) -> StreamConsumer<std::sync::Arc<BBQueue<S, C, N>>> {
-        StreamConsumer {
-            bbq: self.0.bbq_ref(),
-        }
-    }
-}
-
+/// A producer handle that may write data into the buffer
 pub struct StreamProducer<Q>
 where
     Q: BbqHandle,
 {
-    bbq: Q::Target,
+    pub(crate) bbq: Q::Target,
 }
+
+/// A consumer handle that may read data from the buffer
+pub struct StreamConsumer<Q>
+where
+    Q: BbqHandle,
+{
+    pub(crate) bbq: Q::Target,
+}
+
+/// A writing grant into the storage buffer
+///
+/// Grants implement Deref/DerefMut to access the contained storage.
+#[must_use = "Write Grants must be committed to be effective"]
+pub struct StreamGrantW<Q>
+where
+    Q: BbqHandle,
+{
+    bbq: Q::Target,
+    ptr: NonNull<u8>,
+    len: usize,
+    to_commit: usize,
+}
+
+/// A reading grant into the storage buffer
+///
+/// Grants implement Deref/DerefMut to access the contained storage.
+///
+/// Write access is provided for read grants in case it is necessary to mutate
+/// the storage in-place for decoding.
+pub struct StreamGrantR<Q>
+where
+    Q: BbqHandle,
+{
+    bbq: Q::Target,
+    ptr: NonNull<u8>,
+    len: usize,
+    to_release: usize,
+}
+
+// ---- impls ----
+
+// ---- StreamProducer ----
 
 impl<Q> StreamProducer<Q>
 where
     Q: BbqHandle,
 {
-    pub fn grant_max_remaining(&self, max: usize) -> Result<StreamGrantW<Q>, ()> {
+    /// Obtain a grant UP TO the given `max` size.
+    ///
+    /// If we return a grant, it will have a nonzero amount of space.
+    ///
+    /// If the grant represents LESS than `max` size, this is due to either:
+    ///
+    /// * There is less than `max` free space available in the queue for writing
+    /// * The grant represents the remaining space in the buffer that WOULDN'T cause
+    ///   a wrap-around of the ring buffer
+    ///
+    /// This method will never cause an "early wraparound" of the ring buffer unless
+    /// there is no capacity without wrapping around. There may still be available
+    /// writing capacity in the buffer after commiting this write grant, so it may be
+    /// useful to call `grant_max_remaining` in a loop until `Err(WriteGrantError::InsufficientSize)`
+    /// is returned.
+    pub fn grant_max_remaining(&self, max: usize) -> Result<StreamGrantW<Q>, WriteGrantError> {
         let (ptr, cap) = self.bbq.sto.ptr_len();
         let (offset, len) = self.bbq.cor.grant_max_remaining(cap, max)?;
         let ptr = unsafe {
@@ -68,7 +101,12 @@ where
         })
     }
 
-    pub fn grant_exact(&self, sz: usize) -> Result<StreamGrantW<Q>, ()> {
+    /// Obtain a grant with EXACTLY `sz` capacity
+    ///
+    /// Unlike `grant_max_remaining`, if there is insufficient size at the "tail" of
+    /// the ring buffer, this method WILL cause a wrap-around to occur to attempt to
+    /// find the requested write capacity.
+    pub fn grant_exact(&self, sz: usize) -> Result<StreamGrantW<Q>, WriteGrantError> {
         let (ptr, cap) = self.bbq.sto.ptr_len();
         let offset = self.bbq.cor.grant_exact(cap, sz)?;
         let ptr = unsafe {
@@ -89,6 +127,7 @@ where
     Q: BbqHandle,
     Q::Notifier: AsyncNotifier,
 {
+    /// Wait for a grant of any size, up to `max`, to become available
     pub async fn wait_grant_max_remaining(&self, max: usize) -> StreamGrantW<Q> {
         self.bbq
             .not
@@ -96,6 +135,9 @@ where
             .await
     }
 
+    /// Wait for a grant of EXACTLY `sz` to become available.
+    ///
+    /// If `sz` exceeds the capacity of the buffer, this method will never return.
     pub async fn wait_grant_exact(&self, sz: usize) -> StreamGrantW<Q> {
         self.bbq
             .not
@@ -106,18 +148,19 @@ where
 
 unsafe impl<Q: BbqHandle + Send> Send for StreamProducer<Q> {}
 
-pub struct StreamConsumer<Q>
-where
-    Q: BbqHandle,
-{
-    bbq: Q::Target,
-}
+// ---- StreamConsumer ----
 
 impl<Q> StreamConsumer<Q>
 where
     Q: BbqHandle,
 {
-    pub fn read(&self) -> Result<StreamGrantR<Q>, ()> {
+    /// Obtain a chunk of readable data
+    ///
+    /// The returned chunk may NOT represent all available data if the available
+    /// data wraps around the internal ring buffer. You may want to call `read`
+    /// in a loop until `Err(ReadGrantError::Empty)` is returned if you want to
+    /// drain the queue entirely.
+    pub fn read(&self) -> Result<StreamGrantR<Q>, ReadGrantError> {
         let (ptr, _cap) = self.bbq.sto.ptr_len();
         let (offset, len) = self.bbq.cor.read()?;
         let ptr = unsafe {
@@ -138,6 +181,7 @@ where
     Q: BbqHandle,
     Q::Notifier: AsyncNotifier,
 {
+    /// Wait for any read data to become available
     pub async fn wait_read(&self) -> StreamGrantR<Q> {
         self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
     }
@@ -145,14 +189,21 @@ where
 
 unsafe impl<Q: BbqHandle + Send> Send for StreamConsumer<Q> {}
 
-pub struct StreamGrantW<Q>
+// ---- StreamGrantW ----
+
+impl<Q> StreamGrantW<Q>
 where
     Q: BbqHandle,
 {
-    bbq: Q::Target,
-    ptr: NonNull<u8>,
-    len: usize,
-    to_commit: usize,
+    pub fn commit(self, used: usize) {
+        let (_, cap) = self.bbq.sto.ptr_len();
+        let used = used.min(self.len);
+        self.bbq.cor.commit_inner(cap, self.len, used);
+        if used != 0 {
+            self.bbq.not.wake_one_consumer();
+        }
+        core::mem::forget(self);
+    }
 }
 
 impl<Q> Deref for StreamGrantW<Q>
@@ -175,8 +226,6 @@ where
     }
 }
 
-unsafe impl<Q: BbqHandle + Send> Send for StreamGrantW<Q> {}
-
 impl<Q> Drop for StreamGrantW<Q>
 where
     Q: BbqHandle,
@@ -198,29 +247,22 @@ where
     }
 }
 
-impl<Q> StreamGrantW<Q>
+unsafe impl<Q: BbqHandle + Send> Send for StreamGrantW<Q> {}
+
+// ---- StreamGrantR ----
+
+impl<Q> StreamGrantR<Q>
 where
     Q: BbqHandle,
 {
-    pub fn commit(self, used: usize) {
-        let (_, cap) = self.bbq.sto.ptr_len();
+    pub fn release(self, used: usize) {
         let used = used.min(self.len);
-        self.bbq.cor.commit_inner(cap, self.len, used);
+        self.bbq.cor.release_inner(used);
         if used != 0 {
-            self.bbq.not.wake_one_consumer();
+            self.bbq.not.wake_one_producer();
         }
         core::mem::forget(self);
     }
-}
-
-pub struct StreamGrantR<Q>
-where
-    Q: BbqHandle,
-{
-    bbq: Q::Target,
-    ptr: NonNull<u8>,
-    len: usize,
-    to_release: usize,
 }
 
 impl<Q> Deref for StreamGrantR<Q>
@@ -243,8 +285,6 @@ where
     }
 }
 
-unsafe impl<Q: BbqHandle + Send> Send for StreamGrantR<Q> {}
-
 impl<Q> Drop for StreamGrantR<Q>
 where
     Q: BbqHandle,
@@ -265,16 +305,4 @@ where
     }
 }
 
-impl<Q> StreamGrantR<Q>
-where
-    Q: BbqHandle,
-{
-    pub fn release(self, used: usize) {
-        let used = used.min(self.len);
-        self.bbq.cor.release_inner(used);
-        if used != 0 {
-            self.bbq.not.wake_one_producer();
-        }
-        core::mem::forget(self);
-    }
-}
+unsafe impl<Q: BbqHandle + Send> Send for StreamGrantR<Q> {}

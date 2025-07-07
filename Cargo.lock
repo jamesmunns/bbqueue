@@ -45,6 +45,7 @@ dependencies = [
 name = "bbq2"
 version = "0.2.0"
 dependencies = [
+ "const-init",
  "critical-section",
  "maitake-sync",
  "tokio",
@@ -61,6 +62,12 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "const-init"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bd422bfb4f24a97243f60b6a4443e63d810c925d8da4bb2d8fde26a7c1d57ec"
 
 [[package]]
 name = "cordyceps"

@@ -19,6 +19,8 @@
 //! | Heap    | Atomic           | Async    | No     | Tandoori     | India         |
 //! | Heap    | Atomic           | Async    | Yes    | Lechon       | Philippines   |
 
+#![allow(unused_imports)]
+
 #[cfg(feature = "std")]
 use crate::queue::ArcBBQueue;
 #[cfg(feature = "cas-atomics")]

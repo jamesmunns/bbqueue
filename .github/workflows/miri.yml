@@ -1,0 +1,22 @@
+name: Run miri tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  miri:
+    name: "miri all the things"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install miri component
+        run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu miri
+      #
+      # crate
+      #
+      - name: Miri test bbq2
+        run: ./miri.sh
