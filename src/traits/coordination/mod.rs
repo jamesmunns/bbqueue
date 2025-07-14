@@ -5,8 +5,10 @@
 //! Unless you are on an embedded target without Compare and Swap atomics, e.g.
 //! `cortex-m0`/`thumbv6m`, you almost certainly want to use the [`cas`] version
 //! of coordination.
+//!
+//! The `cas` module is toggled automatically based on `#[cfg(target_has_atomic = "ptr")]`.
 
-#[cfg(feature = "cas-atomics")]
+#[cfg(target_has_atomic = "ptr")]
 pub mod cas;
 
 #[cfg(feature = "critical-section")]

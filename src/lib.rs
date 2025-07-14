@@ -39,7 +39,7 @@ mod test {
         },
     };
 
-    #[cfg(all(feature = "cas-atomics", feature = "std"))]
+    #[cfg(all(target_has_atomic = "ptr", feature = "std"))]
     #[test]
     fn ux() {
         use crate::traits::{notifier::blocking::Blocking, storage::BoxedSlice};
@@ -59,7 +59,7 @@ mod test {
         let _ = bbq3.stream_consumer();
     }
 
-    #[cfg(feature = "cas-atomics")]
+    #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn smoke() {
         use crate::traits::notifier::blocking::Blocking;
@@ -85,7 +85,7 @@ mod test {
         assert!(cons.read().is_err());
     }
 
-    #[cfg(feature = "cas-atomics")]
+    #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn smoke_framed() {
         use crate::traits::notifier::blocking::Blocking;
@@ -107,7 +107,7 @@ mod test {
         assert!(cons.read().is_err());
     }
 
-    #[cfg(feature = "cas-atomics")]
+    #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn framed_misuse() {
         use crate::traits::notifier::blocking::Blocking;

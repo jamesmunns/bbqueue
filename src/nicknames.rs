@@ -23,7 +23,7 @@
 
 #[cfg(feature = "std")]
 use crate::queue::ArcBBQueue;
-#[cfg(feature = "cas-atomics")]
+#[cfg(target_has_atomic = "ptr")]
 use crate::traits::coordination::cas::AtomicCoord;
 #[cfg(feature = "critical-section")]
 use crate::traits::coordination::cs::CsCoord;
@@ -43,11 +43,11 @@ pub type Jerk<const N: usize> = BBQueue<Inline<N>, CsCoord, Blocking>;
 pub type Memphis<const N: usize, A> = BBQueue<Inline<N>, CsCoord, A>;
 
 /// Inline Storage, Atomics, Blocking, Borrowed
-#[cfg(feature = "cas-atomics")]
+#[cfg(target_has_atomic = "ptr")]
 pub type Churrasco<const N: usize> = BBQueue<Inline<N>, AtomicCoord, Blocking>;
 
 /// Inline Storage, Atomics, Async, Borrowed
-#[cfg(feature = "cas-atomics")]
+#[cfg(target_has_atomic = "ptr")]
 pub type Texas<const N: usize, A> = BBQueue<Inline<N>, AtomicCoord, A>;
 
 /// Heap Buffer, Critical Section, Blocking, Borrowed
@@ -59,11 +59,11 @@ pub type Braai = BBQueue<BoxedSlice, CsCoord, Blocking>;
 pub type SiuMei<A> = BBQueue<BoxedSlice, CsCoord, A>;
 
 /// Heap Buffer, Atomics, Blocking, Borrowed
-#[cfg(all(feature = "std", feature = "cas-atomics"))]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
 pub type YakiNiku = BBQueue<BoxedSlice, AtomicCoord, Blocking>;
 
 /// Heap Buffer, Atomics, Async, Borrowed
-#[cfg(all(feature = "std", feature = "cas-atomics"))]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
 pub type Tandoori<A> = BBQueue<BoxedSlice, AtomicCoord, A>;
 
 /// Inline Storage, Critical Section, Blocking, Arc
@@ -75,11 +75,11 @@ pub type Asado<const N: usize> = ArcBBQueue<Inline<N>, CsCoord, Blocking>;
 pub type Carolina<const N: usize, A> = ArcBBQueue<Inline<N>, CsCoord, A>;
 
 /// Inline Storage, Atomics, Blocking, Arc
-#[cfg(all(feature = "std", feature = "cas-atomics"))]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
 pub type Barbacoa<const N: usize> = ArcBBQueue<Inline<N>, AtomicCoord, Blocking>;
 
 /// Inline Storage, Atomics, Async, Arc
-#[cfg(all(feature = "std", feature = "cas-atomics"))]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
 pub type KansasCity<const N: usize, A> = ArcBBQueue<Inline<N>, AtomicCoord, A>;
 
 /// Heap Buffer, Critical Section, Blocking, Arc
@@ -91,9 +91,9 @@ pub type Kebab = ArcBBQueue<BoxedSlice, CsCoord, Blocking>;
 pub type Satay<A> = ArcBBQueue<BoxedSlice, CsCoord, A>;
 
 /// Heap Buffer, Atomics, Blocking, Arc
-#[cfg(all(feature = "std", feature = "cas-atomics"))]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
 pub type GogiGui = ArcBBQueue<BoxedSlice, AtomicCoord, Blocking>;
 
 /// Heap Buffer, Atomics, Async, Arc
-#[cfg(all(feature = "std", feature = "cas-atomics"))]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
 pub type Lechon<A> = ArcBBQueue<BoxedSlice, AtomicCoord, A>;
