@@ -76,6 +76,7 @@ unsafe impl Coord for CsCoord {
             if self.write_in_progress.load(Ordering::Relaxed) {
                 return Err(WriteGrantError::GrantInProgress);
             }
+            self.write_in_progress.store(true, Ordering::Relaxed);
 
             // Writer component. Must never write to `read`,
             // be careful writing to `load`
@@ -132,6 +133,7 @@ unsafe impl Coord for CsCoord {
             if self.write_in_progress.load(Ordering::Relaxed) {
                 return Err(WriteGrantError::GrantInProgress);
             }
+            self.write_in_progress.store(true, Ordering::Relaxed);
 
             // Writer component. Must never write to `read`,
             // be careful writing to `load`
@@ -183,6 +185,7 @@ unsafe impl Coord for CsCoord {
             if self.read_in_progress.load(Ordering::Relaxed) {
                 return Err(ReadGrantError::GrantInProgress);
             }
+            self.read_in_progress.store(true, Ordering::Relaxed);
 
             let write = self.write.load(Ordering::Relaxed);
             let last = self.last.load(Ordering::Relaxed);
@@ -287,8 +290,8 @@ unsafe impl Coord for CsCoord {
 
             // This should be fine, purely incrementing
             let old_read = self.read.load(Ordering::Relaxed);
-            self.read.store(used + old_read, Ordering::Release);
-            self.read_in_progress.store(false, Ordering::Release);
+            self.read.store(used + old_read, Ordering::Relaxed);
+            self.read_in_progress.store(false, Ordering::Relaxed);
         })
     }
 }

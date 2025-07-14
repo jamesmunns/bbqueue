@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "bbq2"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "const-init",
  "critical-section",
