@@ -65,7 +65,11 @@ unsafe impl Coord for AtomicCoord {
         self.last.store(0, Ordering::Release);
     }
 
-    fn grant_max_remaining(&self, capacity: usize, mut sz: usize) -> Result<(usize, usize), WriteGrantError> {
+    fn grant_max_remaining(
+        &self,
+        capacity: usize,
+        mut sz: usize,
+    ) -> Result<(usize, usize), WriteGrantError> {
         if self.write_in_progress.swap(true, Ordering::AcqRel) {
             return Err(WriteGrantError::GrantInProgress);
         }

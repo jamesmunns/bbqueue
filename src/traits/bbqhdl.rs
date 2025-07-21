@@ -17,7 +17,13 @@
 
 use core::{marker::PhantomData, ops::Deref};
 
-use crate::{prod_cons::{framed::{FramedConsumer, FramedProducer, LenHeader}, stream::{StreamConsumer, StreamProducer}}, queue::BBQueue};
+use crate::{
+    prod_cons::{
+        framed::{FramedConsumer, FramedProducer, LenHeader},
+        stream::{StreamConsumer, StreamProducer},
+    },
+    queue::BBQueue,
+};
 
 use super::{coordination::Coord, notifier::Notifier, storage::Storage};
 

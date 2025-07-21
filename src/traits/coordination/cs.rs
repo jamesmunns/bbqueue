@@ -71,7 +71,11 @@ unsafe impl Coord for CsCoord {
         self.last.store(0, Ordering::Release);
     }
 
-    fn grant_max_remaining(&self, capacity: usize, mut sz: usize) -> Result<(usize, usize), WriteGrantError> {
+    fn grant_max_remaining(
+        &self,
+        capacity: usize,
+        mut sz: usize,
+    ) -> Result<(usize, usize), WriteGrantError> {
         critical_section::with(|_cs| {
             if self.write_in_progress.load(Ordering::Relaxed) {
                 return Err(WriteGrantError::GrantInProgress);
