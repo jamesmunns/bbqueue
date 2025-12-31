@@ -13,6 +13,9 @@
 use const_init::ConstInit;
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr::NonNull};
 
+#[cfg(feature = "alloc")]
+use alloc::{boxed::Box, vec::Vec};
+
 /// Trait for providing access to the storage
 ///
 /// Must always return the same ptr/len forever.
@@ -80,15 +83,15 @@ impl<const N: usize> Storage for &'_ Inline<N> {
 }
 
 /// Boxed/heap-ful storage
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub struct BoxedSlice {
     buf: Box<[UnsafeCell<MaybeUninit<u8>>]>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 unsafe impl Sync for BoxedSlice {}
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl BoxedSlice {
     /// Create a new BoxedSlice with capacity `len`.
     pub fn new(len: usize) -> Self {
@@ -108,7 +111,7 @@ impl BoxedSlice {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Storage for BoxedSlice {
     fn ptr_len(&self) -> (NonNull<u8>, usize) {
         let len = self.buf.len();

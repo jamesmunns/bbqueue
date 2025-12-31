@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::traits::bbqhdl::BbqHandle;
 
 /// A standard bbqueue
@@ -33,13 +33,13 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
 }
 
 /// A BBQueue wrapped in an Arc
-#[cfg(feature = "std")]
-pub struct ArcBBQueue<S, C, N>(pub(crate) std::sync::Arc<BBQueue<S, C, N>>);
+#[cfg(feature = "alloc")]
+pub struct ArcBBQueue<S, C, N>(pub(crate) alloc::sync::Arc<BBQueue<S, C, N>>);
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: Storage, C: Coord, N: Notifier> ArcBBQueue<S, C, N> {
     pub fn new_with_storage(sto: S) -> Self {
-        Self(std::sync::Arc::new(BBQueue::new_with_storage(sto)))
+        Self(alloc::sync::Arc::new(BBQueue::new_with_storage(sto)))
     }
 }
 
@@ -78,29 +78,29 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
-    pub fn framed_producer(&self) -> FramedProducer<std::sync::Arc<BBQueue<S, C, N>>> {
+    pub fn framed_producer(&self) -> FramedProducer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         FramedProducer {
             bbq: self.0.bbq_ref(),
             pd: PhantomData,
         }
     }
 
-    pub fn framed_consumer(&self) -> FramedConsumer<std::sync::Arc<BBQueue<S, C, N>>> {
+    pub fn framed_consumer(&self) -> FramedConsumer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         FramedConsumer {
             bbq: self.0.bbq_ref(),
             pd: PhantomData,
         }
     }
 
-    pub fn stream_producer(&self) -> StreamProducer<std::sync::Arc<BBQueue<S, C, N>>> {
+    pub fn stream_producer(&self) -> StreamProducer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         StreamProducer {
             bbq: self.0.bbq_ref(),
         }
     }
 
-    pub fn stream_consumer(&self) -> StreamConsumer<std::sync::Arc<BBQueue<S, C, N>>> {
+    pub fn stream_consumer(&self) -> StreamConsumer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         StreamConsumer {
             bbq: self.0.bbq_ref(),
         }

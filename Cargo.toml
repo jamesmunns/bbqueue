@@ -49,7 +49,10 @@ critical-section = [
 disable-cache-padding = [
     "maitake-sync?/no-cache-pad",
 ]
-std = []
+alloc = []
+std = [
+    "alloc"
+]
 maitake-sync-0_2 = [
     "dep:maitake-sync",
 ]

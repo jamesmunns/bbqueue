@@ -4,6 +4,9 @@
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 /// Type aliases for different generic configurations
 ///
 pub mod nicknames;
@@ -26,7 +29,7 @@ pub mod export {
     pub use const_init::ConstInit;
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "alloc"))]
 mod test {
     use core::{ops::Deref, time::Duration};
 
@@ -39,7 +42,7 @@ mod test {
         },
     };
 
-    #[cfg(all(target_has_atomic = "ptr", feature = "std"))]
+    #[cfg(all(target_has_atomic = "ptr", feature = "alloc"))]
     #[test]
     fn ux() {
         use crate::traits::{notifier::blocking::Blocking, storage::BoxedSlice};

@@ -21,13 +21,13 @@
 
 #![allow(unused_imports)]
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::queue::ArcBBQueue;
 #[cfg(target_has_atomic = "ptr")]
 use crate::traits::coordination::cas::AtomicCoord;
 #[cfg(feature = "critical-section")]
 use crate::traits::coordination::cs::CsCoord;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::traits::storage::BoxedSlice;
 use crate::{
     queue::BBQueue,
@@ -51,49 +51,49 @@ pub type Churrasco<const N: usize> = BBQueue<Inline<N>, AtomicCoord, Blocking>;
 pub type Texas<const N: usize, A> = BBQueue<Inline<N>, AtomicCoord, A>;
 
 /// Heap Buffer, Critical Section, Blocking, Borrowed
-#[cfg(all(feature = "std", feature = "critical-section"))]
+#[cfg(all(feature = "alloc", feature = "critical-section"))]
 pub type Braai = BBQueue<BoxedSlice, CsCoord, Blocking>;
 
 /// Heap Buffer, Critical Section, Async, Borrowed
-#[cfg(all(feature = "std", feature = "critical-section"))]
+#[cfg(all(feature = "alloc", feature = "critical-section"))]
 pub type SiuMei<A> = BBQueue<BoxedSlice, CsCoord, A>;
 
 /// Heap Buffer, Atomics, Blocking, Borrowed
-#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 pub type YakiNiku = BBQueue<BoxedSlice, AtomicCoord, Blocking>;
 
 /// Heap Buffer, Atomics, Async, Borrowed
-#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 pub type Tandoori<A> = BBQueue<BoxedSlice, AtomicCoord, A>;
 
 /// Inline Storage, Critical Section, Blocking, Arc
-#[cfg(all(feature = "std", feature = "critical-section"))]
+#[cfg(all(feature = "alloc", feature = "critical-section"))]
 pub type Asado<const N: usize> = ArcBBQueue<Inline<N>, CsCoord, Blocking>;
 
 /// Inline Storage, Critical Section, Async, Arc
-#[cfg(all(feature = "std", feature = "critical-section"))]
+#[cfg(all(feature = "alloc", feature = "critical-section"))]
 pub type Carolina<const N: usize, A> = ArcBBQueue<Inline<N>, CsCoord, A>;
 
 /// Inline Storage, Atomics, Blocking, Arc
-#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 pub type Barbacoa<const N: usize> = ArcBBQueue<Inline<N>, AtomicCoord, Blocking>;
 
 /// Inline Storage, Atomics, Async, Arc
-#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 pub type KansasCity<const N: usize, A> = ArcBBQueue<Inline<N>, AtomicCoord, A>;
 
 /// Heap Buffer, Critical Section, Blocking, Arc
-#[cfg(all(feature = "std", feature = "critical-section"))]
+#[cfg(all(feature = "alloc", feature = "critical-section"))]
 pub type Kebab = ArcBBQueue<BoxedSlice, CsCoord, Blocking>;
 
 /// Heap Buffer, Critical Section, Async, Arc
-#[cfg(all(feature = "std", feature = "critical-section"))]
+#[cfg(all(feature = "alloc", feature = "critical-section"))]
 pub type Satay<A> = ArcBBQueue<BoxedSlice, CsCoord, A>;
 
 /// Heap Buffer, Atomics, Blocking, Arc
-#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 pub type GogiGui = ArcBBQueue<BoxedSlice, AtomicCoord, Blocking>;
 
 /// Heap Buffer, Atomics, Async, Arc
-#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg(all(feature = "alloc", target_has_atomic = "ptr"))]
 pub type Lechon<A> = ArcBBQueue<BoxedSlice, AtomicCoord, A>;

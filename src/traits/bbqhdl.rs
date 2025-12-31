@@ -80,8 +80,8 @@ impl<S: Storage, C: Coord, N: Notifier> BbqHandle for &'_ BBQueue<S, C, N> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<S: Storage, C: Coord, N: Notifier> BbqHandle for std::sync::Arc<BBQueue<S, C, N>> {
+#[cfg(feature = "alloc")]
+impl<S: Storage, C: Coord, N: Notifier> BbqHandle for alloc::sync::Arc<BBQueue<S, C, N>> {
     type Target = Self;
     type Storage = S;
     type Coord = C;
