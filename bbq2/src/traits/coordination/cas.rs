@@ -1,5 +1,7 @@
 //! Lock-free coordination based on Compare and Swap atomics
 
+use const_init::ConstInit;
+
 use super::{Coord, ReadGrantError, WriteGrantError};
 use core::{
     cmp::min,
@@ -35,6 +37,7 @@ pub struct AtomicCoord {
 }
 
 impl AtomicCoord {
+    /// Create a new coordination structure that uses atomic CAS operations
     pub const fn new() -> Self {
         Self {
             write: AtomicUsize::new(0),
@@ -53,10 +56,12 @@ impl Default for AtomicCoord {
     }
 }
 
-unsafe impl Coord for AtomicCoord {
+impl ConstInit for AtomicCoord {
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = Self::new();
+}
 
+unsafe impl Coord for AtomicCoord {
     fn reset(&self) {
         // Re-initialize the buffer (not totally needed, but nice to do)
         self.write.store(0, Ordering::Release);

@@ -20,7 +20,18 @@ use alloc::{boxed::Box, vec::Vec};
 ///
 /// Must always return the same ptr/len forever.
 pub trait Storage {
-    fn ptr_len(&self) -> (NonNull<u8>, usize);
+    /// Return a pointer and length pair of the underlying storage.
+    ///
+    /// ## Safety
+    ///
+    /// Implementations of this function MUST always return the same pointer an length
+    /// for all calls.
+    ///
+    /// The ownership of the data pointed to by this ptr+len are exclusive to the [`BBQueue`](crate::queue::BBQueue)
+    /// that contains this [`Storage`].
+    ///
+    /// The pointee does not necessarily need to be initialized.
+    unsafe fn ptr_len(&self) -> (NonNull<u8>, usize);
 }
 
 /// A marker trait that the item is BOTH storage and can be initialized as a constant
@@ -38,6 +49,7 @@ pub struct Inline<const N: usize> {
 unsafe impl<const N: usize> Sync for Inline<N> {}
 
 impl<const N: usize> Inline<N> {
+    /// Create a new inline storage, e.g. `[u8; N]`.
     pub const fn new() -> Self {
         Self {
             buf: UnsafeCell::new(MaybeUninit::zeroed()),
@@ -52,7 +64,7 @@ impl<const N: usize> Default for Inline<N> {
 }
 
 impl<const N: usize> Storage for Inline<N> {
-    fn ptr_len(&self) -> (NonNull<u8>, usize) {
+    unsafe fn ptr_len(&self) -> (NonNull<u8>, usize) {
         if N == 0 {
             return (NonNull::dangling(), N);
         }
@@ -71,7 +83,7 @@ impl<const N: usize> ConstInit for Inline<N> {
 }
 
 impl<const N: usize> Storage for &'_ Inline<N> {
-    fn ptr_len(&self) -> (NonNull<u8>, usize) {
+    unsafe fn ptr_len(&self) -> (NonNull<u8>, usize) {
         let len = N;
 
         let ptr: *mut MaybeUninit<[u8; N]> = self.buf.get();
@@ -113,7 +125,7 @@ impl BoxedSlice {
 
 #[cfg(feature = "alloc")]
 impl Storage for BoxedSlice {
-    fn ptr_len(&self) -> (NonNull<u8>, usize) {
+    unsafe fn ptr_len(&self) -> (NonNull<u8>, usize) {
         let len = self.buf.len();
 
         let ptr: *const UnsafeCell<MaybeUninit<u8>> = self.buf.as_ptr();
@@ -133,7 +145,7 @@ mod test {
     fn provenance_slice() {
         let sli = Inline::<64>::new();
         let sli = &sli;
-        let (ptr, len) = <&Inline<64> as Storage>::ptr_len(&sli);
+        let (ptr, len) = unsafe { <&Inline<64> as Storage>::ptr_len(&sli) };
 
         // This test ensures that obtaining the pointer for ptr_len through a single
         // element is sound

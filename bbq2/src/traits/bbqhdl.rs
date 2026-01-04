@@ -38,21 +38,30 @@ pub trait BbqHandle: Sized {
     /// How we notify the producer/consumers of this BBQueue
     type Notifier: Notifier;
 
-    // Obtain a reference to
+    /// Obtain a reference to the pointed-to [`BBQueue`]
     fn bbq_ref(&self) -> Self::Target;
 
+    /// Create a [`StreamProducer`] from our `Target`'s `BBQueue`.
+    ///
+    /// Must be equivalent to `self.bbq_ref().stream_producer()`.
     fn stream_producer(&self) -> StreamProducer<Self> {
         StreamProducer {
             bbq: self.bbq_ref(),
         }
     }
 
+    /// Create a [`StreamConsumer`] from our `Target`'s `BBQueue`.
+    ///
+    /// Must be equivalent to `self.bbq_ref().stream_consumer()`.
     fn stream_consumer(&self) -> StreamConsumer<Self> {
         StreamConsumer {
             bbq: self.bbq_ref(),
         }
     }
 
+    /// Create a [`FramedProducer`] from our `Target`'s `BBQueue`.
+    ///
+    /// Must be equivalent to `self.bbq_ref().framed_producer()`.
     fn framed_producer<H: LenHeader>(&self) -> FramedProducer<Self, H> {
         FramedProducer {
             bbq: self.bbq_ref(),
@@ -60,6 +69,9 @@ pub trait BbqHandle: Sized {
         }
     }
 
+    /// Create a [`FramedConsumer`] from our `Target`'s `BBQueue`.
+    ///
+    /// Must be equivalent to `self.bbq_ref().framed_consumer()`.
     fn framed_consumer<H: LenHeader>(&self) -> FramedConsumer<Self, H> {
         FramedConsumer {
             bbq: self.bbq_ref(),

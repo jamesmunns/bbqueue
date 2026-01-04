@@ -3,6 +3,8 @@
 //! This is provided so bbq2 is usable on bare metal targets that don't
 //! have CAS atomics, like `cortex-m0`/`thumbv6m` targets.
 
+use const_init::ConstInit;
+
 use super::{Coord, ReadGrantError, WriteGrantError};
 use core::{
     cmp::min,
@@ -41,6 +43,7 @@ pub struct CsCoord {
 }
 
 impl CsCoord {
+    /// Create a new critical-section based coordination
     pub const fn new() -> Self {
         Self {
             write: AtomicUsize::new(0),
@@ -59,10 +62,12 @@ impl Default for CsCoord {
     }
 }
 
-unsafe impl Coord for CsCoord {
+impl ConstInit for CsCoord {
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = Self::new();
+}
 
+unsafe impl Coord for CsCoord {
     fn reset(&self) {
         // Re-initialize the buffer (not totally needed, but nice to do)
         self.write.store(0, Ordering::Release);
