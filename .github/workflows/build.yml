@@ -18,9 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install embedded target
-        # Note: once https://github.com/hawkw/mycelium/pull/538 lands we can test on
-        # thumbv6m-none-eabi
-        run: rustup target add thumbv7em-none-eabi
+        run: rustup target add thumbv6m-none-eabi
       #
       # BUILD + TEST
       #
@@ -39,8 +37,8 @@ jobs:
 
       # no features, on mcu
       - name: Check bbq2 (no features, on mcu)
-        run: cargo build --no-default-features --target=thumbv7em-none-eabi
+        run: cargo build --no-default-features --target=thumbv6m-none-eabi
       # default features, on mcu
       - name: Check bbq2 (no features, on mcu)
-        run: cargo build --target=thumbv7em-none-eabi
+        run: cargo build --target=thumbv6m-none-eabi
 
