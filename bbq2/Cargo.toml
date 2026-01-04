@@ -45,7 +45,6 @@ default = [
 ]
 critical-section = [
     "dep:critical-section",
-    # TODO: I don't think this should be necessary...
     "maitake-sync?/critical-section",
 ]
 disable-cache-padding = [
