@@ -1,3 +1,7 @@
 [workspace]
-members = ["bbqtest", "core"]
-exclude = ["bbq2"]
+resolver = "3"
+members = [
+    "bbq2",
+    "legacy-bbqtest",
+    "legacy-core",
+]

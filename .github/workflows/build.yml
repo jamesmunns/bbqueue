@@ -8,9 +8,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  miri:
+  build:
     name: "Build all crates"
     runs-on: ubuntu-latest
+    working-directory: ./bbq2
     steps:
       - uses: actions/checkout@v4
       - name: Install embedded target
