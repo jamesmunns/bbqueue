@@ -7,8 +7,12 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+defaults:
+  run:
+    working-directory: ./bbq2
+
 jobs:
-  miri:
+  build:
     name: "Build all crates"
     runs-on: ubuntu-latest
     steps:
