@@ -7,11 +7,14 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+defaults:
+  run:
+    working-directory: ./bbq2
+
 jobs:
   miri:
     name: "miri all the things"
     runs-on: ubuntu-latest
-    working-directory: ./bbq2
     steps:
       - uses: actions/checkout@v4
       - name: Install miri component
