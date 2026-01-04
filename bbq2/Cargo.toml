@@ -1,8 +1,8 @@
 [package]
 name = "bbq2"
-version = "0.4.2"
+version = "0.4.3"
 description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
-repository = "https://github.com/jamesmunns/bbq2"
+repository = "https://github.com/jamesmunns/bbqueue"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2024"
 readme = "README.md"
