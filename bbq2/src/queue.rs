@@ -23,6 +23,7 @@ pub struct BBQueue<S, C, N> {
 }
 
 impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
+    /// Create a new [`BBQueue`] with the given [`Storage`] impl
     pub fn new_with_storage(sto: S) -> Self {
         Self {
             sto,
@@ -38,6 +39,7 @@ pub struct ArcBBQueue<S, C, N>(pub(crate) alloc::sync::Arc<BBQueue<S, C, N>>);
 
 #[cfg(feature = "alloc")]
 impl<S: Storage, C: Coord, N: Notifier> ArcBBQueue<S, C, N> {
+    /// Create a new [`BBQueue`] with the given [`Storage`] impl
     pub fn new_with_storage(sto: S) -> Self {
         Self(alloc::sync::Arc::new(BBQueue::new_with_storage(sto)))
     }
@@ -45,6 +47,7 @@ impl<S: Storage, C: Coord, N: Notifier> ArcBBQueue<S, C, N> {
 
 #[allow(clippy::new_without_default)]
 impl<S: ConstStorage, C: Coord, N: Notifier> BBQueue<S, C, N> {
+    /// Create a new `BBQueue` in a const context
     pub const fn new() -> Self {
         Self {
             sto: S::INIT,
@@ -55,6 +58,10 @@ impl<S: ConstStorage, C: Coord, N: Notifier> BBQueue<S, C, N> {
 }
 
 impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
+    /// Create a new [`FramedProducer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub const fn framed_producer(&self) -> FramedProducer<&'_ Self> {
         FramedProducer {
             bbq: self,
@@ -62,6 +69,10 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
         }
     }
 
+    /// Create a new [`FramedConsumer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub const fn framed_consumer(&self) -> FramedConsumer<&'_ Self> {
         FramedConsumer {
             bbq: self,
@@ -69,17 +80,30 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
         }
     }
 
+    /// Create a new [`StreamProducer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub const fn stream_producer(&self) -> StreamProducer<&'_ Self> {
         StreamProducer { bbq: self }
     }
 
+    /// Create a new [`StreamConsumer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub const fn stream_consumer(&self) -> StreamConsumer<&'_ Self> {
         StreamConsumer { bbq: self }
     }
 }
 
 #[cfg(feature = "alloc")]
-impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
+impl
+<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
+    /// Create a new [`FramedProducer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub fn framed_producer(&self) -> FramedProducer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         FramedProducer {
             bbq: self.0.bbq_ref(),
@@ -87,6 +111,10 @@ impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
         }
     }
 
+    /// Create a new [`FramedConsumer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub fn framed_consumer(&self) -> FramedConsumer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         FramedConsumer {
             bbq: self.0.bbq_ref(),
@@ -94,12 +122,20 @@ impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
         }
     }
 
+    /// Create a new [`StreamProducer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub fn stream_producer(&self) -> StreamProducer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         StreamProducer {
             bbq: self.0.bbq_ref(),
         }
     }
 
+    /// Create a new [`StreamConsumer`] for this [`BBQueue`]
+    ///
+    /// Although mixing stream and framed consumer/producers will not result in UB,
+    /// it will also not work correctly.
     pub fn stream_consumer(&self) -> StreamConsumer<alloc::sync::Arc<BBQueue<S, C, N>>> {
         StreamConsumer {
             bbq: self.0.bbq_ref(),
@@ -110,12 +146,12 @@ impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
 #[cfg(test)]
 mod test {
     use crate::traits::{
-        coordination::cas::AtomicCoord, notifier::blocking::Blocking, storage::Inline,
+        coordination::cas::AtomicCoord, notifier::polling::Polling, storage::Inline,
     };
 
     use super::*;
 
-    type Queue = BBQueue<Inline<4096>, AtomicCoord, Blocking>;
+    type Queue = BBQueue<Inline<4096>, AtomicCoord, Polling>;
     static QUEUE: Queue = BBQueue::new();
     static PRODUCER: FramedProducer<&'static Queue, u16> = QUEUE.framed_producer();
     static CONSUMER: FramedConsumer<&'static Queue, u16> = QUEUE.framed_consumer();

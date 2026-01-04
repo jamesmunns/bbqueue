@@ -1,11 +1,103 @@
-//! bbq2
+//! # BBQueue
 //!
-//! A new and improved bipbuffer queue.
+//! BBQueue, short for "BipBuffer Queue", is a Single Producer Single Consumer,
+//! lockless, no_std, thread safe, queue, based on [BipBuffers]. For more info on
+//! the design of the lock-free algorithm used by bbqueue, see [this blog post].
 //!
-//! NOTE: This will soon be moved into the `bbqueue` crate, and `bbq2` will be
-//! deprecated!
+//! [BipBuffers]: https://www.codeproject.com/Articles/3479/%2FArticles%2F3479%2FThe-Bip-Buffer-The-Circular-Buffer-with-a-Twist
+//! [this blog post]: https://ferrous-systems.com/blog/lock-free-ring-buffer/
+//!
+//! BBQueue is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded
+//! systems.
+//!
+//! While Circular/Ring Buffers allow you to send data between two threads (or from an interrupt to
+//! main code), you must push the data one piece at a time. With BBQueue, you instead are granted a
+//! block of contiguous memory, which can be filled (or emptied) by a DMA engine.
+//!
+//! ## Local usage
+//!
+//! ```rust
+//! // The "Churrasco" flavor has inline storage, hardware atomic
+//! // support, no async support, and is not reference counted.
+//! use bbq2::nicknames::Churrasco;
+//!
+//! // Create a buffer with six elements
+//! let bb: Churrasco<6> = Churrasco::new();
+//! let prod = bb.stream_producer();
+//! let cons = bb.stream_consumer();
+//!
+//! // Request space for one byte
+//! let mut wgr = prod.grant_exact(1).unwrap();
+//!
+//! // Set the data
+//! wgr[0] = 123;
+//!
+//! assert_eq!(wgr.len(), 1);
+//!
+//! // Make the data ready for consuming
+//! wgr.commit(1);
+//!
+//! // Read all available bytes
+//! let rgr = cons.read().unwrap();
+//!
+//! assert_eq!(rgr[0], 123);
+//!
+//! // Release the space for later writes
+//! rgr.release(1);
+//! ```
+//!
+//! ## Static usage
+//!
+//! ```rust
+//! use bbq2::nicknames::Churrasco;
+//! use std::{thread::{sleep, spawn}, time::Duration};
+//!
+//! // Create a buffer with six elements
+//! static BB: Churrasco<6> = Churrasco::new();
+//!
+//! fn receiver() {
+//!     let cons = BB.stream_consumer();
+//!     loop {
+//!         if let Ok(rgr) = cons.read() {
+//!             assert_eq!(rgr.len(), 1);
+//!             assert_eq!(rgr[0], 123);
+//!             rgr.release(1);
+//!             break;
+//!         }
+//!         // don't do this in real code, use Notify!
+//!         sleep(Duration::from_millis(10));
+//!     }
+//! }
+//!
+//! fn main() {
+//!     let prod = BB.stream_producer();
+//!
+//!     // spawn the consumer
+//!     let hdl = spawn(receiver);
+//!
+//!     // Request space for one byte
+//!     let mut wgr = prod.grant_exact(1).unwrap();
+//!
+//!     // Set the data
+//!     wgr[0] = 123;
+//!
+//!     assert_eq!(wgr.len(), 1);
+//!
+//!     // Make the data ready for consuming
+//!     wgr.commit(1);
+//!
+//!     // make sure the receiver terminated
+//!     hdl.join().unwrap();
+//! }
+//! ```
+//!
+//! ## Features
+//!
+//! TODO
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
+#![deny(missing_docs)]
+#![deny(warnings)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -48,19 +140,19 @@ mod test {
     #[cfg(all(target_has_atomic = "ptr", feature = "alloc"))]
     #[test]
     fn ux() {
-        use crate::traits::{notifier::blocking::Blocking, storage::BoxedSlice};
+        use crate::traits::{notifier::polling::Polling, storage::BoxedSlice};
 
-        static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let _ = BBQ.stream_producer();
         let _ = BBQ.stream_consumer();
 
         let buf2 = Inline::<64>::new();
-        let bbq2: BBQueue<_, AtomicCoord, Blocking> = BBQueue::new_with_storage(&buf2);
+        let bbq2: BBQueue<_, AtomicCoord, Polling> = BBQueue::new_with_storage(&buf2);
         let _ = bbq2.stream_producer();
         let _ = bbq2.stream_consumer();
 
         let buf3 = BoxedSlice::new(64);
-        let bbq3: BBQueue<_, AtomicCoord, Blocking> = BBQueue::new_with_storage(buf3);
+        let bbq3: BBQueue<_, AtomicCoord, Polling> = BBQueue::new_with_storage(buf3);
         let _ = bbq3.stream_producer();
         let _ = bbq3.stream_consumer();
     }
@@ -68,10 +160,10 @@ mod test {
     #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn smoke() {
-        use crate::traits::notifier::blocking::Blocking;
+        use crate::traits::notifier::polling::Polling;
         use core::ops::Deref;
 
-        static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let prod = BBQ.stream_producer();
         let cons = BBQ.stream_consumer();
 
@@ -94,10 +186,10 @@ mod test {
     #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn smoke_framed() {
-        use crate::traits::notifier::blocking::Blocking;
+        use crate::traits::notifier::polling::Polling;
         use core::ops::Deref;
 
-        static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let prod = BBQ.framed_producer();
         let cons = BBQ.framed_consumer();
 
@@ -116,9 +208,9 @@ mod test {
     #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn framed_misuse() {
-        use crate::traits::notifier::blocking::Blocking;
+        use crate::traits::notifier::polling::Polling;
 
-        static BBQ: BBQueue<Inline<64>, AtomicCoord, Blocking> = BBQueue::new();
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let prod = BBQ.stream_producer();
         let cons = BBQ.framed_consumer();
 

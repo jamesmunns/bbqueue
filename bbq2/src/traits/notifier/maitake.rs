@@ -1,3 +1,5 @@
+//! A Maitake-Sync based notifications
+
 use const_init::ConstInit;
 use maitake_sync::WaitCell;
 
@@ -13,7 +15,8 @@ pub struct MaiNotSpsc {
 }
 
 impl MaiNotSpsc {
-    pub fn new() -> Self {
+    /// Create a new Maitake-Sync based notifier
+    pub const fn new() -> Self {
         Self::INIT
     }
 }
