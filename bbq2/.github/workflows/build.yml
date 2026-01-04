@@ -1,0 +1,42 @@
+name: Build and Test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  miri:
+    name: "Build all crates"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install embedded target
+        # Note: once https://github.com/hawkw/mycelium/pull/538 lands we can test on
+        # thumbv6m-none-eabi
+        run: rustup target add thumbv7em-none-eabi
+      #
+      # BUILD + TEST
+      #
+      # no features, on std
+      - name: Check bbq2 (no features, on host)
+        run: cargo build --no-default-features
+      # default features, on std
+      - name: Check bbq2 (default features, on host)
+        run: cargo build
+      # std features, on std
+      - name: Check bbq2 (std features, on host)
+        run: cargo build --features=std
+      # std features, on std, test
+      - name: Test bbq2 (std features, on host)
+        run: cargo test --features=std
+
+      # no features, on mcu
+      - name: Check bbq2 (no features, on mcu)
+        run: cargo build --no-default-features --target=thumbv7em-none-eabi
+      # default features, on mcu
+      - name: Check bbq2 (no features, on mcu)
+        run: cargo build --target=thumbv7em-none-eabi
+
