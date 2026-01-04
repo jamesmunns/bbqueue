@@ -526,6 +526,80 @@ pub struct Consumer<'a, const N: usize> {
 unsafe impl<'a, const N: usize> Send for Consumer<'a, N> {}
 
 impl<'a, const N: usize> Consumer<'a, N> {
+    /// Determines if the buffer is empty.
+    ///
+    /// ```rust
+    /// # // bbqueue test shim!
+    /// # fn bbqtest() {
+    /// use bbqueue::BBBuffer;
+    ///
+    /// // Create and split a new buffer
+    /// let buffer: BBBuffer<6> = BBBuffer::new();
+    /// let (mut prod, mut cons) = buffer.try_split().unwrap();
+    ///
+    /// // Buffer is empty
+    /// assert!(cons.is_empty().unwrap());
+    ///
+    /// // Successfully obtain and commit a grant of four bytes
+    /// let mut grant = prod.grant_max_remaining(4).unwrap();
+    /// grant.buf().copy_from_slice(&[1, 2, 3, 4]);
+    /// grant.commit(4);
+    ///
+    /// // Buffer is not empty anymore
+    /// assert!(!cons.is_empty().unwrap());
+    ///
+    /// # // Release the four initial commited bytes
+    /// # let mut grant = cons.read().unwrap();
+    /// # assert_eq!(grant.buf().len(), 4);
+    /// # grant.release(4);
+    /// #  
+    /// # // Buffer is empty again
+    /// # assert!(cons.is_empty().unwrap());
+    /// # // bbqueue test shim!
+    /// # }
+    /// #
+    /// # fn main() {
+    /// # #[cfg(not(feature = "thumbv6"))]
+    /// # bbqtest();
+    /// # }
+    pub fn is_empty(&mut self) -> Result<bool> {
+        let inner = unsafe { &self.bbq.as_ref() };
+
+        if atomic::swap(&inner.read_in_progress, true, AcqRel) {
+            return Err(Error::GrantInProgress);
+        }
+
+        let write = inner.write.load(Acquire);
+        let last = inner.last.load(Acquire);
+        let mut read = inner.read.load(Acquire);
+
+        // Resolve the inverted case or end of read
+        if (read == last) && (write < read) {
+            read = 0;
+            // This has some room for error, the other thread reads this
+            // Impact to Grant:
+            //   Grant checks if read < write to see if inverted. If not inverted, but
+            //     no space left, Grant will initiate an inversion, but will not trigger it
+            // Impact to Commit:
+            //   Commit does not check read, but if Grant has started an inversion,
+            //   grant could move Last to the prior write position
+            // MOVING READ BACKWARDS!
+            inner.read.store(0, Release);
+        }
+
+        inner.read_in_progress.store(false, Release);
+
+        let sz = if write < read {
+            // Inverted, only believe last
+            last
+        } else {
+            // Not inverted, only believe write
+            write
+        } - read;
+
+        Ok(sz == 0)
+    }
+
     /// Obtains a contiguous slice of committed bytes. This slice may not
     /// contain ALL available bytes, if the writer has wrapped around. The
     /// remaining bytes will be available after all readable bytes are
