@@ -98,8 +98,7 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
 }
 
 #[cfg(feature = "alloc")]
-impl
-<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
+impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
     /// Create a new [`FramedProducer`] for this [`BBQueue`]
     ///
     /// Although mixing stream and framed consumer/producers will not result in UB,

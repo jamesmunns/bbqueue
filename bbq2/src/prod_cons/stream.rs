@@ -87,9 +87,7 @@ where
     /// useful to call `grant_max_remaining` in a loop until `Err(WriteGrantError::InsufficientSize)`
     /// is returned.
     pub fn grant_max_remaining(&self, max: usize) -> Result<StreamGrantW<Q>, WriteGrantError> {
-        let (ptr, cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (ptr, cap) = unsafe { self.bbq.sto.ptr_len() };
         let (offset, len) = self.bbq.cor.grant_max_remaining(cap, max)?;
         let ptr = unsafe {
             let p = ptr.as_ptr().byte_add(offset);
@@ -109,9 +107,7 @@ where
     /// the ring buffer, this method WILL cause a wrap-around to occur to attempt to
     /// find the requested write capacity.
     pub fn grant_exact(&self, sz: usize) -> Result<StreamGrantW<Q>, WriteGrantError> {
-        let (ptr, cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (ptr, cap) = unsafe { self.bbq.sto.ptr_len() };
         let offset = self.bbq.cor.grant_exact(cap, sz)?;
         let ptr = unsafe {
             let p = ptr.as_ptr().byte_add(offset);
@@ -165,9 +161,7 @@ where
     /// in a loop until `Err(ReadGrantError::Empty)` is returned if you want to
     /// drain the queue entirely.
     pub fn read(&self) -> Result<StreamGrantR<Q>, ReadGrantError> {
-        let (ptr, _cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (ptr, _cap) = unsafe { self.bbq.sto.ptr_len() };
         let (offset, len) = self.bbq.cor.read()?;
         let ptr = unsafe {
             let p = ptr.as_ptr().byte_add(offset);
@@ -205,9 +199,7 @@ where
     ///
     /// `used` is capped to the length of the grant.
     pub fn commit(self, used: usize) {
-        let (_, cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (_, cap) = unsafe { self.bbq.sto.ptr_len() };
         let used = used.min(self.len);
         self.bbq.cor.commit_inner(cap, self.len, used);
         if used != 0 {
@@ -248,9 +240,7 @@ where
             len,
             to_commit,
         } = self;
-        let (_, cap) = unsafe {
-            bbq.sto.ptr_len()
-        };
+        let (_, cap) = unsafe { bbq.sto.ptr_len() };
         let len = *len;
         let used = (*to_commit).min(len);
         bbq.cor.commit_inner(cap, len, used);

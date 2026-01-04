@@ -145,9 +145,7 @@ mod test {
     fn provenance_slice() {
         let sli = Inline::<64>::new();
         let sli = &sli;
-        let (ptr, len) = unsafe {
-            <&Inline<64> as Storage>::ptr_len(&sli)
-        };
+        let (ptr, len) = unsafe { <&Inline<64> as Storage>::ptr_len(&sli) };
 
         // This test ensures that obtaining the pointer for ptr_len through a single
         // element is sound

@@ -132,9 +132,7 @@ where
     /// a smaller size may be committed. Dropping the grant without calling
     /// commit means that no data will be made visible to the consumer.
     pub fn grant(&self, sz: H) -> Result<FramedGrantW<Q, H>, WriteGrantError> {
-        let (ptr, cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (ptr, cap) = unsafe { self.bbq.sto.ptr_len() };
         let needed = sz.into() + core::mem::size_of::<H>();
 
         let offset = self.bbq.cor.grant_exact(cap, needed)?;
@@ -184,9 +182,7 @@ where
     ///
     /// The returned grant must be released to free the space in the buffer.
     pub fn read(&self) -> Result<FramedGrantR<Q, H>, ReadGrantError> {
-        let (ptr, _cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (ptr, _cap) = unsafe { self.bbq.sto.ptr_len() };
         let (offset, grant_len) = self.bbq.cor.read()?;
 
         // Calculate the size so we can figure out where the body
@@ -257,9 +253,7 @@ where
     /// If `used` is greater than the `sz` used to create this grant, the
     /// amount will be clamped to `sz`.
     pub fn commit(self, used: H) {
-        let (_ptr, cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (_ptr, cap) = unsafe { self.bbq.sto.ptr_len() };
         let hdrlen: usize = const { core::mem::size_of::<H>() };
         let grant_len = hdrlen + self.hdr.into();
         let clamp_hdr = self.hdr.min(used);
@@ -325,9 +319,7 @@ where
 {
     fn drop(&mut self) {
         // Default drop performs an "abort"
-        let (_ptr, cap) = unsafe {
-            self.bbq.sto.ptr_len()
-        };
+        let (_ptr, cap) = unsafe { self.bbq.sto.ptr_len() };
         let hdrlen: usize = const { core::mem::size_of::<H>() };
         let grant_len = hdrlen + self.hdr.into();
         self.bbq.cor.commit_inner(cap, grant_len, 0);
