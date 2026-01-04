@@ -1,2 +1,3 @@
 [workspace]
 members = ["bbqtest", "core"]
+exclude = ["bbq2"]

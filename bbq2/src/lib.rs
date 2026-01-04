@@ -1,6 +1,9 @@
 //! bbq2
 //!
 //! A new and improved bipbuffer queue.
+//!
+//! NOTE: This will soon be moved into the `bbqueue` crate, and `bbq2` will be
+//! deprecated!
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 
