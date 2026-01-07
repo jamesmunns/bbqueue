@@ -4,7 +4,7 @@
 //! lockless, no_std, thread safe, queue, based on [BipBuffers]. For more info on
 //! the design of the lock-free algorithm used by bbqueue, see [this blog post].
 //!
-//! [BipBuffers]: https://www.codeproject.com/Articles/3479/%2FArticles%2F3479%2FThe-Bip-Buffer-The-Circular-Buffer-with-a-Twist
+//! [BipBuffers]: https://www.codeproject.com/articles/The-Bip-Buffer-The-Circular-Buffer-with-a-Twist
 //! [this blog post]: https://ferrous-systems.com/blog/lock-free-ring-buffer/
 //!
 //! BBQueue is designed (primarily) to be a First-In, First-Out queue for use with DMA on embedded
