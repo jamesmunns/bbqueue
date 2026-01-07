@@ -30,7 +30,7 @@ use crate::traits::coordination::cs::CsCoord;
 #[cfg(feature = "alloc")]
 use crate::traits::storage::BoxedSlice;
 use crate::{
-    queue::BBQueue,
+    BBQueue,
     traits::{notifier::polling::Polling, storage::Inline},
 };
 
