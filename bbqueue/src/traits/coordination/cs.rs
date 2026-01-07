@@ -1,6 +1,6 @@
 //! Mutex/Critical section based coordination
 //!
-//! This is provided so bbq2 is usable on bare metal targets that don't
+//! This is provided so `bbqueue` is usable on bare metal targets that don't
 //! have CAS atomics, like `cortex-m0`/`thumbv6m` targets.
 
 use const_init::ConstInit;

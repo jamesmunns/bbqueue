@@ -9,7 +9,7 @@ on:
 
 defaults:
   run:
-    working-directory: ./bbq2
+    working-directory: ./bbqueue
 
 jobs:
   build:
@@ -23,22 +23,22 @@ jobs:
       # BUILD + TEST
       #
       # no features, on std
-      - name: Check bbq2 (no features, on host)
+      - name: Check bbqueue (no features, on host)
         run: cargo build --no-default-features
       # default features, on std
-      - name: Check bbq2 (default features, on host)
+      - name: Check bbqueue (default features, on host)
         run: cargo build
       # std features, on std
-      - name: Check bbq2 (std features, on host)
+      - name: Check bbqueue (std features, on host)
         run: cargo build --features=std
       # std features, on std, test
-      - name: Test bbq2 (std features, on host)
+      - name: Test bbqueue (std features, on host)
         run: cargo test --features=std
 
       # no features, on mcu
-      - name: Check bbq2 (no features, on mcu)
+      - name: Check bbqueue (no features, on mcu)
         run: cargo build --no-default-features --target=thumbv6m-none-eabi
       # default features, on mcu
-      - name: Check bbq2 (no features, on mcu)
+      - name: Check bbqueue (no features, on mcu)
         run: cargo build --target=thumbv6m-none-eabi
 

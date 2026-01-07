@@ -19,7 +19,7 @@
 //! ```rust
 //! // The "Churrasco" flavor has inline storage, hardware atomic
 //! // support, no async support, and is not reference counted.
-//! use bbq2::nicknames::Churrasco;
+//! use bbqueue::nicknames::Churrasco;
 //!
 //! // Create a buffer with six elements
 //! let bb: Churrasco<6> = Churrasco::new();
@@ -49,7 +49,7 @@
 //! ## Static usage
 //!
 //! ```rust
-//! use bbq2::nicknames::Churrasco;
+//! use bbqueue::nicknames::Churrasco;
 //! use std::{thread::{sleep, spawn}, time::Duration};
 //!
 //! // Create a buffer with six elements
