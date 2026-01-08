@@ -12,11 +12,7 @@ mod tests {
         Done,
     }
 
-    #[cfg(not(feature = "short-potato"))]
     const TOTAL_RINGS: usize = 1_000_000;
-
-    #[cfg(feature = "short-potato")]
-    const TOTAL_RINGS: usize = 1_000;
 
     const TX_GRANTS_PER_RING: u8 = 3;
     const RX_GRANTS_PER_RING: u8 = 3;

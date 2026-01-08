@@ -91,6 +91,41 @@
 //! }
 //! ```
 //!
+//! ## Reading fixed-size chunks with `read_exact`
+//!
+//! When you need to read a specific amount of data (e.g., in an interrupt handler
+//! or DMA operation), use `read_exact` instead of `read`. This allows you to hold
+//! a smaller read grant, leaving more buffer space available for the producer to
+//! continue writing.
+//!
+//! ```rust
+//! use bbqueue::nicknames::Churrasco;
+//!
+//! // Create a buffer
+//! let bb: Churrasco<1000> = Churrasco::new();
+//! let prod = bb.stream_producer();
+//! let cons = bb.stream_consumer();
+//!
+//! // Producer writes 200 bytes
+//! let mut wgr = prod.grant_exact(200).unwrap();
+//! for i in 0..200 {
+//!     wgr[i] = i as u8;
+//! }
+//! wgr.commit(200);
+//!
+//! // Consumer reads exactly 100 bytes at a time
+//! // This is useful in interrupt handlers where you process fixed-size chunks
+//! let rgr = cons.read_exact(100).unwrap();
+//! assert_eq!(rgr.len(), 100);
+//! // Process the chunk...
+//! rgr.release(100);
+//!
+//! // Read the remaining 100 bytes
+//! let rgr = cons.read_exact(100).unwrap();
+//! assert_eq!(rgr.len(), 100);
+//! rgr.release(100);
+//! ```
+//!
 //! ## Nicknames
 //!
 //! bbqueue uses generics to customize the data structure in four main ways:
@@ -127,9 +162,9 @@ pub mod prod_cons;
 /// Queue storage
 ///
 mod queue;
-pub use queue::BBQueue;
 #[cfg(feature = "alloc")]
 pub use queue::ArcBBQueue;
+pub use queue::BBQueue;
 
 /// Generic traits
 ///
@@ -198,6 +233,150 @@ mod test {
         rgr.release(4);
 
         assert!(cons.read().is_err());
+    }
+
+    #[cfg(target_has_atomic = "ptr")]
+    #[test]
+    fn read_exact_basic() {
+        use crate::traits::notifier::polling::Polling;
+        use core::ops::Deref;
+
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
+        let prod = BBQ.stream_producer();
+        let cons = BBQ.stream_consumer();
+
+        // Write 20 bytes
+        let write_data = &[
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+        ];
+        let mut wgr = prod.grant_exact(20).unwrap();
+        wgr.copy_from_slice(write_data);
+        wgr.commit(20);
+
+        // Read exactly 5 bytes
+        let rgr = cons.read_exact(5).unwrap();
+        assert_eq!(rgr.len(), 5);
+        assert_eq!(rgr.deref(), &write_data[0..5]);
+        rgr.release(5);
+
+        // Read exactly 10 bytes
+        let rgr = cons.read_exact(10).unwrap();
+        assert_eq!(rgr.len(), 10);
+        assert_eq!(rgr.deref(), &write_data[5..15]);
+        rgr.release(10);
+
+        // Read exactly 5 bytes
+        let rgr = cons.read_exact(5).unwrap();
+        assert_eq!(rgr.len(), 5);
+        assert_eq!(rgr.deref(), &write_data[15..20]);
+        rgr.release(5);
+
+        // Buffer should be empty
+        assert!(cons.read().is_err());
+    }
+
+    #[cfg(target_has_atomic = "ptr")]
+    #[test]
+    fn read_exact_insufficient() {
+        use crate::traits::{coordination::ReadGrantError, notifier::polling::Polling};
+
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
+        let prod = BBQ.stream_producer();
+        let cons = BBQ.stream_consumer();
+
+        // Write 10 bytes
+        let mut wgr = prod.grant_exact(10).unwrap();
+        wgr[..10].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        wgr.commit(10);
+
+        // Try to read 15 bytes (more than available)
+        let result = cons.read_exact(15);
+        assert!(matches!(result, Err(ReadGrantError::InsufficientSize)));
+
+        // Original data should still be available
+        let rgr = cons.read().unwrap();
+        assert_eq!(rgr.len(), 10);
+        rgr.release(10);
+    }
+
+    #[cfg(target_has_atomic = "ptr")]
+    #[test]
+    fn read_exact_partial_release() {
+        use crate::traits::notifier::polling::Polling;
+
+        static BBQ: BBQueue<Inline<200>, AtomicCoord, Polling> = BBQueue::new();
+        let prod = BBQ.stream_producer();
+        let cons = BBQ.stream_consumer();
+
+        // Write 100 bytes
+        let mut wgr = prod.grant_exact(100).unwrap();
+        for i in 0..100 {
+            wgr[i] = i as u8;
+        }
+        wgr.commit(100);
+
+        // Read exactly 10 bytes at a time and release them
+        for chunk in 0..10 {
+            let rgr = cons.read_exact(10).unwrap();
+            assert_eq!(rgr.len(), 10);
+            for i in 0..10 {
+                assert_eq!(rgr[i], (chunk * 10 + i) as u8);
+            }
+            rgr.release(10);
+        }
+
+        // Buffer should be empty
+        assert!(cons.read().is_err());
+    }
+
+    #[cfg(target_has_atomic = "ptr")]
+    #[test]
+    fn read_exact_with_concurrent_writes() {
+        use crate::traits::notifier::polling::Polling;
+
+        static BBQ: BBQueue<Inline<1000>, AtomicCoord, Polling> = BBQueue::new();
+        let prod = BBQ.stream_producer();
+        let cons = BBQ.stream_consumer();
+
+        // Write initial 100 bytes
+        let mut wgr = prod.grant_exact(100).unwrap();
+        for i in 0..100 {
+            wgr[i] = i as u8;
+        }
+        wgr.commit(100);
+
+        // Read exactly 50 bytes (leaving 50 in buffer)
+        let rgr = cons.read_exact(50).unwrap();
+        assert_eq!(rgr.len(), 50);
+
+        // While holding the read grant, producer should be able to write more
+        // This simulates the use case from the issue where the producer continues
+        // writing while consumer processes a small chunk
+        let mut wgr2 = prod.grant_exact(100).unwrap();
+        for i in 0..100 {
+            wgr2[i] = (100 + i) as u8;
+        }
+        wgr2.commit(100);
+
+        // Release the first read
+        rgr.release(50);
+
+        // Now read the next 50 bytes (from first write)
+        let rgr = cons.read_exact(50).unwrap();
+        assert_eq!(rgr.len(), 50);
+        for i in 0..50 {
+            assert_eq!(rgr[i], (50 + i) as u8);
+        }
+        rgr.release(50);
+
+        // And read the second write
+        let rgr = cons.read_exact(100).unwrap();
+        assert_eq!(rgr.len(), 100);
+        for i in 0..100 {
+            assert_eq!(rgr[i], (100 + i) as u8);
+        }
+        rgr.release(100);
     }
 
     #[cfg(target_has_atomic = "ptr")]
@@ -271,6 +450,31 @@ mod test {
             let mut wgr = prod.grant_exact(3).unwrap();
             wgr.copy_from_slice(&[1, 2, 3]);
             wgr.commit(3);
+        });
+
+        // todo: timeouts
+        rxfut.await.unwrap();
+        txfut.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn asink_read_exact() {
+        static BBQ: BBQueue<Inline<64>, AtomicCoord, MaiNotSpsc> = BBQueue::new();
+        let prod = BBQ.stream_producer();
+        let cons = BBQ.stream_consumer();
+
+        let rxfut = tokio::task::spawn(async move {
+            // Wait for exactly 10 bytes
+            let rgr = cons.wait_read_exact(10).await;
+            assert_eq!(rgr.len(), 10);
+            assert_eq!(rgr.deref(), &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        });
+
+        let txfut = tokio::task::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let mut wgr = prod.grant_exact(10).unwrap();
+            wgr.copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            wgr.commit(10);
         });
 
         // todo: timeouts

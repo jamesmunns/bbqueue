@@ -11,7 +11,7 @@
 //! ```rust
 //! # // bbqueue test shim!
 //! # fn bbqtest() {
-//! use bbqueue::BBBuffer;
+//! use legacy_bbqueue::BBBuffer;
 //!
 //! let bb: BBBuffer<1000> = BBBuffer::new();
 //! let (mut prod, mut cons) = bb.try_split_framed().unwrap();

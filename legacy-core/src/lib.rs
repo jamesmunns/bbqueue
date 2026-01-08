@@ -20,7 +20,7 @@
 //! ## Local usage
 //!
 //! ```rust, no_run
-//! # use bbqueue::BBBuffer;
+//! # use legacy_bbqueue::BBBuffer;
 //! #
 //! // Create a buffer with six elements
 //! let bb: BBBuffer<6> = BBBuffer::new();
@@ -49,7 +49,7 @@
 //! ## Static usage
 //!
 //! ```rust, no_run
-//! # use bbqueue::BBBuffer;
+//! # use legacy_bbqueue::BBBuffer;
 //! #
 //! // Create a buffer with six elements
 //! static BB: BBBuffer<6> = BBBuffer::new();

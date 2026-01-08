@@ -174,6 +174,30 @@ where
             to_release: 0,
         })
     }
+
+    /// Obtain a read grant of EXACTLY `sz` bytes
+    ///
+    /// Unlike `read`, this method will only return a grant if at least `sz` bytes
+    /// are available. This allows reading a specific chunk size while leaving the
+    /// rest of the buffer available for the producer to continue writing.
+    ///
+    /// This is particularly useful in interrupt handlers or DMA operations where
+    /// you need to read a fixed-size chunk of data without holding a grant for
+    /// all available data.
+    pub fn read_exact(&self, sz: usize) -> Result<StreamGrantR<Q>, ReadGrantError> {
+        let (ptr, _cap) = unsafe { self.bbq.sto.ptr_len() };
+        let (offset, len) = self.bbq.cor.read_exact(sz)?;
+        let ptr = unsafe {
+            let p = ptr.as_ptr().byte_add(offset);
+            NonNull::new_unchecked(p)
+        };
+        Ok(StreamGrantR {
+            bbq: self.bbq.clone(),
+            ptr,
+            len,
+            to_release: 0,
+        })
+    }
 }
 
 impl<Q> StreamConsumer<Q>
@@ -184,6 +208,16 @@ where
     /// Wait for any read data to become available
     pub async fn wait_read(&self) -> StreamGrantR<Q> {
         self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
+    }
+
+    /// Wait for at least `sz` bytes to become available
+    ///
+    /// If `sz` exceeds the capacity of the buffer, this method will never return.
+    pub async fn wait_read_exact(&self, sz: usize) -> StreamGrantR<Q> {
+        self.bbq
+            .not
+            .wait_for_not_empty(|| self.read_exact(sz).ok())
+            .await
     }
 }
 

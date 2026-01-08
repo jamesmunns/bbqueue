@@ -216,6 +216,38 @@ unsafe impl Coord for AtomicCoord {
         Ok((read, sz))
     }
 
+    fn read_exact(&self, sz: usize) -> Result<(usize, usize), ReadGrantError> {
+        if self.read_in_progress.swap(true, Ordering::AcqRel) {
+            return Err(ReadGrantError::GrantInProgress);
+        }
+
+        let write = self.write.load(Ordering::Acquire);
+        let last = self.last.load(Ordering::Acquire);
+        let mut read = self.read.load(Ordering::Acquire);
+
+        // Resolve the inverted case or end of read
+        if (read == last) && (write < read) {
+            read = 0;
+            // MOVING READ BACKWARDS!
+            self.read.store(0, Ordering::Release);
+        }
+
+        let available = if write < read {
+            // Inverted, only believe last
+            last
+        } else {
+            // Not inverted, only believe write
+            write
+        } - read;
+
+        if available < sz {
+            self.read_in_progress.store(false, Ordering::Release);
+            return Err(ReadGrantError::InsufficientSize);
+        }
+
+        Ok((read, sz))
+    }
+
     fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize) {
         // If there is no grant in progress, return early. This
         // generally means we are dropping the grant within a

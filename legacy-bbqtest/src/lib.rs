@@ -406,37 +406,15 @@ mod tests {
         for i in 0..ITERS {
             let j = (i & 255) as u8;
 
-            #[cfg(feature = "extra-verbose")]
-            println!("===========================");
-            #[cfg(feature = "extra-verbose")]
-            println!("INDEX: {:?}", j);
-            #[cfg(feature = "extra-verbose")]
-            println!("===========================");
-
-            #[cfg(feature = "extra-verbose")]
-            println!("START: {:?}", bb);
-
             let mut wgr = prod.grant_exact(1).unwrap();
-
-            #[cfg(feature = "extra-verbose")]
-            println!("GRANT: {:?}", bb);
 
             wgr[0] = j;
 
-            #[cfg(feature = "extra-verbose")]
-            println!("WRITE: {:?}", bb);
-
             wgr.commit(1);
-
-            #[cfg(feature = "extra-verbose")]
-            println!("COMIT: {:?}", bb);
 
             // This panicked before with Err(GrantInProgress), because SplitGrantR did not implement Drop
             let rgr = cons.split_read().unwrap();
             drop(rgr);
-
-            #[cfg(feature = "extra-verbose")]
-            println!("READ : {:?}", bb);
 
             let rgr = cons.split_read().unwrap();
             let (first, second) = rgr.bufs();
@@ -448,13 +426,7 @@ mod tests {
                 assert!(false, "wrong len");
             }
 
-            #[cfg(feature = "extra-verbose")]
-            println!("RELSE: {:?}", bb);
-
             rgr.release(1);
-
-            #[cfg(feature = "extra-verbose")]
-            println!("FINSH: {:?}", bb);
         }
     }
 }

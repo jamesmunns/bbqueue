@@ -27,9 +27,5 @@ harness = false
 path = "src/benches.rs"
 
 [features]
-travisci = ["verbose"]
 default = []
-verbose = []
 nightly = ["bounded-spsc-queue"]
-extra-verbose = []
-short-potato = []

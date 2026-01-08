@@ -30,6 +30,8 @@ pub enum WriteGrantError {
 pub enum ReadGrantError {
     /// Unable to create read grant due to no available bytes
     Empty,
+    /// Unable to create read grant due to insufficient available bytes
+    InsufficientSize,
     /// Unable to create read grant due to existing read grant
     GrantInProgress,
     /// We observed a frame header that did not make sense. This should only
@@ -86,6 +88,17 @@ pub unsafe trait Coord: ConstInit {
 
     /// Attempt to obtain a read grant.
     fn read(&self) -> Result<(usize, usize), ReadGrantError>;
+
+    /// Attempt to obtain a read grant of EXACTLY `sz` bytes.
+    ///
+    /// On success, the consumer will have exclusive access to this region.
+    ///
+    /// Returns a tuple containing:
+    /// * `.0`: the offset in bytes from the base storage pointer
+    /// * `.1`: the length in bytes of the region (will always equal `sz`)
+    ///
+    /// The returned grant must remain valid until `release_inner` is called.
+    fn read_exact(&self, sz: usize) -> Result<(usize, usize), ReadGrantError>;
 
     /// Mark `used` bytes as available for writing
     fn release_inner(&self, used: usize);

@@ -231,6 +231,41 @@ unsafe impl Coord for CsCoord {
         })
     }
 
+    fn read_exact(&self, sz: usize) -> Result<(usize, usize), ReadGrantError> {
+        critical_section::with(|_cs| {
+            if self.read_in_progress.load(Ordering::Relaxed) {
+                return Err(ReadGrantError::GrantInProgress);
+            }
+            self.read_in_progress.store(true, Ordering::Relaxed);
+
+            let write = self.write.load(Ordering::Relaxed);
+            let last = self.last.load(Ordering::Relaxed);
+            let mut read = self.read.load(Ordering::Relaxed);
+
+            // Resolve the inverted case or end of read
+            if (read == last) && (write < read) {
+                read = 0;
+                // MOVING READ BACKWARDS!
+                self.read.store(0, Ordering::Relaxed);
+            }
+
+            let available = if write < read {
+                // Inverted, only believe last
+                last
+            } else {
+                // Not inverted, only believe write
+                write
+            } - read;
+
+            if available < sz {
+                self.read_in_progress.store(false, Ordering::Relaxed);
+                return Err(ReadGrantError::InsufficientSize);
+            }
+
+            Ok((read, sz))
+        })
+    }
+
     fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize) {
         critical_section::with(|_cs| {
             // If there is no grant in progress, return early. This

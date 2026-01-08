@@ -69,7 +69,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -141,7 +141,7 @@ impl<'a, const N: usize> BBBuffer<N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -229,6 +229,12 @@ impl<'a, const N: usize> BBBuffer<N> {
     }
 }
 
+impl<const A: usize> Default for BBBuffer<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const A: usize> BBBuffer<A> {
     /// Create a new constant inner portion of a `BBBuffer`.
     ///
@@ -238,7 +244,7 @@ impl<const A: usize> BBBuffer<A> {
     /// the future.
     ///
     /// ```rust,no_run
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// static BUF: BBBuffer<6> = BBBuffer::new();
     ///
@@ -296,15 +302,15 @@ impl<const A: usize> BBBuffer<A> {
 /// * `grant_exact(N)`
 ///   * User will receive a grant `sz == N` (or receive an error)
 ///   * This may cause a wraparound if a grant of size N is not available
-///       at the end of the ring.
+///     at the end of the ring.
 ///   * If this grant caused a wraparound, the bytes that were "skipped" at the
-///       end of the ring will not be available until the reader reaches them,
-///       regardless of whether the grant commited any data or not.
+///     end of the ring will not be available until the reader reaches them,
+///     regardless of whether the grant commited any data or not.
 ///   * Maximum possible waste due to skipping: `N - 1` bytes
 /// * `grant_max_remaining(N)`
 ///   * User will receive a grant `0 < sz <= N` (or receive an error)
 ///   * This will only cause a wrap to the beginning of the ring if exactly
-///       zero bytes are available at the end of the ring.
+///     zero bytes are available at the end of the ring.
 ///   * Maximum possible waste due to skipping: 0 bytes
 ///
 /// See [this github issue](https://github.com/jamesmunns/bbqueue/issues/38) for a
@@ -329,7 +335,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -421,7 +427,7 @@ impl<'a, const N: usize> Producer<'a, N> {
     /// ```
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -531,7 +537,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -608,7 +614,7 @@ impl<'a, const N: usize> Consumer<'a, N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -745,7 +751,7 @@ impl<const N: usize> BBBuffer<N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -839,7 +845,7 @@ impl<'a, const N: usize> GrantW<'a, N> {
     /// ```rust
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -955,8 +961,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     }
 
     pub(crate) fn shrink(&mut self, len: usize) {
-        let mut new_buf: &mut [u8] = &mut [];
-        core::mem::swap(&mut self.buf_mut(), &mut new_buf);
+        let new_buf: &mut [u8] = self.buf_mut();
         let (new, _) = new_buf.split_at_mut(len);
         self.buf = new.into();
     }
@@ -966,7 +971,7 @@ impl<'a, const N: usize> GrantR<'a, N> {
     /// ```
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
@@ -1067,7 +1072,7 @@ impl<'a, const N: usize> SplitGrantR<'a, N> {
     /// ```
     /// # // bbqueue test shim!
     /// # fn bbqtest() {
-    /// use bbqueue::BBBuffer;
+    /// use legacy_bbqueue::BBBuffer;
     ///
     /// // Create and split a new buffer of 6 elements
     /// let buffer: BBBuffer<6> = BBBuffer::new();
