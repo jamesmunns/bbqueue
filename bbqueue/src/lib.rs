@@ -19,7 +19,7 @@
 //! ```rust
 //! // The "Churrasco" flavor has inline storage, hardware atomic
 //! // support, no async support, and is not reference counted.
-//! use bbq2::nicknames::Churrasco;
+//! use bbqueue::nicknames::Churrasco;
 //!
 //! // Create a buffer with six elements
 //! let bb: Churrasco<6> = Churrasco::new();
@@ -49,7 +49,7 @@
 //! ## Static usage
 //!
 //! ```rust
-//! use bbq2::nicknames::Churrasco;
+//! use bbqueue::nicknames::Churrasco;
 //! use std::{thread::{sleep, spawn}, time::Duration};
 //!
 //! // Create a buffer with six elements
@@ -91,9 +91,23 @@
 //! }
 //! ```
 //!
-//! ## Features
+//! ## Nicknames
 //!
-//! TODO
+//! bbqueue uses generics to customize the data structure in four main ways:
+//!
+//! * Whether the byte storage is inline (and const-generic), or heap allocated
+//! * Whether the queue is polling-only, or supports async/await sending/receiving
+//! * Whether the queue uses a lock-free algorithm with CAS atomics, or uses a critical section
+//!   (for targets that don't have CAS atomics)
+//! * Whether the queue is reference counted, allowing Producer and Consumer halves to be passed
+//!   around without lifetimes.
+//!
+//! See the [`nicknames`](crate::nicknames) module for all sixteen variants.
+//!
+//! ## Stability
+//!
+//! `bbqueue` v0.6 is a breaking change from the older "classic" v0.5 interfaces. The intent is to
+//! have a few minor breaking changes in early 2026, and to get to v1.0 as quickly as possible.
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(missing_docs)]
@@ -112,7 +126,10 @@ pub mod prod_cons;
 
 /// Queue storage
 ///
-pub mod queue;
+mod queue;
+pub use queue::BBQueue;
+#[cfg(feature = "alloc")]
+pub use queue::ArcBBQueue;
 
 /// Generic traits
 ///

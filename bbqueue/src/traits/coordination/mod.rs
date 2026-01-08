@@ -28,9 +28,9 @@ pub enum WriteGrantError {
 /// Errors associated with obtaining a read grant
 #[derive(PartialEq, Debug)]
 pub enum ReadGrantError {
-    /// Unable to create write grant due to not enough room in the buffer
+    /// Unable to create read grant due to no available bytes
     Empty,
-    /// Unable to create write grant due to existing write grant
+    /// Unable to create read grant due to existing read grant
     GrantInProgress,
     /// We observed a frame header that did not make sense. This should only
     /// occur if a stream producer was used on one end and a frame consumer was

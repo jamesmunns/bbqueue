@@ -9,7 +9,7 @@ on:
 
 defaults:
   run:
-    working-directory: ./bbq2
+    working-directory: ./bbqueue
 
 jobs:
   miri:
@@ -22,5 +22,5 @@ jobs:
       #
       # crate
       #
-      - name: Miri test bbq2
+      - name: Miri test bbqueue
         run: ./miri.sh

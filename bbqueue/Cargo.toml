@@ -1,11 +1,11 @@
 [package]
-name = "bbq2"
-version = "0.4.3"
+name = "bbqueue"
+version = "0.6.0"
 description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"
 authors = ["James Munns <james@onevariable.com>"]
 edition = "2024"
-readme = "README.md"
+readme = "../README.md"
 
 categories = [
     "embedded",
@@ -13,8 +13,8 @@ categories = [
     "memory-management",
 ]
 license = "MIT OR Apache-2.0"
-keywords = []
-documentation = "https://docs.rs/bbq2/"
+keywords = ["bipbuffer", "lock-free"]
+documentation = "https://docs.rs/bbqueue/"
 
 [package.metadata.docs.rs]
 rustdoc-args    = ["--cfg", "docsrs"]
