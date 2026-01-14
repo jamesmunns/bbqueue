@@ -84,9 +84,20 @@ pub unsafe trait Coord: ConstInit {
 
     // Read Grants
 
-    /// Attempt to obtain a read grant.
+    /// Attempt to obtain a read grant. Returns `Ok((start, size))` on success.
     fn read(&self) -> Result<(usize, usize), ReadGrantError>;
+
+    /// Attempt to obtain a split read grant. Return `Ok(((start1, size1), (start2, size2)))` on success.
+    fn split_read(&self) -> Result<[(usize, usize); 2], ReadGrantError> {
+        unimplemented!()
+    }
 
     /// Mark `used` bytes as available for writing
     fn release_inner(&self, used: usize);
+
+    /// Mark `used1 + used2` bytes as available for writing.
+    /// `used1` corresponds to the first split grant, `used2` to the second.
+    fn split_release_inner(&self, _used1: usize, _used2: usize) {
+        unimplemented!()
+    }
 }
