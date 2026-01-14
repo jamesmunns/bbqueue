@@ -231,6 +231,48 @@ unsafe impl Coord for CsCoord {
         })
     }
 
+    fn split_read(&self) -> Result<((usize, usize), (usize, usize)), ReadGrantError> {
+        critical_section::with(|_cs| {
+            if self.read_in_progress.load(Ordering::Relaxed) {
+                return Err(ReadGrantError::GrantInProgress);
+            }
+            self.read_in_progress.store(true, Ordering::Relaxed);
+
+            let write = self.write.load(Ordering::Relaxed);
+            let last = self.last.load(Ordering::Relaxed);
+            let mut read = self.read.load(Ordering::Relaxed);
+
+            // Resolve the inverted case or end of read
+            if (read == last) && (write < read) {
+                read = 0;
+                // This has some room for error, the other thread reads this
+                // Impact to Grant:
+                //   Grant checks if read < write to see if inverted. If not inverted, but
+                //     no space left, Grant will initiate an inversion, but will not trigger it
+                // Impact to Commit:
+                //   Commit does not check read, but if Grant has started an inversion,
+                //   grant could move Last to the prior write position
+                // MOVING READ BACKWARDS!
+                self.read.store(0, Ordering::Relaxed);
+            }
+
+            let (sz1, sz2) = if write < read {
+                // Inverted, only believe last
+                (last - read, write)
+            } else {
+                // Not inverted, only believe write
+                (write - read, 0)
+            };
+
+            if sz1 == 0 {
+                self.read_in_progress.store(false, Ordering::Relaxed);
+                return Err(ReadGrantError::Empty);
+            }
+
+            Ok(((read, sz1), (0, sz2)))
+        })
+    }
+
     fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize) {
         critical_section::with(|_cs| {
             // If there is no grant in progress, return early. This
