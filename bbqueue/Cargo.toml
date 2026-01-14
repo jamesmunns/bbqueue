@@ -33,6 +33,11 @@ version = "1.0"
 default-features = false
 optional = true
 
+[dependencies.portable-atomic]
+version = "1.0"
+default-features = false
+optional = true
+
 [dev-dependencies.tokio]
 version = "1.0"
 features = ["macros", "rt", "time"]
@@ -45,7 +50,7 @@ default = [
 ]
 critical-section = [
     "dep:critical-section",
-    "maitake-sync?/critical-section",
+    "dep:portable-atomic",
 ]
 disable-cache-padding = [
     "maitake-sync?/no-cache-pad",

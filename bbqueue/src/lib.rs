@@ -127,9 +127,9 @@ pub mod prod_cons;
 /// Queue storage
 ///
 mod queue;
-pub use queue::BBQueue;
 #[cfg(feature = "alloc")]
 pub use queue::ArcBBQueue;
+pub use queue::BBQueue;
 
 /// Generic traits
 ///

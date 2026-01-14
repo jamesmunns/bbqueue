@@ -6,10 +6,9 @@
 use const_init::ConstInit;
 
 use super::{Coord, ReadGrantError, WriteGrantError};
-use core::{
-    cmp::min,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use core::cmp::min;
+use core::sync::atomic::Ordering;
+use portable_atomic::{AtomicBool, AtomicUsize};
 
 /// Coordination that uses a critical section to perform coordination operations
 ///
