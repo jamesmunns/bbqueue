@@ -201,7 +201,7 @@ where
     /// around the internal ring buffer.
     pub fn split_read(&self) -> Result<SplitGrantR<Q>, ReadGrantError> {
         let (ptr, _cap) = unsafe { self.bbq.sto.ptr_len() };
-        let ((offset1, len1), (offset2, len2)) = self.bbq.cor.split_read()?;
+        let [(offset1, len1), (offset2, len2)] = self.bbq.cor.split_read()?;
         let ptr1 = unsafe {
             let p = ptr.as_ptr().byte_add(offset1);
             NonNull::new_unchecked(p)
@@ -369,11 +369,8 @@ where
     /// `used` is capped to the total length of the grant
     pub fn release(self, used: usize) {
         let used1 = used.min(self.len1);
-        self.bbq.cor.release_inner(used1);
         let used2 = (used - used1).min(self.len2);
-        if used2 > 0 {
-            self.bbq.cor.release_inner(used2);
-        }
+        self.bbq.cor.split_release_inner(used1, used2);
         if used != 0 {
             self.bbq.not.wake_one_producer();
         }
@@ -385,6 +382,11 @@ impl<Q> SplitGrantR<Q>
 where
     Q: BbqHandle,
 {
+    /// Obtain the combined length of both buffers
+    pub fn combined_len(&self) -> usize {
+        self.len1 + self.len2
+    }
+
     /// Obtain the two buffers represented by this split read grant
     pub fn bufs(&self) -> (&[u8], &[u8]) {
         let buf1 = unsafe { core::slice::from_raw_parts(self.ptr1.as_ptr(), self.len1) };
@@ -417,11 +419,8 @@ where
         let len2 = *len2;
         let used = (*to_release).min(len1 + len2);
         let used1 = used.min(len1);
-        bbq.cor.release_inner(used1);
         let used2 = (used - used1).min(len2);
-        if used2 > 0 {
-            bbq.cor.release_inner(used2);
-        }
+        bbq.cor.split_release_inner(used1, used2);
         if used != 0 {
             bbq.not.wake_one_producer();
         }

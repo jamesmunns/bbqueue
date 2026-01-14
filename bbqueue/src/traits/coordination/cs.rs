@@ -231,7 +231,7 @@ unsafe impl Coord for CsCoord {
         })
     }
 
-    fn split_read(&self) -> Result<((usize, usize), (usize, usize)), ReadGrantError> {
+    fn split_read(&self) -> Result<[(usize, usize); 2], ReadGrantError> {
         critical_section::with(|_cs| {
             if self.read_in_progress.load(Ordering::Relaxed) {
                 return Err(ReadGrantError::GrantInProgress);
@@ -269,7 +269,7 @@ unsafe impl Coord for CsCoord {
                 return Err(ReadGrantError::Empty);
             }
 
-            Ok(((read, sz1), (0, sz2)))
+            Ok([(read, sz1), (0, sz2)])
         })
     }
 
@@ -342,6 +342,28 @@ unsafe impl Coord for CsCoord {
             // This should be fine, purely incrementing
             let old_read = self.read.load(Ordering::Relaxed);
             self.read.store(used + old_read, Ordering::Relaxed);
+            self.read_in_progress.store(false, Ordering::Relaxed);
+        })
+    }
+    fn split_release_inner(&self, used1: usize, used2: usize) {
+        critical_section::with(|_cs| {
+            // If there is no grant in progress, return early. This
+            // generally means we are dropping the grant within a
+            // wrapper structure
+            if !self.read_in_progress.load(Ordering::Acquire) {
+                return;
+            }
+
+            // // This should always be checked by the public interfaces
+            // debug_assert!(used <= self.buf.len());
+
+            // This should be fine, purely incrementing
+            let old_read = self.read.load(Ordering::Relaxed);
+            if used2 == 0 {
+                self.read.store(used1 + old_read, Ordering::Relaxed);
+            } else {
+                self.read.store(used2, Ordering::Relaxed);
+            }
             self.read_in_progress.store(false, Ordering::Relaxed);
         })
     }

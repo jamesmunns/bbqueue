@@ -216,7 +216,7 @@ unsafe impl Coord for AtomicCoord {
         Ok((read, sz))
     }
 
-    fn split_read(&self) -> Result<((usize, usize), (usize, usize)), ReadGrantError> {
+    fn split_read(&self) -> Result<[(usize, usize); 2], ReadGrantError> {
         if self.read_in_progress.swap(true, Ordering::AcqRel) {
             return Err(ReadGrantError::GrantInProgress);
         }
@@ -252,7 +252,7 @@ unsafe impl Coord for AtomicCoord {
             return Err(ReadGrantError::Empty);
         }
 
-        Ok(((read, sz1), (0, sz2)))
+        Ok([(read, sz1), (0, sz2)])
     }
 
     fn commit_inner(&self, capacity: usize, grant_len: usize, used: usize) {
@@ -318,6 +318,27 @@ unsafe impl Coord for AtomicCoord {
 
         // This should be fine, purely incrementing
         let _ = self.read.fetch_add(used, Ordering::Release);
+
+        self.read_in_progress.store(false, Ordering::Release);
+    }
+    fn split_release_inner(&self, used1: usize, used2: usize) {
+        // If there is no grant in progress, return early. This
+        // generally means we are dropping the grant within a
+        // wrapper structure
+        if !self.read_in_progress.load(Ordering::Acquire) {
+            return;
+        }
+
+        // // This should always be checked by the public interfaces
+        // debug_assert!(used <= self.buf.len());
+
+        if used2 == 0 {
+            // This should be fine, purely incrementing
+            let _ = self.read.fetch_add(used1, Ordering::Release);
+        } else {
+            // Also release parts of the second buffer
+            self.read.store(used2, Ordering::Release);
+        }
 
         self.read_in_progress.store(false, Ordering::Release);
     }
