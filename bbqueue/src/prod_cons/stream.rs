@@ -63,6 +63,26 @@ where
     to_release: usize,
 }
 
+/// A split reading grant into the storage buffer
+///
+/// This is useful for reading data that wraps around the internal ring buffer.
+///
+/// Grants implement methods to access the two underlying buffers.
+///
+/// Write access is provided for read grants in case it is necessary to mutate
+/// the storage in-place for decoding.
+pub struct SplitGrantR<Q>
+where
+    Q: BbqHandle,
+{
+    bbq: Q::Target,
+    ptr1: NonNull<u8>,
+    len1: usize,
+    ptr2: NonNull<u8>,
+    len2: usize,
+    to_release: usize,
+}
+
 // ---- impls ----
 
 // ---- StreamProducer ----
@@ -171,6 +191,31 @@ where
             bbq: self.bbq.clone(),
             ptr,
             len,
+            to_release: 0,
+        })
+    }
+
+    /// Obtain a split read grant
+    ///
+    /// This is useful for reading all available data when the data wraps
+    /// around the internal ring buffer.
+    pub fn split_read(&self) -> Result<SplitGrantR<Q>, ReadGrantError> {
+        let (ptr, _cap) = unsafe { self.bbq.sto.ptr_len() };
+        let ((offset1, len1), (offset2, len2)) = self.bbq.cor.split_read()?;
+        let ptr1 = unsafe {
+            let p = ptr.as_ptr().byte_add(offset1);
+            NonNull::new_unchecked(p)
+        };
+        let ptr2 = unsafe {
+            let p = ptr.as_ptr().byte_add(offset2);
+            NonNull::new_unchecked(p)
+        };
+        Ok(SplitGrantR {
+            bbq: self.bbq.clone(),
+            ptr1,
+            len1,
+            ptr2,
+            len2,
             to_release: 0,
         })
     }
@@ -312,3 +357,75 @@ where
 }
 
 unsafe impl<Q: BbqHandle + Send> Send for StreamGrantR<Q> {}
+
+// ---- SplitGrantR ----
+
+impl<Q> SplitGrantR<Q>
+where
+    Q: BbqHandle,
+{
+    /// Make `used` bytes available for writing.
+    ///
+    /// `used` is capped to the total length of the grant
+    pub fn release(self, used: usize) {
+        let used1 = used.min(self.len1);
+        self.bbq.cor.release_inner(used1);
+        let used2 = (used - used1).min(self.len2);
+        if used2 > 0 {
+            self.bbq.cor.release_inner(used2);
+        }
+        if used != 0 {
+            self.bbq.not.wake_one_producer();
+        }
+        core::mem::forget(self);
+    }
+}
+
+impl<Q> SplitGrantR<Q>
+where
+    Q: BbqHandle,
+{
+    /// Obtain the two buffers represented by this split read grant
+    pub fn bufs(&self) -> (&[u8], &[u8]) {
+        let buf1 = unsafe { core::slice::from_raw_parts(self.ptr1.as_ptr(), self.len1) };
+        let buf2 = unsafe { core::slice::from_raw_parts(self.ptr2.as_ptr(), self.len2) };
+        (buf1, buf2)
+    }
+
+    /// Obtain the two mutable buffers represented by this split read grant
+    pub fn bufs_mut(&mut self) -> (&mut [u8], &mut [u8]) {
+        let buf1 = unsafe { core::slice::from_raw_parts_mut(self.ptr1.as_ptr(), self.len1) };
+        let buf2 = unsafe { core::slice::from_raw_parts_mut(self.ptr2.as_ptr(), self.len2) };
+        (buf1, buf2)
+    }
+}
+
+impl<Q> Drop for SplitGrantR<Q>
+where
+    Q: BbqHandle,
+{
+    fn drop(&mut self) {
+        let SplitGrantR {
+            bbq,
+            ptr1: _,
+            len1,
+            ptr2: _,
+            len2,
+            to_release,
+        } = self;
+        let len1 = *len1;
+        let len2 = *len2;
+        let used = (*to_release).min(len1 + len2);
+        let used1 = used.min(len1);
+        bbq.cor.release_inner(used1);
+        let used2 = (used - used1).min(len2);
+        if used2 > 0 {
+            bbq.cor.release_inner(used2);
+        }
+        if used != 0 {
+            bbq.not.wake_one_producer();
+        }
+    }
+}
+
+unsafe impl<Q: BbqHandle + Send> Send for SplitGrantR<Q> {}
