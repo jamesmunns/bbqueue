@@ -120,6 +120,11 @@ where
             to_commit: 0,
         })
     }
+
+    /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    pub fn capacity(&self) -> usize {
+        self.bbq.capacity()
+    }
 }
 
 impl<Q> StreamProducer<Q>
@@ -173,6 +178,11 @@ where
             len,
             to_release: 0,
         })
+    }
+
+    /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    pub fn capacity(&self) -> usize {
+        self.bbq.capacity()
     }
 }
 

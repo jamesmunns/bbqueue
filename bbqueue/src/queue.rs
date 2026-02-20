@@ -95,6 +95,14 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
     pub const fn stream_consumer(&self) -> StreamConsumer<&'_ Self> {
         StreamConsumer { bbq: self }
     }
+
+    /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    pub fn capacity(&self) -> usize {
+        // SAFETY: capacity never changes, therefore reading the len is safe
+        unsafe {
+            self.sto.ptr_len().1
+        }
+    }
 }
 
 #[cfg(feature = "alloc")]
