@@ -147,6 +147,11 @@ where
             hdr: sz,
         })
     }
+
+    /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    pub fn capacity(&self) -> usize {
+        self.bbq.capacity()
+    }
 }
 
 impl<Q, H> FramedProducer<Q, H>
@@ -221,6 +226,11 @@ where
             body_ptr,
             hdr,
         })
+    }
+
+    /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    pub fn capacity(&self) -> usize {
+        self.bbq.capacity()
     }
 }
 
