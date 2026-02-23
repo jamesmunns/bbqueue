@@ -97,11 +97,27 @@ impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
     }
 
     /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    #[inline(always)]
     pub fn capacity(&self) -> usize {
         // SAFETY: capacity never changes, therefore reading the len is safe
         unsafe {
             self.sto.ptr_len().1
         }
+    }
+
+    /// Get access to the internal storage implementation details
+    ///
+    /// NOTE: Although this method is safe, use of the `Storage` methods are not.
+    /// You should *never* attempt to access or modify the underlying data contained
+    /// in a storage implementation while the bbqueue is live. That will IMMEDIATELY
+    /// lead to undefined behavior.
+    ///
+    /// As far as I am aware, the only reasonable use for this is for cases where you
+    /// have a custom `Storage` implementation that has unique teardown/drop in place
+    /// requirements. Treat any uses of this function with *extreme* caution!
+    #[inline(always)]
+    pub fn storage(&self) -> &S {
+        &self.sto
     }
 }
 
@@ -147,6 +163,30 @@ impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
         StreamConsumer {
             bbq: self.0.bbq_ref(),
         }
+    }
+
+    /// Get the total capacity of the buffer, e.g. how much space is present in [`Storage`]
+    #[inline(always)]
+    pub fn capacity(&self) -> usize {
+        // SAFETY: capacity never changes, therefore reading the len is safe
+        unsafe {
+            self.0.sto.ptr_len().1
+        }
+    }
+
+    /// Get access to the internal storage implementation details
+    ///
+    /// NOTE: Although this method is safe, use of the `Storage` methods are not.
+    /// You should *never* attempt to access or modify the underlying data contained
+    /// in a storage implementation while the bbqueue is live. That will IMMEDIATELY
+    /// lead to undefined behavior.
+    ///
+    /// As far as I am aware, the only reasonable use for this is for cases where you
+    /// have a custom `Storage` implementation that has unique teardown/drop in place
+    /// requirements. Treat any uses of this function with *extreme* caution!
+    #[inline(always)]
+    pub fn storage(&self) -> &S {
+        &self.0.sto
     }
 }
 
