@@ -39,6 +39,6 @@ jobs:
       - name: Check bbqueue (no features, on mcu)
         run: cargo build --no-default-features --target=thumbv6m-none-eabi
       # default features, on mcu
-      - name: Check bbqueue (no features, on mcu)
-        run: cargo build --target=thumbv6m-none-eabi
+      - name: Check bbqueue (default features, on mcu)
+        run: cargo build --target=thumbv6m-none-eabi --features=portable-atomic-unsafe-assume-single-core
 
