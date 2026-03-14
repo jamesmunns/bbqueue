@@ -1,6 +1,6 @@
 [package]
 name = "bbqueue"
-version = "0.6.2"
+version = "0.7.0"
 description = "A SPSC, lockless, no_std, thread safe, queue, based on BipBuffers"
 repository = "https://github.com/jamesmunns/bbqueue"
 authors = ["James Munns <james@onevariable.com>"]
@@ -22,9 +22,10 @@ features        = ["std"]
 
 [dependencies]
 const-init = "1.0.0"
+portable-atomic = { version = "1.13.1", default-features = false, optional = true }
 
 [dependencies.maitake-sync]
-version = "0.2"
+version = "0.3"
 default-features = false
 optional = true
 
@@ -40,7 +41,7 @@ features = ["macros", "rt", "time"]
 [features]
 # NOTE: CAS atomics are switched using `#[cfg(target_has_atomic = "ptr")]`
 default = [
-    "maitake-sync-0_2",
+    "maitake-sync-0_3",
     "critical-section",
 ]
 critical-section = [
@@ -54,6 +55,9 @@ alloc = []
 std = [
     "alloc"
 ]
-maitake-sync-0_2 = [
+maitake-sync-0_3 = [
     "dep:maitake-sync",
 ]
+portable-atomic = ["dep:portable-atomic"]
+portable-atomic-critical-section = ["portable-atomic", "portable-atomic/critical-section"]
+portable-atomic-unsafe-assume-single-core = ["portable-atomic", "portable-atomic/unsafe-assume-single-core"]

@@ -4,7 +4,7 @@
 
 use const_init::ConstInit;
 
-#[cfg(feature = "maitake-sync-0_2")]
+#[cfg(feature = "maitake-sync-0_3")]
 pub mod maitake;
 
 pub mod polling;
