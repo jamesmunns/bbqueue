@@ -143,13 +143,14 @@ pub mod export {
 
 #[cfg(all(test, feature = "alloc"))]
 mod test {
+    use alloc::sync::Arc;
     use core::{ops::Deref, time::Duration};
 
     use crate::{
         queue::{ArcBBQueue, BBQueue},
         traits::{
             coordination::cas::AtomicCoord,
-            notifier::maitake::MaiNotSpsc,
+            notifier::{maitake::MaiNotSpsc, polling::Polling},
             storage::{BoxedSlice, Inline},
         },
     };
@@ -157,8 +158,6 @@ mod test {
     #[cfg(all(target_has_atomic = "ptr", feature = "alloc"))]
     #[test]
     fn ux() {
-        use crate::traits::{notifier::polling::Polling, storage::BoxedSlice};
-
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let _ = BBQ.stream_producer();
         let _ = BBQ.stream_consumer();
@@ -177,9 +176,6 @@ mod test {
     #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn smoke() {
-        use crate::traits::notifier::polling::Polling;
-        use core::ops::Deref;
-
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let prod = BBQ.stream_producer();
         let cons = BBQ.stream_consumer();
@@ -203,9 +199,6 @@ mod test {
     #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn smoke_framed() {
-        use crate::traits::notifier::polling::Polling;
-        use core::ops::Deref;
-
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let prod = BBQ.framed_producer();
         let cons = BBQ.framed_consumer();
@@ -225,8 +218,6 @@ mod test {
     #[cfg(target_has_atomic = "ptr")]
     #[test]
     fn framed_misuse() {
-        use crate::traits::notifier::polling::Polling;
-
         static BBQ: BBQueue<Inline<64>, AtomicCoord, Polling> = BBQueue::new();
         let prod = BBQ.stream_producer();
         let cons = BBQ.framed_consumer();
@@ -253,6 +244,88 @@ mod test {
         wgr.commit(1);
 
         assert!(cons.read().is_err());
+    }
+
+    #[test]
+    fn framed_commit_releases_owned_queue_handle() {
+        let bbq: ArcBBQueue<Inline<64>, AtomicCoord, Polling> =
+            ArcBBQueue::new_with_storage(Inline::new());
+        let weak = Arc::downgrade(&bbq.0);
+        let prod = bbq.framed_producer();
+        let baseline = Arc::strong_count(&bbq.0);
+
+        let wgr = prod.grant(1).expect("space should be available");
+        assert_eq!(Arc::strong_count(&bbq.0), baseline + 1);
+        wgr.commit(1);
+        assert_eq!(Arc::strong_count(&bbq.0), baseline);
+
+        drop(prod);
+        drop(bbq);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn framed_release_releases_owned_queue_handle() {
+        let bbq: ArcBBQueue<Inline<64>, AtomicCoord, Polling> =
+            ArcBBQueue::new_with_storage(Inline::new());
+        let weak = Arc::downgrade(&bbq.0);
+        let seed_prod = bbq.0.as_ref().framed_producer();
+        seed_prod
+            .grant(1)
+            .expect("space should be available")
+            .commit(1);
+        let cons = bbq.framed_consumer();
+        let baseline = Arc::strong_count(&bbq.0);
+
+        let rgr = cons.read().expect("seeded frame should be available");
+        assert_eq!(Arc::strong_count(&bbq.0), baseline + 1);
+        rgr.release();
+        assert_eq!(Arc::strong_count(&bbq.0), baseline);
+
+        drop(cons);
+        drop(bbq);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn stream_commit_releases_owned_queue_handle() {
+        let bbq: ArcBBQueue<Inline<64>, AtomicCoord, Polling> =
+            ArcBBQueue::new_with_storage(Inline::new());
+        let weak = Arc::downgrade(&bbq.0);
+        let prod = bbq.stream_producer();
+        let baseline = Arc::strong_count(&bbq.0);
+
+        let wgr = prod.grant_exact(1).expect("space should be available");
+        assert_eq!(Arc::strong_count(&bbq.0), baseline + 1);
+        wgr.commit(1);
+        assert_eq!(Arc::strong_count(&bbq.0), baseline);
+
+        drop(prod);
+        drop(bbq);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn stream_release_releases_owned_queue_handle() {
+        let bbq: ArcBBQueue<Inline<64>, AtomicCoord, Polling> =
+            ArcBBQueue::new_with_storage(Inline::new());
+        let weak = Arc::downgrade(&bbq.0);
+        let seed_prod = bbq.0.as_ref().stream_producer();
+        seed_prod
+            .grant_exact(1)
+            .expect("space should be available")
+            .commit(1);
+        let cons = bbq.stream_consumer();
+        let baseline = Arc::strong_count(&bbq.0);
+
+        let rgr = cons.read().expect("seeded byte should be available");
+        assert_eq!(Arc::strong_count(&bbq.0), baseline + 1);
+        rgr.release(1);
+        assert_eq!(Arc::strong_count(&bbq.0), baseline);
+
+        drop(cons);
+        drop(bbq);
+        assert!(weak.upgrade().is_none());
     }
 
     #[tokio::test]

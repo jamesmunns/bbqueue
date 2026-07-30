@@ -208,14 +208,8 @@ where
     /// Make `used` bytes available to be read.
     ///
     /// `used` is capped to the length of the grant.
-    pub fn commit(self, used: usize) {
-        let (_, cap) = unsafe { self.bbq.sto.ptr_len() };
-        let used = used.min(self.len);
-        self.bbq.cor.commit_inner(cap, self.len, used);
-        if used != 0 {
-            self.bbq.not.wake_one_consumer();
-        }
-        core::mem::forget(self);
+    pub fn commit(mut self, used: usize) {
+        self.to_commit = used;
     }
 }
 
@@ -271,13 +265,8 @@ where
     /// Make `used` bytes available for writing.
     ///
     /// `used` is capped to the length of the grant
-    pub fn release(self, used: usize) {
-        let used = used.min(self.len);
-        self.bbq.cor.release_inner(used);
-        if used != 0 {
-            self.bbq.not.wake_one_producer();
-        }
-        core::mem::forget(self);
+    pub fn release(mut self, used: usize) {
+        self.to_release = used;
     }
 }
 

@@ -4,8 +4,9 @@
 
 use core::{
     marker::PhantomData,
+    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 use crate::traits::{
@@ -277,8 +278,11 @@ where
         }
 
         self.bbq.cor.commit_inner(cap, grant_len, used_len);
-        self.bbq.not.wake_one_consumer();
-        core::mem::forget(self);
+        let this = ManuallyDrop::new(self);
+        // SAFETY: Read once; the ManuallyDrop grant is not accessed or dropped afterward.
+        let bbq = unsafe { ptr::read(&this.bbq) };
+        bbq.not.wake_one_consumer();
+        drop(bbq);
     }
 
     /// Aborts the grant, making no frame available to the consumer
@@ -359,8 +363,11 @@ where
         let hdrlen: usize = const { core::mem::size_of::<H>() };
         let used = len + hdrlen;
         self.bbq.cor.release_inner(used);
-        self.bbq.not.wake_one_producer();
-        core::mem::forget(self);
+        let this = ManuallyDrop::new(self);
+        // SAFETY: Read once; the ManuallyDrop grant is not accessed or dropped afterward.
+        let bbq = unsafe { ptr::read(&this.bbq) };
+        bbq.not.wake_one_producer();
+        drop(bbq);
     }
 
     /// Drop the grant WITHOUT releasing the message from the queue.
