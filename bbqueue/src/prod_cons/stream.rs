@@ -151,8 +151,6 @@ where
     }
 }
 
-unsafe impl<Q: BbqHandle + Send> Send for StreamProducer<Q> {}
-
 // ---- StreamConsumer ----
 
 impl<Q> StreamConsumer<Q>
@@ -196,8 +194,6 @@ where
         self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
     }
 }
-
-unsafe impl<Q: BbqHandle + Send> Send for StreamConsumer<Q> {}
 
 // ---- StreamGrantW ----
 
@@ -260,7 +256,12 @@ where
     }
 }
 
-unsafe impl<Q: BbqHandle + Send> Send for StreamGrantW<Q> {}
+unsafe impl<Q> Send for StreamGrantW<Q>
+where
+    Q: BbqHandle,
+    Q::Target: Send,
+{
+}
 
 // ---- StreamGrantR ----
 
@@ -321,4 +322,9 @@ where
     }
 }
 
-unsafe impl<Q: BbqHandle + Send> Send for StreamGrantR<Q> {}
+unsafe impl<Q> Send for StreamGrantR<Q>
+where
+    Q: BbqHandle,
+    Q::Target: Send,
+{
+}
