@@ -162,14 +162,28 @@ where
 {
     /// Wait for the given write grant to become available
     ///
-    /// If `sz` is larger than the storage buffer, this method will never
-    /// return.
-    ///
     /// The returned grant can be used to write up to `sz` bytes, though
     /// a smaller size may be committed. Dropping the grant without calling
     /// commit means that no data will be made visible to the consumer.
-    pub async fn wait_grant(&self, sz: H) -> FramedGrantW<Q, H> {
-        self.bbq.not.wait_for_not_full(|| self.grant(sz).ok()).await
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WriteGrantError::InsufficientSize`] when a frame of `sz` cannot
+    /// fit the buffer even when empty. Releasing every outstanding read grant
+    /// would not satisfy such a request, so it is reported rather than awaited.
+    pub async fn wait_grant(&self, sz: H) -> Result<FramedGrantW<Q, H>, WriteGrantError> {
+        let needed = sz
+            .into()
+            .checked_add(core::mem::size_of::<H>())
+            .ok_or(WriteGrantError::InsufficientSize)?;
+        if needed > self.capacity() {
+            return Err(WriteGrantError::InsufficientSize);
+        }
+
+        if let Ok(grant) = self.grant(sz) {
+            return Ok(grant);
+        }
+        Ok(self.bbq.not.wait_for_not_full(|| self.grant(sz).ok()).await)
     }
 }
 
@@ -247,6 +261,9 @@ where
     ///
     /// The returned grant must be released to free the space in the buffer.
     pub async fn wait_read(&self) -> FramedGrantR<Q, H> {
+        if let Ok(grant) = self.read() {
+            return grant;
+        }
         self.bbq.not.wait_for_not_empty(|| self.read().ok()).await
     }
 }
@@ -412,4 +429,43 @@ where
     Q::Target: Send,
     H: LenHeader + Send,
 {
+}
+
+#[cfg(all(test, feature = "maitake-sync-0_3"))]
+mod async_tests {
+    use core::{
+        future::Future,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    use crate::{
+        BBQueue,
+        prod_cons::framed::FramedProducer,
+        traits::{
+            bbqhdl::BbqHandle,
+            coordination::{WriteGrantError, cas::AtomicCoord},
+            notifier::maitake::MaiNotSpsc,
+            storage::Inline,
+        },
+    };
+
+    type AsyncRing = BBQueue<Inline<64>, AtomicCoord, MaiNotSpsc>;
+
+    /// A frame too large for an empty buffer can never be granted, so the wait
+    /// resolves instead of parking on a consumer that cannot help.
+    #[test]
+    fn wait_grant_rejects_a_frame_larger_than_the_buffer() {
+        let bbq: AsyncRing = BBQueue::new();
+        let prod: FramedProducer<&AsyncRing, usize> = BbqHandle::framed_producer::<usize>(&&bbq);
+
+        // The payload alone fits; the header pushes it past capacity.
+        let sz = prod.capacity() - 1;
+
+        let mut wait = pin!(prod.wait_grant(sz));
+        let Poll::Ready(res) = wait.as_mut().poll(&mut Context::from_waker(Waker::noop())) else {
+            panic!("wait_grant parked on a request no consumer can satisfy");
+        };
+        assert_eq!(res.err(), Some(WriteGrantError::InsufficientSize));
+    }
 }
