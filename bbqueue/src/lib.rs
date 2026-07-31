@@ -351,3 +351,224 @@ mod test {
         drop(bbq);
     }
 }
+
+/// Aliasing, panic-safety, and cross-thread behaviour of the framed API.
+///
+/// These earn their keep under miri rather than as plain unit tests: each one
+/// exercises a pattern where a stale pointer, a double release, or a torn
+/// coordinator update would be silent under a normal run.
+#[cfg(all(test, feature = "std"))]
+mod soundness_test {
+    use std::sync::Arc;
+
+    use const_init::ConstInit;
+
+    use crate::{
+        queue::BBQueue,
+        traits::{
+            bbqhdl::BbqHandle,
+            coordination::cas::AtomicCoord,
+            notifier::{Notifier, polling::Polling},
+            storage::BoxedSlice,
+        },
+    };
+
+    type Ring = BBQueue<BoxedSlice, AtomicCoord, Polling>;
+
+    fn ring() -> Arc<Ring> {
+        Arc::new(BBQueue::new_with_storage(BoxedSlice::new(64)))
+    }
+
+    /// Wrap the ring repeatedly at unaligned offsets, touching every byte of
+    /// every grant so miri sees each access.
+    #[test]
+    fn wraparound_with_a_usize_header() {
+        let bbq = ring();
+        let prod = bbq.framed_producer::<usize>();
+        let cons = bbq.framed_consumer::<usize>();
+
+        // The header is 8 bytes, so bodies of 1..=9 make grants of 9..=17 and
+        // the ring inverts at a different offset each time around.
+        for round in 0..64usize {
+            let body = (round % 9) + 1;
+            let mut wgr = prod.grant(body).expect("space available");
+            assert_eq!(wgr.len(), body);
+            for (i, b) in wgr.iter_mut().enumerate() {
+                *b = (round + i) as u8;
+            }
+            wgr.commit(body);
+
+            let rgr = cons.read().expect("frame available");
+            assert_eq!(rgr.len(), body, "round {round}");
+            for (i, b) in rgr.iter().enumerate() {
+                assert_eq!(*b, (round + i) as u8, "round {round} byte {i}");
+            }
+            rgr.release();
+        }
+    }
+
+    /// A write grant taken and written through while a read grant into the same
+    /// allocation is still live. The read grant must not observe the write.
+    #[test]
+    fn a_write_grant_does_not_disturb_a_live_read_grant() {
+        let bbq = ring();
+        let prod = bbq.framed_producer::<usize>();
+        let cons = bbq.framed_consumer::<usize>();
+
+        let mut seed = prod.grant(4).expect("space");
+        seed.copy_from_slice(&[1, 2, 3, 4]);
+        seed.commit(4);
+
+        let rgr = cons.read().expect("frame");
+        assert_eq!(&*rgr, &[1, 2, 3, 4]);
+
+        let mut wgr = prod.grant(4).expect("space");
+        wgr.copy_from_slice(&[9, 9, 9, 9]);
+        assert_eq!(&*rgr, &[1, 2, 3, 4], "read grant must be unperturbed");
+        wgr.commit(4);
+        assert_eq!(&*rgr, &[1, 2, 3, 4]);
+        rgr.release();
+
+        let rgr2 = cons.read().expect("frame");
+        assert_eq!(&*rgr2, &[9, 9, 9, 9]);
+        rgr2.release();
+    }
+
+    /// The producer and consumer halves on separate threads, wrapping the ring.
+    #[test]
+    fn producer_and_consumer_wrap_the_ring_from_two_threads() {
+        let bbq = ring();
+        let prod = bbq.framed_producer::<usize>();
+        let cons = bbq.framed_consumer::<usize>();
+
+        const N: usize = 40;
+
+        let tx = std::thread::spawn(move || {
+            for round in 0..N {
+                let body = (round % 7) + 1;
+                loop {
+                    match prod.grant(body) {
+                        Ok(mut wgr) => {
+                            for b in wgr.iter_mut() {
+                                *b = round as u8;
+                            }
+                            wgr.commit(body);
+                            break;
+                        }
+                        Err(_) => std::thread::yield_now(),
+                    }
+                }
+            }
+        });
+
+        let rx = std::thread::spawn(move || {
+            for round in 0..N {
+                loop {
+                    match cons.read() {
+                        Ok(rgr) => {
+                            assert_eq!(rgr.len(), (round % 7) + 1);
+                            for b in rgr.iter() {
+                                assert_eq!(*b, round as u8);
+                            }
+                            rgr.release();
+                            break;
+                        }
+                        Err(_) => std::thread::yield_now(),
+                    }
+                }
+            }
+        });
+
+        tx.join().expect("producer");
+        rx.join().expect("consumer");
+    }
+
+    /// Wakes by panicking, so a grant that unwinds mid-commit takes the queue
+    /// handle down with it.
+    struct PanicNotifier;
+
+    impl ConstInit for PanicNotifier {
+        const INIT: Self = PanicNotifier;
+    }
+
+    impl Notifier for PanicNotifier {
+        fn wake_one_consumer(&self) {
+            panic!("wake_one_consumer");
+        }
+        fn wake_one_producer(&self) {
+            panic!("wake_one_producer");
+        }
+    }
+
+    type PanicRing = BBQueue<BoxedSlice, AtomicCoord, PanicNotifier>;
+
+    fn panic_ring() -> Arc<PanicRing> {
+        Arc::new(BBQueue::new_with_storage(BoxedSlice::new(64)))
+    }
+
+    fn swallow_panic(f: impl FnOnce()) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+    }
+
+    #[test]
+    fn a_commit_that_unwinds_releases_its_handle_exactly_once() {
+        let bbq = panic_ring();
+        let weak = Arc::downgrade(&bbq);
+        let prod = bbq.framed_producer::<usize>();
+        let baseline = Arc::strong_count(&bbq);
+
+        let wgr = prod.grant(4).expect("space");
+        assert_eq!(Arc::strong_count(&bbq), baseline + 1);
+
+        assert!(swallow_panic(|| wgr.commit(4)), "the wake should panic");
+        assert_eq!(Arc::strong_count(&bbq), baseline);
+
+        drop(prod);
+        drop(bbq);
+        assert!(weak.upgrade().is_none(), "no leaked strong handle");
+    }
+
+    #[test]
+    fn a_release_that_unwinds_releases_its_handle_exactly_once() {
+        let bbq = panic_ring();
+        let weak = Arc::downgrade(&bbq);
+        let prod = bbq.framed_producer::<usize>();
+        let cons = bbq.framed_consumer::<usize>();
+
+        let wgr = prod.grant(4).expect("space");
+        swallow_panic(|| wgr.commit(4));
+
+        let baseline = Arc::strong_count(&bbq);
+        let rgr = cons.read().expect("frame");
+        assert_eq!(Arc::strong_count(&bbq), baseline + 1);
+
+        assert!(swallow_panic(|| rgr.release()), "the wake should panic");
+        assert_eq!(Arc::strong_count(&bbq), baseline);
+
+        drop(prod);
+        drop(cons);
+        drop(bbq);
+        assert!(weak.upgrade().is_none(), "no leaked strong handle");
+    }
+
+    /// The frame is published and the write slot reopened even though the wake
+    /// unwound partway through the commit.
+    #[test]
+    fn a_commit_that_unwinds_still_publishes_its_frame() {
+        let bbq = panic_ring();
+        let prod = bbq.framed_producer::<usize>();
+        let cons = bbq.framed_consumer::<usize>();
+
+        let mut wgr = prod.grant(4).expect("space");
+        wgr.copy_from_slice(&[7, 7, 7, 7]);
+        swallow_panic(|| wgr.commit(4));
+
+        let rgr = cons.read().expect("frame is published despite the panic");
+        assert_eq!(&*rgr, &[7, 7, 7, 7]);
+        swallow_panic(|| rgr.release());
+
+        prod.grant(4)
+            .expect("the in-progress write must have been cleared")
+            .abort();
+    }
+}
