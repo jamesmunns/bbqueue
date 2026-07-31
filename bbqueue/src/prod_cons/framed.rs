@@ -133,7 +133,12 @@ where
     /// commit means that no data will be made visible to the consumer.
     pub fn grant(&self, sz: H) -> Result<FramedGrantW<Q, H>, WriteGrantError> {
         let (ptr, cap) = unsafe { self.bbq.sto.ptr_len() };
-        let needed = sz.into() + core::mem::size_of::<H>();
+        // A `sz` close to the numeric limit of `H` would wrap here, yielding a
+        // grant far smaller than the header claims. `DerefMut` trusts the header.
+        let needed = sz
+            .into()
+            .checked_add(core::mem::size_of::<H>())
+            .ok_or(WriteGrantError::InsufficientSize)?;
 
         let offset = self.bbq.cor.grant_exact(cap, needed)?;
 
@@ -207,7 +212,12 @@ where
         let ptr = unsafe { ptr.as_ptr().byte_add(offset) };
         // Read the potentially unaligned header
         let hdr: H = unsafe { ptr.cast::<H>().read_unaligned() };
-        if (hdr_sz + hdr.into()) > grant_len {
+        // A header near the numeric limit of `H` would wrap this sum below
+        // `grant_len`, passing the very check meant to reject it.
+        if hdr_sz
+            .checked_add(hdr.into())
+            .is_none_or(|total| total > grant_len)
+        {
             // Again, the header value + header size are larger than
             // the actual read grant, this means someone is doing
             // something sketch. We need to release the read grant,
@@ -412,4 +422,55 @@ where
     Q::Target: Send,
     H: LenHeader + Send,
 {
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        BBQueue,
+        prod_cons::{
+            framed::{FramedConsumer, FramedProducer},
+            stream::StreamProducer,
+        },
+        traits::{
+            bbqhdl::BbqHandle,
+            coordination::{ReadGrantError, WriteGrantError, cas::AtomicCoord},
+            notifier::polling::Polling,
+            storage::Inline,
+        },
+    };
+
+    type Ring = BBQueue<Inline<64>, AtomicCoord, Polling>;
+
+    /// `H = usize` lets a caller name a size whose header-inclusive total wraps.
+    /// The wrapped total would ask the coordinator for a few bytes while the
+    /// grant still reports the original size to `DerefMut`.
+    #[test]
+    fn grant_rejects_a_size_whose_header_total_overflows() {
+        let bbq: Ring = BBQueue::new();
+        let prod: FramedProducer<&Ring, usize> = BbqHandle::framed_producer::<usize>(&&bbq);
+
+        assert_eq!(
+            prod.grant(usize::MAX - 7).err(),
+            Some(WriteGrantError::InsufficientSize)
+        );
+    }
+
+    /// The frame-header check rejects a header larger than its grant. A header
+    /// near `usize::MAX` wraps that sum small enough to satisfy the check.
+    #[test]
+    fn read_rejects_a_header_whose_length_total_overflows() {
+        let bbq: Ring = BBQueue::new();
+        let sprod: StreamProducer<&Ring> = bbq.stream_producer();
+        let cons: FramedConsumer<&Ring, usize> = BbqHandle::framed_consumer::<usize>(&&bbq);
+
+        let mut wgr = sprod.grant_exact(16).expect("space for a frame");
+        wgr[..8].copy_from_slice(&usize::MAX.to_le_bytes());
+        wgr.commit(16);
+
+        assert_eq!(
+            cons.read().err(),
+            Some(ReadGrantError::InconsistentFrameHeader)
+        );
+    }
 }
