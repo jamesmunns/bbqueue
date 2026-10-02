@@ -24,7 +24,13 @@ pub struct BBQueue<S, C, N> {
 
 impl<S: Storage, C: Coord, N: Notifier> BBQueue<S, C, N> {
     /// Create a new [`BBQueue`] with the given [`Storage`] impl
-    pub fn new_with_storage(sto: S) -> Self {
+    ///
+    /// This is a `const fn`, so a queue can be placed in a `static` with a
+    /// [`Storage`] that is not [`ConstInit`](const_init::ConstInit) — for
+    /// example one that carries a pointer to a buffer declared elsewhere.
+    /// [`BBQueue::new`] covers the case where the storage can initialize
+    /// itself, such as [`Inline<N>`](crate::traits::storage::Inline).
+    pub const fn new_with_storage(sto: S) -> Self {
         Self {
             sto,
             cor: C::INIT,
@@ -192,6 +198,8 @@ impl<S: Storage, C: Coord, N: Notifier> crate::queue::ArcBBQueue<S, C, N> {
 
 #[cfg(test)]
 mod test {
+    use core::{cell::UnsafeCell, ptr::NonNull};
+
     use crate::traits::{
         coordination::cas::AtomicCoord, notifier::polling::Polling, storage::Inline,
     };
@@ -215,5 +223,101 @@ mod test {
             assert_eq!(*b, 123);
         }
         rgr.release();
+    }
+
+    // What follows is one use case: holding several queues of *different*
+    // sizes in one container.
+    //
+    // With `BBQueue::new` the capacity is part of the queue's type, because
+    // the only storage that can initialize itself is `Inline<N>`. So
+    // `BBQueue<Inline<64>, ..>` and `BBQueue<Inline<4096>, ..>` are unrelated
+    // types: they cannot share an array, a slice or a struct field, and code
+    // that dispatches between them has to go through `dyn` or a hand-written
+    // function pointer — an indirect call on every operation, and no inlining
+    // of the queue's body into the caller.
+    //
+    // Keeping the capacity in a `Storage` that points at a buffer declared
+    // elsewhere erases it from the queue's type, which is what makes one
+    // container possible. Such a storage cannot implement `ConstInit`, since
+    // no single constant could point at every buffer, so `BBQueue::new` is out
+    // of reach and `new_with_storage` is the only way in — hence this patch.
+
+    /// A [`Storage`] whose capacity is a field rather than a type parameter.
+    struct PtrStorage {
+        ptr: NonNull<u8>,
+        len: usize,
+    }
+
+    // SAFETY: the pointee is a `static` buffer that only the owning queue
+    // touches; the queue itself provides the synchronization.
+    unsafe impl Sync for PtrStorage {}
+    unsafe impl Send for PtrStorage {}
+
+    impl Storage for PtrStorage {
+        unsafe fn ptr_len(&self) -> (NonNull<u8>, usize) {
+            (self.ptr, self.len)
+        }
+    }
+
+    /// Backing memory for one queue.
+    ///
+    /// The size lives in *this* type, where it is still known at compile time
+    /// but does not reach the queue's type.
+    #[repr(align(4))]
+    struct Buffer<const N: usize>(UnsafeCell<[u8; N]>);
+
+    // SAFETY: the buffer is only ever reached through the queue that owns it.
+    unsafe impl<const N: usize> Sync for Buffer<N> {}
+
+    impl<const N: usize> Buffer<N> {
+        const fn new() -> Self {
+            Self(UnsafeCell::new([0; N]))
+        }
+
+        const fn storage(&'static self) -> PtrStorage {
+            PtrStorage {
+                // SAFETY: the address of a `static` is never null and stays
+                // valid for the whole program.
+                ptr: unsafe { NonNull::new_unchecked(self.0.get().cast()) },
+                len: N,
+            }
+        }
+    }
+
+    /// One type for every capacity — that is the whole point.
+    type ErasedQueue = BBQueue<PtrStorage, AtomicCoord, Polling>;
+
+    static SMALL_BUF: Buffer<64> = Buffer::new();
+    static LARGE_BUF: Buffer<4096> = Buffer::new();
+
+    static SMALL: ErasedQueue = BBQueue::new_with_storage(SMALL_BUF.storage());
+    static LARGE: ErasedQueue = BBQueue::new_with_storage(LARGE_BUF.storage());
+
+    /// Two queues of different sizes in one container, reached by plain
+    /// reference: no `dyn`, no function pointer, and the compiler can still
+    /// see the whole body at each call site.
+    ///
+    /// This array is what does not compile without the `const` on
+    /// [`BBQueue::new_with_storage`].
+    static TABLE: [&ErasedQueue; 2] = [&SMALL, &LARGE];
+
+    #[test]
+    fn storage_without_const_init_reaches_a_static() {
+        assert_eq!(TABLE[0].capacity(), 64);
+        assert_eq!(TABLE[1].capacity(), 4096);
+
+        for (index, queue) in TABLE.iter().enumerate() {
+            let producer: FramedProducer<&ErasedQueue, u16> = queue.framed_producer();
+            let consumer: FramedConsumer<&ErasedQueue, u16> = queue.framed_consumer();
+
+            let mut wgr = producer.grant(8).unwrap();
+            wgr.iter_mut().for_each(|w| *w = index as u8);
+            wgr.commit(8);
+
+            let rgr = consumer.read().unwrap();
+            assert_eq!(rgr.len(), 8);
+            assert!(rgr.iter().all(|b| *b == index as u8));
+            rgr.release();
+        }
     }
 }
