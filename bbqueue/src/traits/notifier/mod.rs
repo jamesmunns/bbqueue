@@ -4,6 +4,8 @@
 
 use const_init::ConstInit;
 
+#[cfg(feature = "embassy-sync-0_8")]
+pub mod embassy;
 #[cfg(feature = "maitake-sync-0_3")]
 pub mod maitake;
 
