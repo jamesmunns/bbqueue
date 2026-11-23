@@ -58,7 +58,9 @@ disable-cache-padding = [
 ]
 alloc = []
 std = [
-    "alloc"
+    "alloc",
+    "critical-section?/std",
+    "embassy-sync?/std",
 ]
 maitake-sync-0_3 = [
     "dep:maitake-sync",
