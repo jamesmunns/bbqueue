@@ -28,12 +28,18 @@ jobs:
       # default features, on std
       - name: Check bbqueue (default features, on host)
         run: cargo build
+      # embassy-sync features, on std
+      - name: Check bbqueue (embassy-sync features, on host)
+        run: cargo build --features=embassy-sync-0_8
       # std features, on std
       - name: Check bbqueue (std features, on host)
         run: cargo build --features=std
       # std features, on std, test
       - name: Test bbqueue (std features, on host)
         run: cargo test --features=std
+      # embassy-sync features, on std, test
+      - name: Test bbqueue (embassy-sync features, on host)
+        run: cargo build --features=embassy-sync-0_8,std
 
       # no features, on mcu
       - name: Check bbqueue (no features, on mcu)
@@ -41,4 +47,7 @@ jobs:
       # default features, on mcu
       - name: Check bbqueue (default features, on mcu)
         run: cargo build --target=thumbv6m-none-eabi --features=portable-atomic-unsafe-assume-single-core
+      # minimal embassy-sync features, on mcu
+      - name: Check bbqueue (embassy-sync features, on mcu)
+        run: cargo build --no-default-features --target=thumbv6m-none-eabi --features=embassy-sync-0_8
 
