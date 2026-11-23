@@ -29,6 +29,11 @@ version = "0.3"
 default-features = false
 optional = true
 
+[dependencies.embassy-sync]
+version = "0.8"
+default-features = false
+optional = true
+
 [dependencies.critical-section]
 version = "1.0"
 default-features = false
@@ -53,10 +58,15 @@ disable-cache-padding = [
 ]
 alloc = []
 std = [
-    "alloc"
+    "alloc",
+    "critical-section?/std",
+    "embassy-sync?/std",
 ]
 maitake-sync-0_3 = [
     "dep:maitake-sync",
+]
+embassy-sync-0_8 = [
+    "dep:embassy-sync",
 ]
 portable-atomic = ["dep:portable-atomic"]
 portable-atomic-critical-section = ["portable-atomic", "portable-atomic/critical-section"]

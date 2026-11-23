@@ -143,15 +143,9 @@ pub mod export {
 
 #[cfg(all(test, feature = "alloc"))]
 mod test {
-    use core::{ops::Deref, time::Duration};
-
     use crate::{
-        queue::{ArcBBQueue, BBQueue},
-        traits::{
-            coordination::cas::AtomicCoord,
-            notifier::maitake::MaiNotSpsc,
-            storage::{BoxedSlice, Inline},
-        },
+        queue::BBQueue,
+        traits::{coordination::cas::AtomicCoord, storage::Inline},
     };
 
     #[cfg(all(target_has_atomic = "ptr", feature = "alloc"))]
@@ -255,99 +249,141 @@ mod test {
         assert!(cons.read().is_err());
     }
 
-    #[tokio::test]
-    async fn asink() {
-        static BBQ: BBQueue<Inline<64>, AtomicCoord, MaiNotSpsc> = BBQueue::new();
-        let prod = BBQ.stream_producer();
-        let cons = BBQ.stream_consumer();
+    /// Wrap async tests in a macro to be "generic" over the notifier type.
+    ///
+    /// The test functions themselves can't be generic over `N: AsyncNotifier` because there's no
+    /// requirement in AsyncNotifier that the futures returned by the wait_for_xxx methods are Send,
+    /// and using async-fn-in-trait there's no way for tests to add additional local bounds. Plus,
+    /// we run into problems defining the static queues.
+    ///
+    /// It's not the prettiest, but by writing the tests in macros here we can run the same tests
+    /// for multiple AsyncNotifier types without resorting to Box::leak and tokio::task::spawn_local
+    /// shennanigans that don't resemble how bbqs would actually be used in real code.
+    ///
+    /// embassy-sync requires critical-section, so it can only be tested with the "std" feature
+    /// enabled (specifically "critical-section/std" which provides a backend implementation).
+    #[cfg(any(
+        feature = "maitake-sync-0_3",
+        all(feature = "embassy-sync-0_8", feature = "std")
+    ))]
+    macro_rules! async_tests {
+        ($name:ident, $notifier:ty) => {
+            mod $name {
+                use core::{ops::Deref, time::Duration};
 
-        let rxfut = tokio::task::spawn(async move {
-            let rgr = cons.wait_read().await;
-            assert_eq!(rgr.deref(), &[1, 2, 3]);
-        });
+                use crate::{
+                    queue::{ArcBBQueue, BBQueue},
+                    traits::{
+                        coordination::cas::AtomicCoord,
+                        storage::{BoxedSlice, Inline},
+                    },
+                };
 
-        let txfut = tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let mut wgr = prod.grant_exact(3).unwrap();
-            wgr.copy_from_slice(&[1, 2, 3]);
-            wgr.commit(3);
-        });
+                #[tokio::test]
+                async fn asink() {
+                    static BBQ: BBQueue<Inline<64>, AtomicCoord, $notifier> = BBQueue::new();
+                    let prod = BBQ.stream_producer();
+                    let cons = BBQ.stream_consumer();
 
-        // todo: timeouts
-        rxfut.await.unwrap();
-        txfut.await.unwrap();
+                    let rxfut = tokio::task::spawn(async move {
+                        let rgr = cons.wait_read().await;
+                        assert_eq!(rgr.deref(), &[1, 2, 3]);
+                    });
+
+                    let txfut = tokio::task::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        let mut wgr = prod.grant_exact(3).unwrap();
+                        wgr.copy_from_slice(&[1, 2, 3]);
+                        wgr.commit(3);
+                    });
+
+                    // todo: timeouts
+                    rxfut.await.unwrap();
+                    txfut.await.unwrap();
+                }
+
+                #[tokio::test]
+                async fn asink_framed() {
+                    static BBQ: BBQueue<Inline<64>, AtomicCoord, $notifier> = BBQueue::new();
+                    let prod = BBQ.framed_producer();
+                    let cons = BBQ.framed_consumer();
+
+                    let rxfut = tokio::task::spawn(async move {
+                        let rgr = cons.wait_read().await;
+                        assert_eq!(rgr.deref(), &[1, 2, 3]);
+                    });
+
+                    let txfut = tokio::task::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        let mut wgr = prod.grant(3).unwrap();
+                        wgr.copy_from_slice(&[1, 2, 3]);
+                        wgr.commit(3);
+                    });
+
+                    // todo: timeouts
+                    rxfut.await.unwrap();
+                    txfut.await.unwrap();
+                }
+
+                #[tokio::test]
+                async fn arc1() {
+                    let bbq: ArcBBQueue<Inline<64>, AtomicCoord, $notifier> =
+                        ArcBBQueue::new_with_storage(Inline::new());
+                    let prod = bbq.stream_producer();
+                    let cons = bbq.stream_consumer();
+
+                    let rxfut = tokio::task::spawn(async move {
+                        let rgr = cons.wait_read().await;
+                        assert_eq!(rgr.deref(), &[1, 2, 3]);
+                    });
+
+                    let txfut = tokio::task::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        let mut wgr = prod.grant_exact(3).unwrap();
+                        wgr.copy_from_slice(&[1, 2, 3]);
+                        wgr.commit(3);
+                    });
+
+                    // todo: timeouts
+                    rxfut.await.unwrap();
+                    txfut.await.unwrap();
+                }
+
+                #[tokio::test]
+                async fn arc2() {
+                    let bbq: ArcBBQueue<BoxedSlice, AtomicCoord, $notifier> =
+                        ArcBBQueue::new_with_storage(BoxedSlice::new(64));
+                    let prod = bbq.stream_producer();
+                    let cons = bbq.stream_consumer();
+
+                    let rxfut = tokio::task::spawn(async move {
+                        let rgr = cons.wait_read().await;
+                        assert_eq!(rgr.deref(), &[1, 2, 3]);
+                    });
+
+                    let txfut = tokio::task::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        let mut wgr = prod.grant_exact(3).unwrap();
+                        wgr.copy_from_slice(&[1, 2, 3]);
+                        wgr.commit(3);
+                    });
+
+                    // todo: timeouts
+                    rxfut.await.unwrap();
+                    txfut.await.unwrap();
+
+                    drop(bbq);
+                }
+            }
+        };
     }
 
-    #[tokio::test]
-    async fn asink_framed() {
-        static BBQ: BBQueue<Inline<64>, AtomicCoord, MaiNotSpsc> = BBQueue::new();
-        let prod = BBQ.framed_producer();
-        let cons = BBQ.framed_consumer();
+    #[cfg(feature = "maitake-sync-0_3")]
+    async_tests!(maitake_0_3, crate::traits::notifier::maitake::MaiNotSpsc);
 
-        let rxfut = tokio::task::spawn(async move {
-            let rgr = cons.wait_read().await;
-            assert_eq!(rgr.deref(), &[1, 2, 3]);
-        });
-
-        let txfut = tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let mut wgr = prod.grant(3).unwrap();
-            wgr.copy_from_slice(&[1, 2, 3]);
-            wgr.commit(3);
-        });
-
-        // todo: timeouts
-        rxfut.await.unwrap();
-        txfut.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn arc1() {
-        let bbq: ArcBBQueue<Inline<64>, AtomicCoord, MaiNotSpsc> =
-            ArcBBQueue::new_with_storage(Inline::new());
-        let prod = bbq.stream_producer();
-        let cons = bbq.stream_consumer();
-
-        let rxfut = tokio::task::spawn(async move {
-            let rgr = cons.wait_read().await;
-            assert_eq!(rgr.deref(), &[1, 2, 3]);
-        });
-
-        let txfut = tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let mut wgr = prod.grant_exact(3).unwrap();
-            wgr.copy_from_slice(&[1, 2, 3]);
-            wgr.commit(3);
-        });
-
-        // todo: timeouts
-        rxfut.await.unwrap();
-        txfut.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn arc2() {
-        let bbq: ArcBBQueue<BoxedSlice, AtomicCoord, MaiNotSpsc> =
-            ArcBBQueue::new_with_storage(BoxedSlice::new(64));
-        let prod = bbq.stream_producer();
-        let cons = bbq.stream_consumer();
-
-        let rxfut = tokio::task::spawn(async move {
-            let rgr = cons.wait_read().await;
-            assert_eq!(rgr.deref(), &[1, 2, 3]);
-        });
-
-        let txfut = tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let mut wgr = prod.grant_exact(3).unwrap();
-            wgr.copy_from_slice(&[1, 2, 3]);
-            wgr.commit(3);
-        });
-
-        // todo: timeouts
-        rxfut.await.unwrap();
-        txfut.await.unwrap();
-
-        drop(bbq);
-    }
+    #[cfg(all(feature = "embassy-sync-0_8", feature = "std"))]
+    async_tests!(
+        embassy_0_8,
+        crate::traits::notifier::embassy::EmbassyNotSpsc
+    );
 }
